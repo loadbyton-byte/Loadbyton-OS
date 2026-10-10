@@ -66,5 +66,5 @@ footer.site{background:var(--navy);color:#B9C7D6;padding:40px 0;margin-top:0;bor
 @media (prefers-reduced-motion:no-preference){.btn{transition:background .15s,color .15s}}
 .inline-form input,.inline-form select{width:auto;flex:1 1 150px;min-width:0}
 .inline-form input[type=checkbox]{flex:0 0 auto}
-.plan .price,.kpi{white-space:nowrap}.kpi{font-size:clamp(1.4rem,2.2vw,1.9rem)}
+.kpi{white-space:nowrap}.plan .price{overflow-wrap:anywhere}.kpi{font-size:clamp(1.4rem,2.2vw,1.9rem)}
 .card h3{overflow-wrap:anywhere}
