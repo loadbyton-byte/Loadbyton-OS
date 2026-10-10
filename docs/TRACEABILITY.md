@@ -24,9 +24,9 @@ Legend: ✅ built and tested · 🟡 partial · ⛔ not built (shown as *Planned
 | 19 | Three planes | ✅ | Modular monolith + workers; separate DB roles |
 | 20 | Data model & invariants | 🟡 | Identity/Commercial/Operations/Transport/Warehouse (fulfilment + 3PL custody)/Finance/Platform/Service/Integration groups ✅. Invariants: `platform/invariants.ts` |
 | 21 | Isolation & security | 🟡 | RLS, composite FKs, signed files, upload gating, staff MFA, audit, session revocation ✅; MFA for sensitive *company* roles, deletion workflow, malware scanner integration ⛔ |
-| 22 | Payments & entitlements | ✅ | Signed/replay-resistant webhook, idempotent transitions, effective-dated entitlements, transactional quotas, downgrade preview, grace/restricted. **Real provider adapter pending** |
+| 22 | Payments & entitlements | ✅ | Signed/replay-resistant webhook, idempotent transitions, effective-dated entitlements, transactional quotas, downgrade preview, grace/restricted. **Stripe (Checkout) and Razorpay (Payment Links) adapters built** with provider-signature verification, refunds resolved via the provider payment id, unapplied payments routed to staff review, fail-fast production configuration, printable receipts. **Not yet exercised against live provider accounts** (smoke-test steps in `docs/DEPLOYMENT.md`) |
 | 23 | Provisioning | 🟡 | State machine + 9 idempotent steps ✅; DNS/TLS adapters simulated; custom-domain TXT verification ✅ |
-| 24 | Reliability & recovery | 🟡 | Outbox, retries, dead queue, status page, restore runbook + invariant verifier ✅; monitoring stack, canaries ⛔ |
+| 24 | Reliability & recovery | 🟡 | Outbox, retries, dead queue, status page, restore runbook + invariant verifier ✅; deployment guide (Oracle + Cloudflare tunnel + Neon/Supabase + Upstash), backup script, migration advisory lock, shared rate limiting ✅; monitoring stack, canaries ⛔ |
 | 25 | Onboarding & migration | 🟡 | CSV party import (dry-run), invite flow ✅; staged migration tooling, opening-balance import ⛔ |
 | 26 | Team/service governance | 📝 | Runbooks only |
 | 27 | Owner dashboard & reports | 🟡 | Owner view ✅ (margin 3-way, unbilled, overdue, exposure, exceptions, delayed milestones, holds, capacity, concentration, usage); sales/transport/finance reports beyond ageing ⛔; warehouse has its board (custody, open inbound/dispatch, late dispatches, quarantine, unbilled/unrated) but no stock-ageing, accuracy or utilisation reports ⛔; platform SaaS reports partial (MRR, provisioning p50/p95) |
@@ -41,7 +41,7 @@ Legend: ✅ built and tested · 🟡 partial · ⛔ not built (shown as *Planned
 | Scenario | Test |
 |---|---|
 | Cross-tenant access via edited ID or hostname | `platform.test` (RLS, FKs, users table), `http.test` (jobs, quotes, documents, export) — search/AI retrieval N/A (not built) |
-| Replayed payment success | `platform.test` "replayed payment success…", `http.test` webhook |
+| Replayed payment success | `platform.test` "replayed payment success…", `http.test` webhook, `payments.test` (Stripe/Razorpay: same event id → duplicate, replay under a new id → ignored, forged signature → 400, wrong amount → rejected + staff review) |
 | Provisioning interruption after slug assignment | `platform.test` "provisioning interrupted…" |
 | Free-to-paid upgrade | `platform.test` "free → paid…" |
 | Job delivered with late supplier invoice | `ops.test` "delivered job with a late supplier invoice…" |

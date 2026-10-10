@@ -34,7 +34,8 @@ npm run e2e                 # browser walkthrough against a running server (need
 npm run verify              # database-wide invariants (use after every restore test)
 ```
 
-Production-like: `docker compose up` (PostgreSQL 16). `PAYMENT_PROVIDER=mock` is refused in production; secrets must be ≥32 chars.
+Production-like: `docker compose up` (PostgreSQL 16). Real deployment — Oracle Cloud VM, Cloudflare tunnel, Neon/Supabase, Upstash, Stripe/Razorpay — is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md); every setting (including your legal/GST identity) is an environment variable documented in `.env.example`.
+`PAYMENT_PROVIDERS=mock` is refused in production, and a half-configured provider stops the process at start-up; secrets must be ≥32 chars.
 
 ## Surfaces
 

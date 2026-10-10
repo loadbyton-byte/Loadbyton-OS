@@ -1,10 +1,11 @@
 import type { Child } from "hono/jsx";
+import { config } from "../config.js";
 import { fmtMoney } from "../lib/util.js";
 import { SECTORS } from "../platform/catalog.js";
 
 export interface Page {
   title: string; csrf: string; path: string; description?: string;
-  ok?: string; err?: string; user?: { name: string } | null;
+  ok?: string; err?: string; user?: { name: string } | null; head?: Child;
 }
 
 export const Money = ({ v, cur = "AED" }: { v: number | string; cur?: string }) => <span class="nowrap">{fmtMoney(v, cur)}</span>;
@@ -44,6 +45,7 @@ function Head({ p }: { p: Page }) {
       <link rel="stylesheet" href="/assets/app.css" />
       <script src="/assets/app.js" defer></script>
       {p.path.startsWith("/app/driver") ? <script src="/assets/driver.js" defer></script> : null}
+      {p.head ?? null}
     </head>
   );
 }
@@ -83,7 +85,8 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => (
           <div><h4>Company</h4><ul><li><a href="/contact">Contact</a></li><li><a href="/coverage">Service coverage</a></li><li><a href="/stories">Customer stories</a></li><li><a href="/resources">Resources</a></li><li><a href="/status">Service status</a></li></ul></div>
           <div><h4>Legal</h4><ul><li><a href="/legal/terms">Terms</a></li><li><a href="/legal/privacy">Privacy</a></li><li><a href="/legal/data-processing">Data processing</a></li><li><a href="/legal/subprocessors">Subprocessors</a></li><li><a href="/legal/accessibility">Accessibility</a></li></ul></div>
         </div>
-        <div class="wrap small" style="margin-top:24px">© LOAD|BY|TON.store · Logistics software and services for UAE logistics companies.</div>
+        <div class="wrap small" style="margin-top:24px">© LOAD|BY|TON.store · Logistics software and services for UAE logistics companies.
+          {config.seller.legalName ? <> Operated by {config.seller.legalName}{config.seller.address ? `, ${config.seller.address}` : ""}{config.seller.gstin ? ` · GSTIN ${config.seller.gstin}` : ""}{config.seller.email ? ` · ${config.seller.email}` : ""}.</> : null}</div>
       </footer>
     </body>
   </html>

@@ -7,7 +7,8 @@ import { audit } from "../lib/audit.js";
 import { actorOf } from "../lib/perms.js";
 import { currentPlans, PRODUCTS, SECTORS } from "../platform/catalog.js";
 import { currentUsage, getLimits, previewPlanChange } from "../platform/entitlements.js";
-import { cancelAtPeriodEnd, createOrder, priceCheckout, scheduleDowngrade, signPayload, buildMockEvent } from "../platform/billing.js";
+import { cancelAtPeriodEnd, createOrder, priceCheckout, scheduleDowngrade, signPayload, buildMockEvent, startCheckout } from "../platform/billing.js";
+import { enabledProviders, getAdapter } from "../platform/payments/index.js";
 import { processProvisioningQueue, releaseInformationPending } from "../platform/provisioning.js";
 import { switchTenant, membershipsFor, resolveCtx } from "../platform/auth.js";
 import { decideGrant, removeDomain, requestCustomDomain, verifyCustomDomain } from "../platform/admin.js";
@@ -308,6 +309,15 @@ core.post("/app/team/deactivate", async (c) => {
 });
 
 // ── billing & lifecycle
+const Seller = () => {
+  const x = config.seller;
+  if (!x.legalName) return null;
+  return (
+    <p class="small mute" style="margin-top:12px">Sold by <strong>{x.legalName}</strong>{x.tradeName ? ` (${x.tradeName})` : ""}{x.address ? ` · ${x.address}` : ""}{x.gstin ? ` · GSTIN ${x.gstin}` : ""}{x.pan ? ` · PAN ${x.pan}` : ""}{x.email ? ` · ${x.email}` : ""}.{x.lutNote ? <><br />{x.lutNote}</> : null}</p>
+  );
+};
+const providerLabel = (p: string) => (p === "mock" ? "Upgrade / switch" : getAdapter(p)?.label ?? p);
+
 core.get("/app/billing", async (c) => {
   need(c, "billing.manage");
   const ctx = ctxOf(c), db = c.get("db");
@@ -326,7 +336,10 @@ core.get("/app/billing", async (c) => {
   for (const pl of plans) quotes[pl.plan_code] = await db.system((cn) => priceCheckout(cn, ctx.tenantId, pl)).catch(() => null);
   const csrf = c.get("csrf");
   const want = c.req.query("plan");
+  const providers = enabledProviders();
   return appPage(c, "Plan & billing", (<>
+    {c.req.query("paid") ? <div class="alert info" role="status"><strong>Thank you.</strong> Your upgrade is applied when the payment provider confirms the payment to our server — usually within seconds. This page does not grant access by itself; refresh to see the status under Orders and Activation.</div> : null}
+    {c.req.query("cancelled") ? <div class="alert warn" role="status">Checkout was cancelled. Nothing was charged.</div> : null}
     <PageHead title="Plan & billing" sub={`Current: ${sub.plan} · ${sub.status}${sub.period_end ? ` · renews ${formatDay(sub.period_end)}` : " · free forever"}`} />
     {sub.scheduled_name ? <div class="alert warn">Scheduled to move to <strong>{sub.scheduled_name}</strong> at renewal.</div> : null}
     {sub.cancel_at_period_end ? <div class="alert warn">Cancellation scheduled: access continues to the end of the paid period, then the workspace moves to Free.</div> : null}
@@ -352,7 +365,7 @@ core.get("/app/billing", async (c) => {
             <div style="flex:1" />
             {pl.contact_sales ? <a class="btn ghost" href="/contact">Contact sales</a> : cur ? null : (
               <>
-                <PostBtn action="/app/billing/checkout" csrf={csrf} label="Upgrade / switch" cls="red" fields={{ plan: pl.plan_code }} />
+                {providers.map((pv, i) => <PostBtn action="/app/billing/checkout" csrf={csrf} label={providerLabel(pv)} cls={i === 0 ? "red" : "ghost"} fields={{ plan: pl.plan_code, provider: pv }} />)}
                 {pl.monthly_minor < (plans.find((x) => x.plan_code === sub.plan_code)?.monthly_minor ?? 0) ? <PostBtn action="/app/billing/downgrade" csrf={csrf} label="Preview & schedule at renewal" cls="ghost sm" fields={{ plan: pl.plan_code }} /> : null}
               </>)}
           </div>);
@@ -367,15 +380,19 @@ core.get("/app/billing", async (c) => {
     <h2 style="margin-top:28px">Orders</h2>
     <Table head={["Reference", "Date", ["Total", "num"], "Status", ""]} empty={orders.length ? undefined : "No orders."}>
       {orders.map((o: any) => <tr><td>{o.reference}</td><td>{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} cur={o.currency} /></td><td><Badge s={o.status} /></td>
-        <td>{o.status === "pending" && config.paymentProvider === "mock" ? <a class="btn sm" href={`/app/billing/pay/${o.id}`}>Pay</a> : null}</td></tr>)}</Table>
+        <td>{o.status === "paid" ? <a class="btn ghost sm" href={`/app/billing/orders/${o.id}/receipt`}>Receipt</a> : null}{o.status === "pending" && (o.provider === "mock" ? config.paymentProviders.includes("mock") : !!o.checkout_url) ? <a class="btn sm" href={`/app/billing/pay/${o.id}`}>{o.provider === "mock" ? "Pay" : "Continue to payment"}</a> : null}</td></tr>)}</Table>
+    <Seller />
   </>));
 });
 core.post("/app/billing/checkout", async (c) => {
   need(c, "billing.manage");
   const b = await formBody(c); const ctx = ctxOf(c);
   return act(c, "/app/billing", async () => {
-    const r = await createOrder(c.get("db"), ctx.tenantId, ctx.userId, str(b.plan));
-    // a real provider adapter would redirect to the provider-hosted session here
+    const provider = str(b.provider) || config.paymentProvider;
+    const r = await createOrder(c.get("db"), ctx.tenantId, ctx.userId, str(b.plan), provider);
+    if (provider !== "mock") {
+      await startCheckout(c.get("db"), r.orderId, ctx.tenantId, { success: `${baseUrl()}/app/billing?paid=${encodeURIComponent(r.reference)}`, cancel: `${baseUrl()}/app/billing?cancelled=1` });
+    }
     return { to: `/app/billing/pay/${r.orderId}` };
   });
 });
@@ -394,14 +411,63 @@ core.post("/app/billing/cancel", async (c) => {
   return back(c, "/app/billing", "Cancellation scheduled for the end of the paid period.");
 });
 
+// Printable receipt / tax invoice for a PAID subscription order. Seller identity comes from the deployment's environment; the buyer is the workspace's legal entity.
+core.get("/app/billing/orders/:id/receipt", async (c) => {
+  need(c, "billing.manage");
+  const ctx = ctxOf(c), db = c.get("db"), x = config.seller;
+  const o = (await db.query<any>(`SELECT o.*, p.name AS plan FROM orders o JOIN plan_versions p ON p.id=o.plan_version_id WHERE o.id=$1 AND o.tenant_id=$2 AND o.status IN ('paid','refunded')`, [c.req.param("id"), ctx.tenantId])).rows[0];
+  if (!o) throw new HttpError(404, "Receipt not found");
+  const ent = (await db.query<any>(`SELECT name, legal_name, tax_id FROM entities WHERE tenant_id=$1 ORDER BY created_at LIMIT 1`, [ctx.tenantId])).rows[0];
+  const t = c.get("tenant")!;
+  return appPage(c, `Receipt ${o.reference}`, (
+    <div class="card" style="max-width:760px">
+      <PageHead title={x.gstin ? "Tax invoice" : "Payment receipt"} sub={`No. ${o.reference} · ${formatDate(o.paid_at ?? o.created_at)}`}><button class="btn ghost sm" type="button" data-print>Print</button></PageHead>
+      {o.status === "refunded" ? <div class="alert warn">This payment was refunded.</div> : null}
+      <div class="grid g2">
+        <div><h3>Supplier</h3><p>{x.legalName || "LOAD|BY|TON.store"}{x.tradeName ? <><br />Trading as {x.tradeName}</> : null}{x.address ? <><br />{x.address}</> : null}{x.gstin ? <><br />GSTIN: {x.gstin}</> : null}{x.pan ? <><br />PAN: {x.pan}</> : null}{x.email ? <><br />{x.email}</> : null}</p></div>
+        <div><h3>Customer</h3><p>{ent?.legal_name || ent?.name || t.name}{ent?.tax_id ? <><br />Tax registration: {ent.tax_id}</> : null}</p></div>
+      </div>
+      <Table head={["Description", ["Amount", "num"]]}>
+        {o.lines.map((l: any) => <tr><td>{l.label}{x.sac ? <span class="small mute"> · SAC {x.sac}</span> : null}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
+        {Number(o.tax_minor) ? <tr><td>VAT</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr> : null}
+        <tr><th>Total paid</th><th class="num"><Money v={o.total_minor} cur={o.currency} /></th></tr>
+      </Table>
+      <p class="small mute">{o.tax_note}</p>
+      {x.supplyNote ? <p class="small">{x.supplyNote}</p> : null}
+      {x.lutNote ? <p class="small">{x.lutNote}</p> : null}
+      <p class="small mute">Paid by {o.provider === "stripe" ? "card / wallet (Stripe)" : o.provider === "razorpay" ? "UPI / card (Razorpay)" : o.provider}. Whether this document qualifies as a statutory tax invoice for your jurisdiction is a matter for your accountant.</p>
+    </div>));
+});
+
 // Mock checkout (development/test only): drives the same signed-webhook path a real provider would.
 core.get("/app/billing/pay/:id", async (c) => {
   need(c, "billing.manage");
-  if (config.paymentProvider !== "mock") throw new HttpError(404, "Not found");
   const ctx = ctxOf(c);
   const o = (await c.get("db").query<any>(`SELECT o.*, p.name AS plan FROM orders o JOIN plan_versions p ON p.id=o.plan_version_id WHERE o.id=$1 AND o.tenant_id=$2`, [c.req.param("id"), ctx.tenantId])).rows[0];
   if (!o) throw new HttpError(404, "Order not found");
   const csrf = c.get("csrf");
+  if (o.provider !== "mock") {
+    // Real provider: send the browser to the provider-hosted page with a link / meta refresh. (A form post that redirects off-site is blocked by our
+    // form-action CSP, and we never want the redirect itself to be what activates anything.)
+    const pending = o.status === "pending" && !!o.checkout_url;
+    const extra = pending ? { head: <meta http-equiv="refresh" content={`1;url=${o.checkout_url}`} /> } : {};
+    return appPage(c, "Checkout", (
+      <div class="card" style="max-width:640px">
+        <h1>Checkout · {o.plan}</h1>
+        <Table head={["Item", ["Amount", "num"]]}>
+          {o.lines.map((l: any) => <tr><td>{l.label}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
+          {Number(o.tax_minor) ? <tr><td>VAT</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr> : null}
+          <tr><th>Total payable</th><th class="num"><Money v={o.total_minor} cur={o.currency} /></th></tr>
+        </Table>
+        <p class="small mute">{o.tax_note}</p>
+        <p class="small">Reference <code>{o.reference}</code> · status <Badge s={o.status} /></p>
+        {pending ? <><p>Taking you to our payment provider… If nothing happens, <a class="btn red" href={o.checkout_url}>continue to secure payment</a>.</p>
+          <p class="small mute">Your plan changes only when the provider confirms the payment to our server — not when you return to this site.</p></>
+          : <a class="btn" href="/app/billing">Back to billing</a>}
+        <Seller />
+      </div>), extra);
+  }
+  if (!config.paymentProviders.includes("mock")) throw new HttpError(404, "Not found");
   return appPage(c, "Checkout", (
     <div class="card" style="max-width:640px">
       <div class="alert warn"><strong>Simulated payment provider (non-production).</strong> Access is granted only by the server-verified webhook this page triggers — never by this redirect.</div>
@@ -422,9 +488,9 @@ core.get("/app/billing/pay/:id", async (c) => {
 });
 core.post("/app/billing/pay/:id", async (c) => {
   need(c, "billing.manage");
-  if (config.paymentProvider !== "mock") throw new HttpError(404, "Not found");
+  if (!config.paymentProviders.includes("mock")) throw new HttpError(404, "Not found");
   const ctx = ctxOf(c), b = await formBody(c), db = c.get("db");
-  const o = (await db.query<any>(`SELECT * FROM orders WHERE id=$1 AND tenant_id=$2`, [c.req.param("id"), ctx.tenantId])).rows[0];
+  const o = (await db.query<any>(`SELECT * FROM orders WHERE id=$1 AND tenant_id=$2 AND provider='mock'`, [c.req.param("id"), ctx.tenantId])).rows[0];
   if (!o) throw new HttpError(404, "Order not found");
   const raw = JSON.stringify(buildMockEvent(o, str(b.outcome) === "failed" ? "payment.failed" : "payment.succeeded"));
   const r = await handlePaymentWebhook(db, "mock", raw, signPayload(raw));
