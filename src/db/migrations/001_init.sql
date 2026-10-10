@@ -5,6 +5,8 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'lbt_app') THEN
     CREATE ROLE lbt_app NOLOGIN;
   END IF;
+  -- the application's login role switches into lbt_app per transaction (SET LOCAL ROLE)
+  EXECUTE format('GRANT lbt_app TO %I', current_user);
 END $$;
 
 -- ───────────── Identity (global) ─────────────

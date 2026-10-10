@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { HttpError, TAX_CODES, badRequest, fmtMoney, formatDay } from "../lib/util.js";
+import { importParties } from "../ops/importer.js";
 import { createEnquiry, createParty, createRate, listEnquiries, listParties, listRates, loseEnquiry } from "../ops/crm.js";
 import { acceptQuote, approveQuote, createQuote, getQuote, listQuotes, rejectQuote, reviseQuote, sendQuote, submitQuote, type LineInput } from "../ops/quotes.js";
 import { arr, formBody, str, type Env } from "./mw.js";
@@ -33,7 +34,27 @@ sales.get("/app/parties", async (c) => {
             <div class="field"><label for="pc">Credit limit (AED)</label><input id="pc" name="credit_limit" type="number" min="0" step="0.01" /></div></div>
           <label class="check" style="max-width:420px"><input type="checkbox" name="consent_marketing" /><span>Customer has consented to marketing messages</span></label>
           <button class="btn red" style="margin-top:12px" type="submit">Save</button></form></section>) : null}
+    {can(c, "party.write") ? (
+      <section class="card" style="margin-top:22px;max-width:760px"><h3>Import from CSV</h3>
+        <p class="small mute">Header row required: <code>name,kind,email,phone,tax_id</code> (kind = customer, supplier or agent). Existing names are skipped, never overwritten. Max 2,000 rows.</p>
+        <form method="post" action="/app/parties/import" enctype="multipart/form-data"><Csrf t={csrf} />
+          <div class="field"><input name="file" type="file" accept=".csv,text/csv" required /></div>
+          <label class="check" style="max-width:420px"><input type="checkbox" name="dry_run" /><span>Preview only (dry run, nothing saved)</span></label>
+          <button class="btn ghost sm" style="margin-top:10px" type="submit">Import</button></form></section>) : null}
   </>));
+});
+sales.post("/app/parties/import", async (c) => {
+  const b = await formBody(c);
+  return act(c, "/app/parties", async () => {
+    const f = b.file;
+    if (!(f instanceof File)) throw new HttpError(400, "Choose a CSV file.");
+    if (f.size > 1_000_000) throw new HttpError(400, "CSV files are limited to 1 MB.");
+    const dry = b.dry_run === "on";
+    const text = Buffer.from(await f.arrayBuffer()).toString("utf8");
+    const r = await withT(c, (cn, ctx) => importParties(cn, ctx, text, dry));
+    const parts = [`${dry ? "Would create" : "Created"} ${r.created}`, r.duplicates.length ? `${r.duplicates.length} duplicate(s) skipped` : "", r.rejected.length ? `${r.rejected.length} rejected (${r.rejected.slice(0, 3).map((x) => `line ${x.line}: ${x.reason}`).join("; ")})` : ""].filter(Boolean);
+    return { to: "/app/parties", ok: parts.join(" · ") + "." };
+  });
 });
 sales.post("/app/parties", async (c) => {
   const b = await formBody(c);

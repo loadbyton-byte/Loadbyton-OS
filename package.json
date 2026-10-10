@@ -2,7 +2,7 @@
   "name": "loadbyton-store",
   "version": "1.0.0",
   "private": true,
-  "description": "LOAD|BY|TON.store — modular logistics operating platform (commerce, control and operating planes)",
+  "description": "LOAD|BY|TON.store \u2014 modular logistics operating platform (commerce, control and operating planes)",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -14,7 +14,9 @@
     "test": "vitest run",
     "migrate": "tsx src/db/migrate-cli.ts",
     "create-staff": "tsx scripts/create-staff.ts",
-    "seed-demo": "tsx scripts/seed-demo.ts"
+    "seed-demo": "tsx scripts/seed-demo.ts",
+    "verify": "tsx scripts/verify-invariants.ts",
+    "e2e": "tsx scripts/e2e.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
