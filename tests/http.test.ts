@@ -9,6 +9,7 @@ import { resetThrottle } from "../src/platform/auth.js";
 import { invite, acceptInvite } from "../src/ops/team.js";
 import { createParty } from "../src/ops/crm.js";
 import { uploadDocument } from "../src/ops/documents.js";
+import { createInbound, createLocation, createSku, createWarehouse, getInbound, receiveLine } from "../src/ops/warehouse.js";
 
 let db: Db, app: ReturnType<typeof buildApp>;
 beforeAll(async () => { db = await freshDb(); app = buildApp(db); });
@@ -216,6 +217,62 @@ describe("Transport over HTTP", () => {
     const r = await b.req("/app/driver/sync", { method: "POST", body: JSON.stringify({ events: evil }), headers: { "content-type": "application/json", "x-csrf-token": csrf } });
     expect(r.status).toBe(403);
     expect((await db.query<any>(`SELECT count(*)::int n FROM trip_events WHERE trip_id=$1`, [theirs.id])).rows[0].n).toBe(0);
+  });
+
+  it("warehouse pages require the Contract warehouse sector; the web flow receives once, counts blind and shows customers only their own stock", async () => {
+    resetThrottle();
+    const none = await signedUp("Fwd2");
+    expect(await (await none.b.get("/app/warehouse")).text()).toContain("Contract warehouse / 3PL is not selected");
+
+    const t = await newTenant(db, undefined, ["contract-warehouse-3pl"]);
+    const email = (await db.query<any>(`SELECT email FROM users WHERE id=$1`, [t.userId])).rows[0].email;
+    const S = await db.tenant(t.tenantId, async (c) => {
+      const acme = await createParty(c, t.ctx, { kind: "customer", name: "Acme Foods" });
+      const zed = await createParty(c, t.ctx, { kind: "customer", name: "Zed Retail" });
+      const wh = await createWarehouse(c, t.ctx, { code: "JA1", name: "Jebel Ali" });
+      const rec = await createLocation(c, t.ctx, { warehouse_id: wh, code: "REC", kind: "receiving" });
+      await createLocation(c, t.ctx, { warehouse_id: wh, code: "A-01", kind: "storage" });
+      return { acme, zed, wh, rec, rice: await createSku(c, t.ctx, { owner_id: acme, code: "RICE-5", description: "Rice 5kg" }), tee: await createSku(c, t.ctx, { owner_id: zed, code: "TEE-M", description: "Tee M" }) };
+    });
+    const b = new Browser();
+    await b.login(email, "correct horse battery");
+    const W = "/app/warehouse";
+    for (const p of ["", "/inbound", "/inbound/new", `/inbound/new?owner=${S.acme}&warehouse=${S.wh}`, "/outbound", `/outbound/new?owner=${S.acme}&warehouse=${S.wh}`, "/stock", "/stock/ledger", "/counts", "/setup", "/billing"]) {
+      expect((await b.get(W + p)).status, p).toBe(200);
+    }
+    // create a notice through the form (blank SKU rows are ignored)
+    const made = await b.post(`${W}/inbound`, { owner_id: S.acme, warehouse_id: S.wh, customer_ref: "PO-1", sku_id: [S.rice, "", ""], qty: ["12", "", ""] });
+    expect(made.status).toBe(302);
+    const page = await (await b.get(made.headers.get("location")!)).text();
+    const line = page.match(/inbound\/line\/([0-9a-f-]{36})\/receive/)![1], ref = page.match(/name="client_ref" value="(rcv-[^"]+)"/)![1];
+    const inboundId = made.headers.get("location")!.split("/").pop()!;
+    const receive = () => b.post(`${W}/inbound/line/${line}/receive`, { inbound: inboundId, client_ref: ref, qty: "12", condition: "good", location_id: S.rec, lot: "" });
+    const flash = (r: Response, k: "ok" | "err") => new URL(r.headers.get("location")!, "http://x").searchParams.get(k) ?? "";
+    const r1 = await receive(), r2 = await receive();                      // double-click / resubmit
+    expect(flash(r1, "ok")).toBe("Received.");
+    expect(flash(r2, "ok")).toContain("already recorded");
+    expect(Number((await db.query<any>(`SELECT sum(qty_on_hand) n FROM wh_stock WHERE tenant_id=$1`, [t.tenantId])).rows[0].n)).toBe(12);
+    // an invalid action is refused with a message, not a stack trace
+    const bad = await b.post(`${W}/inbound/line/${line}/receive`, { inbound: inboundId, client_ref: "rcv-another-1", qty: "5", condition: "damaged", location_id: S.rec });
+    expect(flash(bad, "err")).toContain("quarantine");
+
+    // counts are blind while open
+    const stock = (await db.query<any>(`SELECT l.id FROM wh_locations l WHERE l.tenant_id=$1 AND l.code='REC'`, [t.tenantId])).rows[0].id;
+    const started = await b.post(`${W}/counts`, { warehouse_id: S.wh, location_id: stock });
+    const sheet = await (await b.get(started.headers.get("location")!)).text();
+    expect(sheet).toContain("RICE-5"); expect(sheet).not.toContain(">System<");
+
+    // customer portal: own stock only; no warehouse pages
+    const token = await db.tenant(t.tenantId, (c) => invite(c, t.ctx, { email: `portal-${Date.now()}@acme.test`, roles: ["portal"], party_id: S.acme }));
+    const info = await acceptInvite(db, token, { name: "Acme Buyer", password: "portal-password-1" });
+    const pe = (await db.query<any>(`SELECT email FROM users WHERE id=$1`, [info.userId])).rows[0].email;
+    await db.tenant(t.tenantId, async (c) => { const i = await createInbound(c, t.ctx, { owner_id: S.zed, warehouse_id: S.wh, lines: [{ sku_id: S.tee, qty: 3 }] }); await receiveLine(c, t.ctx, (await getInbound(c, i.id)).lines[0].id, { qty: 3, location_id: S.rec }); });
+    resetThrottle();
+    const p = new Browser();
+    await p.login(pe, "portal-password-1");
+    const mine = await (await p.get("/app/portal")).text();
+    expect(mine).toContain("Stock held for you"); expect(mine).toContain("RICE-5"); expect(mine).not.toContain("TEE-M");
+    expect((await p.get(W)).headers.get("location")).toBe("/app/portal");
   });
 
   it("transport pages require the Road transport sector; staff see the planning board", async () => {

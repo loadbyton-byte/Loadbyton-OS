@@ -27,6 +27,16 @@ export async function verifyInvariants(db: Db): Promise<Violation[]> {
     ["completed legs have arrival and departure", `SELECT id::text FROM trip_legs WHERE status='done' AND (arrived_at IS NULL OR departed_at IS NULL)`],
     ["trips are fleet XOR subcontract and completed trips have no open stops", `SELECT t.id::text FROM trips t WHERE t.status='completed' AND EXISTS (SELECT 1 FROM trip_legs l WHERE l.trip_id=t.id AND l.status<>'done')`],
     ["transport invoices total their order charges", `SELECT i.id::text FROM invoices i WHERE i.transport_order_id IS NOT NULL AND i.status<>'void' AND i.subtotal_minor <> (SELECT coalesce(sum(round(ch.qty*ch.unit_minor)),0) FROM transport_order_charges ch WHERE ch.invoice_id=i.id)`],
+    ["stock balance = sum of its ledger movements", `SELECT s.id::text FROM wh_stock s WHERE s.qty_on_hand <> coalesce((SELECT sum(m.qty_delta) FROM wh_movements m WHERE m.owner_id=s.owner_id AND m.sku_id=s.sku_id AND m.location_id=s.location_id AND m.lot=s.lot),0)`],
+    ["every ledger movement has a stock row", `SELECT m.id::text FROM wh_movements m WHERE NOT EXISTS (SELECT 1 FROM wh_stock s WHERE s.owner_id=m.owner_id AND s.sku_id=m.sku_id AND s.location_id=m.location_id AND s.lot=m.lot)`],
+    ["reserved stock = open allocations", `SELECT s.id::text FROM wh_stock s WHERE s.qty_reserved <> coalesce((SELECT sum(a.qty) FROM wh_allocations a WHERE a.stock_id=s.id AND a.status IN ('reserved','picked')),0)`],
+    ["stock is held only for the owner of its SKU", `SELECT s.id::text FROM wh_stock s JOIN wh_skus k ON k.id=s.sku_id WHERE k.owner_id <> s.owner_id`],
+    ["transfers net to zero", `SELECT group_id::text FROM wh_movements WHERE group_id IS NOT NULL GROUP BY group_id HAVING sum(qty_delta) <> 0`],
+    ["received quantities match the receipt ledger", `SELECT l.id::text FROM wh_inbound_lines l WHERE l.qty_received + l.qty_damaged <> coalesce((SELECT sum(m.qty_delta) FROM wh_movements m WHERE m.kind='receipt' AND m.ref_id=l.inbound_id AND m.sku_id=l.sku_id),0)`],
+    ["dispatched quantities match the dispatch ledger", `SELECT l.id::text FROM wh_outbound_lines l JOIN wh_outbound o ON o.id=l.outbound_id WHERE o.status='dispatched' AND l.qty_dispatched <> coalesce((SELECT -sum(m.qty_delta) FROM wh_movements m WHERE m.kind='dispatch' AND m.ref_id=o.id AND m.sku_id=l.sku_id),0)`],
+    ["warehouse charges point at live invoices of the same customer", `SELECT g.id::text FROM wh_charges g JOIN invoices i ON i.id=g.invoice_id WHERE i.status='void' OR i.party_id <> g.owner_id`],
+    // lines are grouped by (type, rate, tax) and rounded once per line, so allow one minor unit of rounding per group
+    ["warehouse invoices total their charges", `SELECT i.id::text FROM invoices i WHERE i.wh_run_id IS NOT NULL AND i.status<>'void' AND abs(i.subtotal_minor - (SELECT coalesce(sum(g.n),0) FROM (SELECT round(sum(qty)*unit_minor) AS n FROM wh_charges WHERE invoice_id=i.id GROUP BY charge_type, unit_minor, tax_code) g)) > (SELECT count(*) FROM invoice_lines l WHERE l.invoice_id=i.id)`],
     ["documents are stored under their tenant prefix", `SELECT id::text FROM documents WHERE storage_key NOT LIKE tenant_id::text || '/%'`],
   ];
   const out: Violation[] = [];

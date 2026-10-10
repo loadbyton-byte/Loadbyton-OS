@@ -6,7 +6,7 @@ import { assertWritable } from "../platform/entitlements.js";
 import { must, nextNumber, reqStr, today } from "./common.js";
 
 export interface InvoiceSource {
-  entityId: string; partyId: string; jobId?: string | null; transportOrderId?: string | null;
+  entityId: string; partyId: string; jobId?: string | null; transportOrderId?: string | null; whRunId?: string | null;
   lines: { id: string; description: string; qty: number | string; unit_minor: number | string; tax_code: string }[];
   /** called after the invoice row exists so the caller can mark its own charge rows as invoiced */
   markCharge: (chargeId: string, invoiceId: string) => Promise<void>;
@@ -28,9 +28,9 @@ export async function issueInvoice(c: Conn, ctx: Ctx, src: InvoiceSource, termsD
   const conn = (await c.query<any>(`SELECT status FROM accounting_connections`)).rows[0];
   const sync = conn && ["connected", "live", "validating"].includes(conn.status) ? "pending" : "not_connected";
   const inv = await c.query<{ id: string }>(
-    `INSERT INTO invoices(tenant_id,entity_id,no,party_id,job_id,transport_order_id,currency,subtotal_minor,tax_minor,total_minor,due_at,sync_status,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now() + ($11 || ' days')::interval, $12,$13) RETURNING id`,
-    [ctx.tenantId, src.entityId, no, src.partyId, src.jobId ?? null, src.transportOrderId ?? null, ent.currency, subtotal, tax, subtotal + tax, String(termsDays), sync, ctx.userId]);
+    `INSERT INTO invoices(tenant_id,entity_id,no,party_id,job_id,transport_order_id,wh_run_id,currency,subtotal_minor,tax_minor,total_minor,due_at,sync_status,created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now() + ($12 || ' days')::interval, $13,$14) RETURNING id`,
+    [ctx.tenantId, src.entityId, no, src.partyId, src.jobId ?? null, src.transportOrderId ?? null, src.whRunId ?? null, ent.currency, subtotal, tax, subtotal + tax, String(termsDays), sync, ctx.userId]);
   const id = inv.rows[0].id;
   for (const l of lines) {
     await c.query(`INSERT INTO invoice_lines(tenant_id,invoice_id,description,qty,unit_minor,tax_code,net_minor,tax_minor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -101,11 +101,16 @@ export async function voidInvoice(c: Conn, ctx: Ctx, invoiceId: string, reason: 
     await c.query(`UPDATE transport_order_charges SET invoice_id=NULL WHERE invoice_id=$1`, [invoiceId]);
     await c.query(`UPDATE transport_orders SET financial_status='open' WHERE id=$1`, [inv.transport_order_id]);
   }
+  if (inv.wh_run_id) {
+    // warehouse activity returns to the unbilled pool so it can be re-invoiced (after a rate correction, say)
+    await c.query(`UPDATE wh_charges SET invoice_id=NULL WHERE invoice_id=$1`, [invoiceId]);
+    await c.query(`UPDATE wh_billing_runs SET status='void' WHERE id=$1`, [inv.wh_run_id]);
+  }
   await audit(c, ctx.tenantId, actorOf(ctx), "invoice.voided", "invoice", invoiceId, { reason: reqStr(reason, "Reason", 300) });
 }
 
 export async function getInvoice(c: Conn, id: string) {
-  const inv = await must(c.query<any>(`SELECT i.*, p.name AS party_name, p.tax_id AS party_tax_id, e.legal_name, e.name AS entity_name, e.tax_id AS entity_tax_id, coalesce(j.no, o.no) AS job_no
+  const inv = await must(c.query<any>(`SELECT i.*, p.name AS party_name, p.tax_id AS party_tax_id, e.legal_name, e.name AS entity_name, e.tax_id AS entity_tax_id, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' END) AS job_no
     FROM invoices i JOIN parties p ON p.id=i.party_id JOIN entities e ON e.id=i.entity_id LEFT JOIN jobs j ON j.id=i.job_id LEFT JOIN transport_orders o ON o.id=i.transport_order_id WHERE i.id=$1`, [id]), "Invoice");
   const lines = (await c.query<any>(`SELECT * FROM invoice_lines WHERE invoice_id=$1`, [id])).rows;
   const receipts = (await c.query<any>(`SELECT * FROM receipts WHERE invoice_id=$1 ORDER BY received_at`, [id])).rows;
@@ -113,7 +118,7 @@ export async function getInvoice(c: Conn, id: string) {
 }
 
 export const listInvoices = (c: Conn, partyId?: string | null) =>
-  c.query<any>(`SELECT i.*, p.name AS party_name, coalesce(j.no, o.no) AS job_no, (i.due_at < now() AND i.status IN ('issued','part_paid')) AS overdue
+  c.query<any>(`SELECT i.*, p.name AS party_name, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' END) AS job_no, (i.due_at < now() AND i.status IN ('issued','part_paid')) AS overdue
     FROM invoices i JOIN parties p ON p.id=i.party_id LEFT JOIN jobs j ON j.id=i.job_id LEFT JOIN transport_orders o ON o.id=i.transport_order_id WHERE ($1::uuid IS NULL OR i.party_id=$1) ORDER BY i.issued_at DESC`, [partyId ?? null]).then((r) => r.rows);
 
 /** Receivables ageing by days past due. */

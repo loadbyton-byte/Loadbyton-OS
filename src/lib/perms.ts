@@ -7,17 +7,17 @@ export type Perm =
   | "read" | "party.write" | "enquiry.write" | "quote.write" | "quote.approve" | "rate.write"
   | "job.write" | "job.cost" | "doc.write" | "finance.write" | "finance.void" | "team.manage"
   | "billing.manage" | "settings.manage" | "export" | "audit.read" | "dashboard.owner"
-  | "transport.write" | "transport.expense" | "driver.act";
+  | "transport.write" | "transport.expense" | "driver.act" | "wh.write" | "wh.approve" | "wh.bill";
 
 const R: Record<Role, Perm[]> = {
   owner: ["read", "party.write", "enquiry.write", "quote.write", "quote.approve", "rate.write", "job.write", "job.cost", "doc.write",
-    "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner", "transport.write", "transport.expense"],
+    "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner", "transport.write", "transport.expense", "wh.write", "wh.approve", "wh.bill"],
   sales: ["read", "party.write", "enquiry.write", "quote.write"],
   pricing: ["read", "rate.write", "quote.write", "quote.approve"],
-  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write"],
+  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write", "wh.write", "wh.approve"],
   dispatcher: ["read", "job.write", "doc.write", "transport.write"],
-  warehouse: ["read", "doc.write"],
-  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense"],
+  warehouse: ["read", "doc.write", "wh.write"],   // operates stock; cannot approve its own count adjustments
+  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense", "wh.approve", "wh.bill"],
   hr: ["read", "team.manage"],
   auditor: ["read", "audit.read", "export"],
   portal: [],
