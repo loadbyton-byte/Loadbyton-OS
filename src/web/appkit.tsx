@@ -49,6 +49,11 @@ export function navFor(c: C): NavItem[] {
     if (ctx.perms.has("dlv.bill")) w("/app/delivery/billing", "Rates & billing");
     if (ctx.perms.has("settings.manage")) w("/app/delivery/integrations", "Integrations");
   }
+  if (t?.sectors.includes("customs-brokerage")) {
+    const w = (href: string, label: string) => n.push({ href, label, section: "Customs" });
+    w("/app/customs", "Customs board"); w("/app/customs/cases", "Cases");
+    if (ctx.perms.has("cus.cash")) w("/app/customs/deposits", "Deposits & guarantees");
+  }
   n.push({ href: "/app/parties", label: "Customers & suppliers", section: "Sell" });
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });

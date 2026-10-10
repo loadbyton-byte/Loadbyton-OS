@@ -71,6 +71,18 @@
 | 45 | Inter-emirate pricing zones, weight/size bands, and failed-delivery fees | One flat delivery fee, one inter-emirate surcharge (destination ≠ origin emirate), one return fee, COD % with a minimum |
 | 46 | Multiple COD currencies / cross-border | AED only |
 
+## Added with Customs brokerage
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 47 | Customs billing unit and plan allowances (`cus_cases_per_month`: 5 / 50 / 200 / 600 / 6,000) | Hypotheses in `PLAN_SEEDS`; plan v6. Older versions fall back to the jobs allowance |
+| 48 | Official filing: Dubai Trade / Mirsal 2 / Abu Dhabi channels need licensed-broker accounts and their own API agreements | Not integrated. The system produces a handover pack + CSV and records the declaration number the broker gets back (unique per channel) |
+| 49 | Tariff and rates: HS classification, duty rates, exemptions, FTA origin rules | No built-in tariff. HS codes are format-checked (6–12 digits); duty/VAT rates are entered by the broker and results are labelled estimates. The official assessment prevails and a difference of AED 100 **and** 5% is flagged |
+| 50 | Who may approve a case | A different person from the preparer; an owner may approve their own (single-person firms are normal). Waiving a missing document needs the approve permission and a reason |
+| 51 | Deposits and bank guarantees | Held as client money: never revenue, never over-applied (row-locked), refunds ≤ balance, immutable ledger. Guarantee expiry is shown, not enforced |
+| 52 | Valuation method | Freight/insurance/other charges are shared over lines by value (largest remainder, exact to the fils) and converted at the broker-entered rate. Other methods (weight, quantity) not built |
+| 53 | Restricted goods / permits | A line can be flagged restricted with a note; this adds a mandatory permit item to the checklist. No automatic restricted-goods list |
+
 ## Added with platform operations
 
 | # | Decision | Where the code is waiting |

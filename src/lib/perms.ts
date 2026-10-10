@@ -1,6 +1,6 @@
 import { forbidden } from "./util.js";
 
-export const ROLES = ["owner", "sales", "pricing", "coordinator", "dispatcher", "warehouse", "finance", "hr", "auditor", "portal", "driver"] as const;
+export const ROLES = ["owner", "sales", "pricing", "coordinator", "dispatcher", "warehouse", "finance", "hr", "auditor", "portal", "driver", "customs"] as const;
 export type Role = (typeof ROLES)[number];
 
 export type Perm =
@@ -9,21 +9,24 @@ export type Perm =
   | "billing.manage" | "settings.manage" | "export" | "audit.read" | "dashboard.owner"
   | "transport.write" | "transport.expense" | "driver.act"
   | "wh.write" | "wh.floor" | "wh.approve" | "wh.rates" | "wh.bill"
+  | "cus.write" | "cus.submit" | "cus.approve" | "cus.cash"   // Customs: prepare cases, record official-channel steps, independent approval, deposits & payments
   | "dlv.write" | "dlv.cash" | "dlv.approve" | "dlv.remit" | "dlv.bill";   // Delivery/COD: dispatch, cash desk, independent approval, merchant payout, rates & billing   // shared by E-commerce fulfilment (floor, rates) and Contract warehouse (bill)
 
 const R: Record<Role, Perm[]> = {
   owner: ["read", "party.write", "enquiry.write", "quote.write", "quote.approve", "rate.write", "job.write", "job.cost", "doc.write",
     "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner", "transport.write", "transport.expense",
-    "wh.write", "wh.floor", "wh.approve", "wh.rates", "wh.bill", "dlv.write", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill"],
+    "wh.write", "wh.floor", "wh.approve", "wh.rates", "wh.bill", "dlv.write", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill",
+    "cus.write", "cus.submit", "cus.approve", "cus.cash"],
   sales: ["read", "party.write", "enquiry.write", "quote.write"],
   pricing: ["read", "rate.write", "quote.write", "quote.approve"],
-  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write", "wh.write", "wh.approve", "dlv.write", "dlv.approve"],
+  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write", "wh.write", "wh.approve", "dlv.write", "dlv.approve", "cus.write"],
   dispatcher: ["read", "job.write", "doc.write", "transport.write", "dlv.write"],
   warehouse: ["read", "doc.write", "wh.write", "wh.floor"],   // operators run the floor; they cannot approve their own count adjustments
-  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense", "wh.approve", "wh.rates", "wh.bill", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill"],
+  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense", "wh.approve", "wh.rates", "wh.bill", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill", "cus.cash"],
   hr: ["read", "team.manage"],
   auditor: ["read", "audit.read", "export"],
   portal: [],
+  customs: ["read", "party.write", "doc.write", "cus.write", "cus.submit", "cus.approve"],   // customs officer: prepares, hands over, may approve a case someone else prepared; no cash
   driver: ["driver.act"],   // limited seat: sees only trips assigned to them
 };
 
