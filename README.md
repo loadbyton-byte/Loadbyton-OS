@@ -34,7 +34,8 @@ npm run e2e                 # browser walkthrough against a running server (need
 npm run verify              # database-wide invariants (use after every restore test)
 ```
 
-Production-like: `docker compose up` (PostgreSQL 16). Real deployment — Oracle Cloud VM, Cloudflare tunnel, Neon/Supabase, Upstash, Stripe/Razorpay — is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md); every setting (including your legal/GST identity) is an environment variable documented in `.env.example`.
+Production-like: `docker compose up` (PostgreSQL 16). Merchant API: [`docs/API.md`](docs/API.md) · monitoring: [`docs/MONITORING.md`](docs/MONITORING.md).
+Real deployment — Oracle Cloud VM, Cloudflare tunnel, Neon/Supabase, Upstash, Stripe/Razorpay — is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md); every setting (including your legal/GST identity) is an environment variable documented in `.env.example`.
 `PAYMENT_PROVIDERS=mock` is refused in production, and a half-configured provider stops the process at start-up; secrets must be ≥32 chars.
 
 ## Surfaces
@@ -45,10 +46,11 @@ Production-like: `docker compose up` (PostgreSQL 16). Real deployment — Oracle
 | Company app | `app` / `<slug>` — `/app/*` | Role-gated; navigation shows only relevant modules; `/app/transport/*` needs the Road transport sector |
 | Fulfilment | `/app/fulfilment/*` | Needs the E-commerce fulfilment sector; board, orders, pick list, inbound, stock & counts, returns, catalogue, locations, billing activity. Merchants (portal role) see only their own stock and orders |
 | Warehouse | `/app/warehouse/*` | Needs the Contract warehouse / 3PL sector: board, inbound, dispatch, stock + ledger, counts, locations & SKUs, activity billing; customer portal users see only their own stock |
-| Delivery | `/app/delivery/*` | Needs the Courier / last mile sector: board, parcels (form + CSV), runs, riders, cash desk (handover, variance approval, merchant payouts), rates & billing. Merchants (portal role) see only their own parcels and payouts. Public parcel tracking at `/t/<token>` |
+| Delivery | `/app/delivery/*` | Needs the Courier / last mile sector: board, parcels (form + CSV), printable labels, runs, riders, cash desk (handover, variance approval, merchant payouts), rates & billing, integrations (merchant API keys, signed webhooks, SMS opt-in). Merchants (portal role) see only their own parcels and payouts. Public parcel tracking at `/t/<token>` |
 | Driver app | `/app/driver/*` | Phone-first, large touch targets; `driver` seats are limited (no other pages); trips **and** delivery runs; offline queue + idempotent sync |
 | Control console | `admin` — `/admin/*` | Platform staff + TOTP; separate privilege; audited |
 | Guidance | `help` — `/help` | |
+| Operations | `/healthz` · `/readyz` · `/metrics` | Liveness · readiness (database + workers) · Prometheus metrics behind `METRICS_TOKEN` |
 
 Host → tenant is only a *hint* (verified `domain_mappings`); **authenticated membership** authorises access.
 

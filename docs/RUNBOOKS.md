@@ -105,3 +105,19 @@ Rates & billing → set the merchant's rate (activity before the rate existed is
 
 ## Delivery: a rider cannot see their run
 The run must be **Sent out**, the rider needs a login (Riders → Invite), and a rider can have one run out at a time. Close the previous run first.
+
+
+## Dead-lettered outbox rows (mail, SMS, webhooks, accounting)
+`lbt_outbox_rows{status="dead"}` > 0 (see `docs/MONITORING.md`). `SELECT topic, last_error, count(*) FROM outbox WHERE status='dead' GROUP BY 1,2;`
+- `email` + “rejected … domain” → fix the Resend sender domain (DKIM/SPF), then `UPDATE outbox SET status='pending', attempts=0, next_at=now() WHERE topic='email' AND status='dead'`. Invitation emails have already lost their link after a successful send, but a dead row still carries it — re-queueing is safe.
+- `merchant.webhook` + “410” or “address refused” → the merchant removed or moved the endpoint: ask them to update *Integrations*; re-queue after they do. They can always read parcel status through the API meanwhile.
+- `sms` + “rejected (… code 21211)” → bad number; nothing to retry.
+
+## A merchant API key leaked
+Delivery → Integrations → **Revoke** (takes effect on the next request), create a new key, give it to the merchant. Check *Last used*. A leaked key can only read/create that merchant's parcels; it cannot see other merchants, cash or rates.
+
+## A merchant's webhook secret leaked
+Integrations → tick **new secret** → Save (shown once). Old signatures stop verifying immediately.
+
+## Uptime alert on /readyz
+`curl -s https://www.yourdomain/readyz` shows which worker is stale (`outbox: silent for 300s`). `docker compose -f docker-compose.prod.yml logs --tail=200 web | grep worker:` for the error; restart the web container if a worker loop is wedged.

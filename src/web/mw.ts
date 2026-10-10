@@ -6,12 +6,14 @@ import type { Ctx } from "../lib/perms.js";
 import { HttpError, hmac, randomToken, safeEqual } from "../lib/util.js";
 import { loadSession, resolveCtx, type Session } from "../platform/auth.js";
 import { tenantForHost } from "../platform/admin.js";
+import type { ApiPrincipal } from "../ops/delivery-notify.js";
 
 export type Env = {
   Variables: {
     db: Db; session: Session | null; ctx: Ctx | null; csrf: string; hostSlug: string | null;
     tenant: { name: string; slug: string; sectors: string[]; plan: string; planCode: string; subStatus: string } | null;
     memberships: { tenant_id: string; name: string }[];
+    apiKey?: ApiPrincipal;
   };
 };
 export type C = Context<Env>;
@@ -49,7 +51,7 @@ export const csrfMw: MiddlewareHandler<Env> = async (c, next) => {
     const h = c.req.header("x-csrf-token") ?? "";
     if (!(c.req.header("content-type") ?? "").includes("application/json")) throw new HttpError(415, "Unsupported content type");
     if (!valid(h) || !safeEqual(h, tok!)) throw new HttpError(403, "Invalid CSRF token", "csrf");
-  } else if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/")) {
+  } else if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/") && !c.req.path.startsWith("/api/")) {   // /api/ is bearer-token authenticated and never reads cookies
     const ct = c.req.header("content-type") ?? "";
     if (!/form/.test(ct)) throw new HttpError(415, "Unsupported content type");
     const body = await c.req.parseBody({ all: true });

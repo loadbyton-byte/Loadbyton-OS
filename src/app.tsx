@@ -12,9 +12,13 @@ import { transport } from "./web/app-transport.js";
 import { fulfil } from "./web/app-fulfil.js";
 import { warehouse } from "./web/app-warehouse.js";
 import { delivery, deliveryPublic } from "./web/app-delivery.js";
+import { deliveryApi } from "./web/api-delivery.js";
 import { driver } from "./web/app-driver.js";
 import { admin } from "./web/admin.js";
 import { PublicShell } from "./web/ui.js";
+import { config } from "./config.js";
+import { safeEqual } from "./lib/util.js";
+import { collectMetrics, workersStatus } from "./platform/metrics.js";
 
 export function buildApp(db: Db) {
   const app = new Hono<Env>();
@@ -23,6 +27,18 @@ export function buildApp(db: Db) {
   app.use("/assets/*", serveStatic({ root: "./public" }));
   app.use("/brand/*", serveStatic({ root: "./public" }));
   app.get("/healthz", async (c) => { await db.query("SELECT 1"); return c.json({ ok: true }); });
+  // Readiness (for load balancers / uptime checks): the database answers AND the background workers have run recently.
+  app.get("/readyz", async (c) => {
+    try { await db.query("SELECT 1"); } catch { return c.json({ ok: false, problem: "database unreachable" }, 503); }
+    const w = config.runWorkers ? workersStatus() : { ok: true, stale: [] as string[] };
+    return c.json({ ok: w.ok, workers: w.ok ? "ok" : w.stale }, w.ok ? 200 : 503);
+  });
+  // Operational metrics for a scraper. Disabled unless METRICS_TOKEN is set; aggregate counts only.
+  app.get("/metrics", async (c) => {
+    const tok = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    if (!config.metricsToken || !tok || !safeEqual(tok, config.metricsToken)) return c.notFound();
+    return c.body(await collectMetrics(db), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8", "cache-control": "no-store" });
+  });
   app.use("*", dbMw(db));
   app.use("*", sessionMw);
   app.use("*", csrfMw);
@@ -38,6 +54,7 @@ export function buildApp(db: Db) {
   app.route("/", warehouse);
   app.route("/", delivery);
   app.route("/", deliveryPublic);
+  app.route("/", deliveryApi);
   app.route("/", driver);
 
   const errorPage = (c: any, status: number, title: string, message: string) =>

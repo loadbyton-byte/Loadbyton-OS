@@ -10,7 +10,7 @@
 | 6 | Setup and visit coverage | Copy on `/coverage`; setup orders / technician appointments not built |
 | 7 | Support hours and tiers | Not published; do not promise 24/7 on low plans |
 | 8 | Free-tier retention/exit policy | Export exists; retention/deletion workflow not built |
-| 9 | Initial connector provider (e-invoicing ASP, WhatsApp, Mirsal) | All shown as *Planned* on `/integrations` |
+| 9 | Initial connector provider (e-invoicing ASP, WhatsApp, Mirsal) | **Mail: Resend and SMS: Twilio adapters built** (env-selected; default is log-only). E-invoicing ASP, WhatsApp and Mirsal remain *Planned* on `/integrations` |
 | 10 | Specialist review owners (accounting, customs, DG, cold chain) | Specialist sectors flagged "review required" |
 | 11 | Verify domain ownership; produce **vector** logo master and check BY mark at favicon size | Raster logos extracted from the blueprint PDF are used; `public/brand/by-mark-*.png` favicon checked at 64 px |
 | 12 | Proration policy for mid-period upgrades | Pilot charges full first month, credits setup only |
@@ -64,9 +64,18 @@
 | 38 | COD cash policy: who counts, who may accept a difference, any tolerance, and who bears a shortage (company vs. rider deduction) | Any non-zero difference needs a second person (owner excepted); no tolerance; the shortage is only *recorded*, no payroll deduction |
 | 39 | COD payment methods beyond cash (card-on-delivery terminal, payment links, wallet) | Cash only. Exact amount required; no partial acceptance |
 | 40 | Remittance cycle and cap (daily/weekly, holdbacks, merchant bank details, payout file format) | Manual: staff prepare a statement and a second person records the bank reference. No bank file, no bank-detail storage |
-| 41 | Consignee notifications (SMS / WhatsApp) and delivery-code delivery | The code is shown to staff and the merchant; nothing is sent. Needs a messaging provider (decision #9) |
+| 41 | Consignee notifications (SMS / WhatsApp) and delivery-code delivery | **SMS built** (Twilio, opt-in per merchant, UAE mobiles, out-for-delivery and failed-attempt only; code included only when the parcel requires it). WhatsApp needs approved templates and is not built. Sender-ID registration and consent are the courier's/merchant's responsibility |
 | 42 | Route optimisation / live rider location / geofenced POD | Runs are ordered by the dispatcher; no GPS (see #14) |
-| 43 | Carrier hand-off: label printing, AWB format, merchant API/webhooks, marketplace connectors | Waybill is `DLV-<year>-<seq>`; intake by form, CSV or (later) API. Tracking is the public `/t/<token>` page |
+| 43 | Carrier hand-off: label printing, AWB format, merchant API/webhooks, marketplace connectors | **Built:** label printing (Code 128), merchant API v1 (`docs/API.md`), signed webhooks. Waybill is `DLV-<year>-<seq>` (no carrier-standard AWB format). Marketplace connectors (Shopify, Noon, Amazon…) are not built — merchants integrate through the API |
 | 44 | Parcel data retention: consignee name/phone/address kept indefinitely and visible to all office roles | Same as #27; no anonymisation job |
 | 45 | Inter-emirate pricing zones, weight/size bands, and failed-delivery fees | One flat delivery fee, one inter-emirate surcharge (destination ≠ origin emirate), one return fee, COD % with a minimum |
 | 46 | Multiple COD currencies / cross-border | AED only |
+
+## Added with platform operations
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 47 | Alert routing and on-call: who is paged, for which `docs/MONITORING.md` alerts, and the failure drill that earns *Available* | Endpoints and rules exist; nobody is wired to them. Sectors stay *Pilot* until this is decided and exercised |
+| 48 | Document storage location and retention (Oracle Object Storage vs Cloudflare R2; encryption keys; deletion/retention policy; migrating existing files) | `STORAGE_DRIVER=s3` works with either; no migration tool, no retention job (links to #8) |
+| 49 | Mail sender identity and templates (domain, branding, languages, Arabic) | Three plain English templates (invitation, payment received, workspace ready) via Resend |
+| 50 | Webhook/API commercial terms (rate limits per plan, SLA for webhook delivery, key rotation policy) | 120 requests/minute per key, 5 keys per merchant, ~3 h of retries; no per-plan differences |
