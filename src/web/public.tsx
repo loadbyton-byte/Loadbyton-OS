@@ -168,7 +168,7 @@ pub.get("/find-my-bundle", async (c) => {
                   <strong>{fmtMoney(plan.monthly_minor)}</strong> / month + <strong>{fmtMoney(plan.setup_minor)}</strong> one-off setup. Excludes applicable VAT and third-party pass-through charges; checkout shows the actual tax treatment and payable total.
                 </p>
               )}
-            {rec.picked.some((s) => s.availability === "planned") ? <p class="alert info">Sectors marked Planned are not yet released. Start free with Freight forwarding today; we will tell you when your other sectors reach pilot.</p> : null}
+            {rec.picked.some((s) => s.availability === "planned") ? <p class="alert info">Sectors marked Planned are not yet released. Start free with a sector that is in pilot today ({SECTORS.filter((x) => x.availability !== "planned").map((x) => x.name).join(", ")}); we will tell you when your other sectors reach pilot.</p> : null}
             <a class="btn red" href={`/start?${q.map((s) => `sector=${encodeURIComponent(s)}`).join("&")}`}>Start free with these sectors</a>
           </div>
         ) : null}

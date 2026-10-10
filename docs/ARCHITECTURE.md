@@ -53,7 +53,7 @@ provider needs selection (decision §32) and connector acceptance tests.
 
 ## Known limitations
 
-See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no transport/warehouse/delivery/customs modules, no native ledger,
+See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no delivery/COD or customs modules, no contract-3PL custody workflows, no marketplace or carrier connectors, no native ledger,
 no Arabic/RTL, no e-invoicing adapter, rate limiting is in-memory, ClamAV scanning is a hook not an integration, and the `pg`
 (production) driver path is untested against a live PostgreSQL server in this repository's CI (PGlite is real Postgres but
 single-connection).
@@ -81,3 +81,34 @@ single-connection).
   Detention (minutes beyond free time × hourly rate) is billable once per stop (`source_leg_id` unique). Trip profit = order
   charges − subcontract (actual, else estimate) − approved expenses − unapproved expenses (flagged as estimates); `reconciled`
   only when nothing is estimated.
+
+## E-commerce fulfilment (blueprint §15)
+
+`src/ops/fulfilment.ts`, `src/ops/fulfil-billing.ts` (+ `web/app-fulfil.tsx`, `migrations/003_fulfilment.sql`).
+
+- **Stock model.** `stock_levels(sku, location)` holds `on_hand` and `reserved` with `CHECK (reserved <= on_hand)` and no negatives, so
+  overselling is impossible even if code is wrong. `moveStock` is the *only* code path that changes `on_hand`: a guarded update plus one
+  row in the append-only `stock_movements` ledger. Locations: `bin` (the only allocatable kind) and system `RECV`, `STAGE`, `QUAR`.
+  Picking moves bin → `STAGE` (physically still in the building, no longer allocatable); shipping removes it from `STAGE`; damage and
+  returns for inspection land in `QUAR`, which is never sold from.
+- **Reservation.** `stock_allocations` ties an order line to a bin; the reserved remainder is `qty - picked_qty`. `planBins` takes one
+  bin that covers the need (smallest sufficient) or else the fullest bins. Without `allow_partial` an order reserves *every* line or
+  *none* (status `backordered`), so stock is never stranded on an order that cannot complete. Whenever stock appears (receipt, return
+  restock, transfer into a bin, count up, cancelled order) the waiting orders are re-allocated oldest first.
+- **Concurrency.** Every stock-mutating operation takes one per-tenant advisory lock first (`pg_advisory_xact_lock(tenant:stock)`), so
+  receives, allocations, picks and counts serialise instead of racing or deadlocking; throughput is deliberately traded for
+  correctness in the pilot. Idempotency: orders on (merchant, external ref); receipts on a per-form token (checked *before* any state
+  validation, so a retry is a no-op); billing on `source_key`.
+- **Order status is derived** from the line/allocation quantities (`refreshStatus`), never set by hand, so it cannot drift:
+  `new/backordered → allocated → picking → picked → packed → shipped` (+ `cancelled`).
+- **Counts.** A count that differs creates a `pending` adjustment recording the system quantity at count time. Approval requires
+  `wh.approve` and (unless owner) a different person; if on-hand changed since, the adjustment becomes `stale` and nothing moves.
+  When the counted quantity is below what is reserved, the newest reservations at that bin are released and those orders re-allocate or wait.
+- **Billing.** Events create `fulfil_charges` at the merchant's rate card at that moment (rate 0/missing = no charge; later rate
+  changes never rewrite history). `invoiceMerchant` groups unbilled charges by (type, rate, tax) into one invoice through the shared
+  `issueInvoice`; voiding the invoice returns the charges to the unbilled pool. Plan billing unit: `fulfilment_orders_per_month`
+  (plan v3; older versions fall back to the jobs allowance).
+- **Invariants checked by `npm run verify`:** ledger sum = on_hand; reserved = Σ unpicked allocations; line quantities = their
+  allocations; staging = Σ picked-not-shipped; shipped orders have one shipment and shipped = packed; SKU merchant = order/inbound
+  merchant; receipts = line totals; fulfilment invoices total their charges.
+

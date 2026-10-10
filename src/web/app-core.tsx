@@ -18,6 +18,7 @@ import { exportTenantData, invoicesCsv } from "../ops/exporter.js";
 import { listJobs } from "../ops/jobs.js";
 import { listInvoices } from "../ops/finance.js";
 import { listDocuments } from "../ops/documents.js";
+import { listFulfilOrders, stockOverview } from "../ops/fulfilment.js";
 import { assertCapacity } from "../platform/entitlements.js";
 import { arr, formBody, requireCtx, str, type Env } from "./mw.js";
 import { act, appPage, back, can, ctxOf, need, PageHead, PostBtn, Confirm, withT } from "./appkit.js";
@@ -51,8 +52,17 @@ core.use("/app/*", async (c, next) => {
         {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
       </div>));
   }
-  // forwarding workflow requires the sector to be selected
-  const fwdOnly = ["/app/enquiries", "/app/quotes", "/app/jobs", "/app/rates", "/app/tasks", "/app/invoices", "/app/reports"];
+  if (!driverOnly && !portalOnly && p.startsWith("/app/fulfilment") && !t.sectors.includes("ecommerce-fulfilment")) {
+    return appPage(c, "Sector not enabled", (
+      <div class="card" style="max-width:640px">
+        <h1>E-commerce fulfilment is not selected</h1>
+        <p>Merchant orders, stock, pick/pack and returns belong to the <strong>E-commerce fulfilment</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
+        {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
+      </div>));
+  }
+  // forwarding workflow requires the sector to be selected. Invoices & collections and Tasks & exceptions are SHARED modules
+  // (every sector bills and raises exceptions), so they are deliberately not in this list.
+  const fwdOnly = ["/app/enquiries", "/app/quotes", "/app/jobs", "/app/rates", "/app/reports"];
   if (!portalOnly && fwdOnly.some((x) => p.startsWith(x)) && !t.sectors.includes("freight-forwarding")) {
     return appPage(c, "Sector not enabled", (
       <div class="card" style="max-width:640px">
@@ -78,15 +88,27 @@ core.get("/app", async (c) => {
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return c.redirect("/app/driver");
   const data = await withT(c, async (cn) => {
     const n = async (sql: string) => Number((await cn.query<any>(sql)).rows[0].n);
-    const checklist = [
-      { done: (await n(`SELECT count(*) n FROM parties WHERE kind='customer'`)) > 0, label: "Add or import your first customer", href: "/app/parties" },
+    const fwd = t.sectors.includes("freight-forwarding"), ful = t.sectors.includes("ecommerce-fulfilment");
+    const customer = { done: (await n(`SELECT count(*) n FROM parties WHERE kind='customer'`)) > 0, label: ful && !fwd ? "Add your first merchant (the business whose goods you store and ship)" : "Add or import your first customer", href: "/app/parties" };
+    const colleague = { done: (await n(`SELECT count(*) n FROM memberships WHERE active`)) > 1, label: "Invite a colleague (individual account)", href: "/app/team" };
+    const freight = [
+      customer,
       { done: (await n(`SELECT count(*) n FROM parties WHERE kind='supplier'`)) > 0, label: "Add a supplier (carrier, agent, trucker)", href: "/app/parties" },
       { done: (await n(`SELECT count(*) n FROM enquiries`)) > 0, label: "Record a genuine enquiry", href: "/app/enquiries/new" },
       { done: (await n(`SELECT count(*) n FROM quotes`)) > 0, label: "Prepare a quotation", href: "/app/quotes" },
       { done: (await n(`SELECT count(*) n FROM jobs`)) > 0, label: "Accept a quote → one job", href: "/app/quotes" },
       { done: (await n(`SELECT count(*) n FROM invoices`)) > 0, label: "Invoice a job", href: "/app/invoices" },
-      { done: (await n(`SELECT count(*) n FROM memberships WHERE active`)) > 1, label: "Invite a colleague (individual account)", href: "/app/team" },
     ];
+    const fulfilment = [
+      { done: (await n(`SELECT count(*) n FROM wh_locations WHERE kind='bin'`)) > 0, label: "Add a storage bin", href: "/app/fulfilment/locations" },
+      { done: (await n(`SELECT count(*) n FROM skus`)) > 0, label: "Add a merchant SKU (or import a CSV)", href: "/app/fulfilment/catalog" },
+      { done: (await n(`SELECT count(*) n FROM inbound_shipments`)) > 0, label: "Expect a delivery from the merchant", href: "/app/fulfilment/inbound/new" },
+      { done: (await n(`SELECT count(*) n FROM inbound_receipts`)) > 0, label: "Receive it into a bin", href: "/app/fulfilment/inbound" },
+      { done: (await n(`SELECT count(*) n FROM fulfil_orders`)) > 0, label: "Enter (or import) the first order — it reserves stock", href: "/app/fulfilment/orders/new" },
+      { done: (await n(`SELECT count(*) n FROM fulfil_orders WHERE status='shipped'`)) > 0, label: "Pick, pack and ship it", href: "/app/fulfilment/pick" },
+      { done: (await n(`SELECT count(*) n FROM fulfil_rates`)) > 0, label: "Agree a rate card so activity can be billed", href: "/app/fulfilment/billing" },
+    ];
+    const checklist = (ful && !fwd ? [customer, ...fulfilment] : fwd && ful ? [...freight, ...fulfilment] : freight).concat([colleague]);
     const mine = (await cn.query<any>(`SELECT id,no,status,origin,destination FROM jobs WHERE assigned_to=$1 AND status IN ('planned','in_transit') ORDER BY created_at DESC LIMIT 8`, [ctx.userId])).rows;
     const tasks = (await cn.query<any>(`SELECT id,title,due_at FROM job_exceptions WHERE status='open' AND (owner_id=$1 OR owner_id IS NULL) ORDER BY due_at LIMIT 8`, [ctx.userId])).rows;
     return { checklist, mine, tasks };
@@ -165,14 +187,25 @@ core.get("/app/reports", async (c) => {
 core.get("/app/portal", async (c) => {
   const ctx = ctxOf(c);
   if (!ctx.partyId && !ctx.roles.includes("portal")) return c.redirect("/app");
+  const ful = c.get("tenant")!.sectors.includes("ecommerce-fulfilment") && !!ctx.partyId;
   const d = await withT(c, async (cn) => ({
     jobs: await listJobs(cn, ctx.partyId), invoices: await listInvoices(cn, ctx.partyId),
     docs: await listDocuments(cn, { portalPartyId: ctx.partyId }),
+    orders: ful ? (await listFulfilOrders(cn, { partyId: ctx.partyId })).slice(0, 50) : [],
+    stock: ful ? await stockOverview(cn, ctx.partyId) : [],
   }));
   return appPage(c, "My shipments", (<>
     <PageHead title="My shipments" sub="A limited view: your shipments, issued documents and invoices only." />
-    <Table caption="Shipments" head={["Job", "Route", "Status"]} empty={d.jobs.length ? undefined : "No shipments yet."}>
-      {d.jobs.map((j: any) => <tr><td>{j.no}</td><td>{j.origin} → {j.destination}</td><td><Badge s={j.status} /></td></tr>)}</Table>
+    {ful ? (<>
+      <Table caption="Your stock with us" head={["SKU", "Product", ["Available", "num"], ["Reserved", "num"], ["Incoming", "num"], ["Quarantine", "num"]]} empty={d.stock.length ? undefined : "No SKUs yet."}>
+        {d.stock.map((x: any) => <tr><td><strong>{x.code}</strong></td><td class="small">{x.name}</td><td class="num">{x.available}</td><td class="num">{x.reserved}</td><td class="num">{x.incoming}</td><td class="num">{x.quarantine}</td></tr>)}</Table>
+      <div style="height:18px" />
+      <Table caption="Your orders (latest 50)" head={["Order", "Your reference", "Recipient", "Status", "Tracking"]} empty={d.orders.length ? undefined : "No orders yet."}>
+        {d.orders.map((o: any) => <tr><td>{o.no}</td><td class="small">{o.external_ref}</td><td class="small">{o.ship_to_name}</td><td><Badge s={o.status === "shipped" ? "delivered" : o.status === "backordered" ? "warn" : o.status} label={o.status === "backordered" ? "waiting for stock" : o.status} /></td><td class="small">{o.tracking_no ? `${o.carrier} ${o.tracking_no}` : "—"}</td></tr>)}</Table>
+      <div style="height:18px" />
+    </>) : null}
+    {d.jobs.length || !ful ? <Table caption="Shipments" head={["Job", "Route", "Status"]} empty={d.jobs.length ? undefined : "No shipments yet."}>
+      {d.jobs.map((j: any) => <tr><td>{j.no}</td><td>{j.origin} → {j.destination}</td><td><Badge s={j.status} /></td></tr>)}</Table> : null}
     <div style="height:18px" />
     <Table caption="Documents shared with you" head={["Document", "Job", ""]} empty={d.docs.length ? undefined : "No documents shared."}>
       {d.docs.map((x: any) => <tr><td>{x.title}</td><td>{x.job_no}</td><td><a href={`/app/documents/${x.id}/download`}>Download</a></td></tr>)}</Table>
@@ -249,7 +282,7 @@ core.get("/app/billing", async (c) => {
   const usage = await withT(c, async (cn) => ({ limits: await getLimits(cn, ctx.tenantId),
     used: { max_users: await currentUsage(cn, ctx.tenantId, "max_users"), jobs_per_month: await currentUsage(cn, ctx.tenantId, "jobs_per_month"),
       storage_mb: await currentUsage(cn, ctx.tenantId, "storage_mb"), max_branches: await currentUsage(cn, ctx.tenantId, "max_branches"),
-      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month") } }));
+      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month"), fulfilment_orders_per_month: await currentUsage(cn, ctx.tenantId, "fulfilment_orders_per_month") } }));
   const quotes: Record<string, Awaited<ReturnType<typeof priceCheckout>> | null> = {};
   for (const pl of plans) quotes[pl.plan_code] = await db.system((cn) => priceCheckout(cn, ctx.tenantId, pl)).catch(() => null);
   const csrf = c.get("csrf");
@@ -263,6 +296,7 @@ core.get("/app/billing", async (c) => {
       <div class="card"><h3>Jobs this month</h3><div class="kpi">{usage.used.jobs_per_month} / {usage.limits.jobs_per_month}</div></div>
       <div class="card"><h3>Documents</h3><div class="kpi">{usage.used.storage_mb} / {usage.limits.storage_mb} MB</div></div>
       {c.get("tenant")!.sectors.includes("road-transport") ? <div class="card"><h3>Trips this month</h3><div class="kpi">{usage.used.trips_per_month} / {usage.limits.trips_per_month}</div></div> : null}
+      {c.get("tenant")!.sectors.includes("ecommerce-fulfilment") ? <div class="card"><h3>Fulfilment orders this month</h3><div class="kpi">{usage.used.fulfilment_orders_per_month} / {usage.limits.fulfilment_orders_per_month}</div></div> : null}
     </div>
     <h2 style="margin-top:28px">Change plan</h2>
     <p class="mute small">Net incremental price shown: setup already paid at a lower tier is credited. No proration in the pilot. Tax is shown at checkout.</p>
