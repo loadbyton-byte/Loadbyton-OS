@@ -54,3 +54,19 @@
 | 34 | Barcode/RF scanning hardware and a WMS/ERP integration | Scan/retry references exist (`client_ref`); no hardware or integration |
 | 35 | Backorders, partial-shipment policy and returns | Partial allocation closes the shortfall; no returns flow (belongs with E-commerce fulfilment) |
 | 36 | Insurance / liability cut-off for custody stock and bonded goods | Not modelled; bonded warehousing is explicitly out of scope (see /coverage) |
+
+
+## Added with Delivery / COD
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 37 | Delivery billing unit and plan allowances (`parcels_per_month`: 100 / 1,500 / 6,000 / 25,000 / 500,000) | Hypotheses in `PLAN_SEEDS`; plan v5. Older versions fall back to the jobs allowance |
+| 38 | COD cash policy: who counts, who may accept a difference, any tolerance, and who bears a shortage (company vs. rider deduction) | Any non-zero difference needs a second person (owner excepted); no tolerance; the shortage is only *recorded*, no payroll deduction |
+| 39 | COD payment methods beyond cash (card-on-delivery terminal, payment links, wallet) | Cash only. Exact amount required; no partial acceptance |
+| 40 | Remittance cycle and cap (daily/weekly, holdbacks, merchant bank details, payout file format) | Manual: staff prepare a statement and a second person records the bank reference. No bank file, no bank-detail storage |
+| 41 | Consignee notifications (SMS / WhatsApp) and delivery-code delivery | The code is shown to staff and the merchant; nothing is sent. Needs a messaging provider (decision #9) |
+| 42 | Route optimisation / live rider location / geofenced POD | Runs are ordered by the dispatcher; no GPS (see #14) |
+| 43 | Carrier hand-off: label printing, AWB format, merchant API/webhooks, marketplace connectors | Waybill is `DLV-<year>-<seq>`; intake by form, CSV or (later) API. Tracking is the public `/t/<token>` page |
+| 44 | Parcel data retention: consignee name/phone/address kept indefinitely and visible to all office roles | Same as #27; no anonymisation job |
+| 45 | Inter-emirate pricing zones, weight/size bands, and failed-delivery fees | One flat delivery fee, one inter-emirate surcharge (destination ≠ origin emirate), one return fee, COD % with a minimum |
+| 46 | Multiple COD currencies / cross-border | AED only |

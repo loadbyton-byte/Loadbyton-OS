@@ -8,18 +8,19 @@ export type Perm =
   | "job.write" | "job.cost" | "doc.write" | "finance.write" | "finance.void" | "team.manage"
   | "billing.manage" | "settings.manage" | "export" | "audit.read" | "dashboard.owner"
   | "transport.write" | "transport.expense" | "driver.act"
-  | "wh.write" | "wh.floor" | "wh.approve" | "wh.rates" | "wh.bill";   // shared by E-commerce fulfilment (floor, rates) and Contract warehouse (bill)
+  | "wh.write" | "wh.floor" | "wh.approve" | "wh.rates" | "wh.bill"
+  | "dlv.write" | "dlv.cash" | "dlv.approve" | "dlv.remit" | "dlv.bill";   // Delivery/COD: dispatch, cash desk, independent approval, merchant payout, rates & billing   // shared by E-commerce fulfilment (floor, rates) and Contract warehouse (bill)
 
 const R: Record<Role, Perm[]> = {
   owner: ["read", "party.write", "enquiry.write", "quote.write", "quote.approve", "rate.write", "job.write", "job.cost", "doc.write",
     "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner", "transport.write", "transport.expense",
-    "wh.write", "wh.floor", "wh.approve", "wh.rates", "wh.bill"],
+    "wh.write", "wh.floor", "wh.approve", "wh.rates", "wh.bill", "dlv.write", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill"],
   sales: ["read", "party.write", "enquiry.write", "quote.write"],
   pricing: ["read", "rate.write", "quote.write", "quote.approve"],
-  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write", "wh.write", "wh.approve"],
-  dispatcher: ["read", "job.write", "doc.write", "transport.write"],
+  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write", "wh.write", "wh.approve", "dlv.write", "dlv.approve"],
+  dispatcher: ["read", "job.write", "doc.write", "transport.write", "dlv.write"],
   warehouse: ["read", "doc.write", "wh.write", "wh.floor"],   // operators run the floor; they cannot approve their own count adjustments
-  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense", "wh.approve", "wh.rates", "wh.bill"],
+  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense", "wh.approve", "wh.rates", "wh.bill", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill"],
   hr: ["read", "team.manage"],
   auditor: ["read", "audit.read", "export"],
   portal: [],
