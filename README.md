@@ -3,10 +3,13 @@
 *Run the movement. Know the margin.* — UAE-first logistics SaaS. Implements the **Master Blueprint v1.0 (10 Oct 2026)**:
 public commerce site, a tenant-isolated company application, billing/entitlements/provisioning, and a privileged control console.
 
-> **What is built, honestly.** The blueprint's first product — **Forwarding Starter** (enquiry → quote → job → supplier costs →
-> documents/milestones → invoice → collection) — is implemented end to end, on top of the commerce and control planes.
-> The other sector packs, Transport/Warehouse/Delivery/Customs modules, e-invoicing, native ledger and real infrastructure/payment
-> adapters are **not** built and are shown publicly as *Planned* (blueprint §29: "Do not sell all 18 sector packs at launch").
+> **What is built, honestly.** Two sector workflows run end to end on top of the commerce and control planes:
+> **Forwarding Starter** (enquiry → quote → job → supplier costs → documents/milestones → invoice → collection) and
+> **Transport** (orders → trip planning with capacity/availability/compliance checks → dispatch → offline-tolerant driver app with
+> proof of delivery → expenses, detention, subcontracting → invoice → trip profitability). Both are *Pilot*, not *Available*
+> (no production monitoring yet). The other sector packs, Warehouse/Delivery/Customs modules, e-invoicing, native ledger, live GPS /
+> route optimisation and real infrastructure/payment adapters are **not** built and are shown publicly as *Planned*
+> (blueprint §29: "Do not sell all 18 sector packs at launch").
 > See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.
 
 ## Quick start
@@ -15,8 +18,9 @@ public commerce site, a tenant-isolated company application, billing/entitlement
 npm install
 cp .env.example .env        # optional; dev defaults work
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
-npm test                    # 40 tests: isolation, payments, provisioning, quoting, finance, HTTP boundary
+npm test                    # 50+ tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty
+                            #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) — all demo-password-123
 npm run create-staff -- you@example.com "Your Name" '<12+ char password>' commercial_admin   # prints TOTP secret
 npm run e2e                 # browser walkthrough against a running server (needs Chromium)
 npm run verify              # database-wide invariants (use after every restore test)
@@ -29,7 +33,8 @@ Production-like: `docker compose up` (PostgreSQL 16). `PAYMENT_PROVIDER=mock` is
 | Surface | Path / host (blueprint §11) | Notes |
 |---|---|---|
 | Commerce | `www` — `/`, `/sectors`, `/products`, `/find-my-bundle`, `/pricing`, `/how-activation-works`, `/integrations`, `/security`, `/status`, `/legal/*`, `/start`, `/contact` | Honest Available / Pilot / Planned labels |
-| Company app | `app` / `<slug>` — `/app/*` | Role-gated; navigation shows only relevant modules |
+| Company app | `app` / `<slug>` — `/app/*` | Role-gated; navigation shows only relevant modules; `/app/transport/*` needs the Road transport sector |
+| Driver app | `/app/driver/*` | Phone-first, large touch targets; `driver` seats are limited (no other pages), offline queue + idempotent sync |
 | Control console | `admin` — `/admin/*` | Platform staff + TOTP; separate privilege; audited |
 | Guidance | `help` — `/help` | |
 
@@ -42,10 +47,10 @@ TypeScript · Hono (SSR JSX, no client build) · PostgreSQL (PGlite for dev/test
 ```
 src/db        schema (migrations/001_init.sql), tenant-scoped transactions (RLS)
 src/platform  catalog, tenants, auth, billing, entitlements, provisioning, outbox, admin, invariants
-src/ops       enquiries, quotes, jobs, finance, documents, dashboard, team, import, export
+src/ops       enquiries, quotes, jobs, transport, finance, documents, dashboard, team, import, export
 src/adapters  accounting bridge (find-before-create idempotency)
 src/web       routes + UI (public, auth, app-core/sales/ops, admin)
-tests         platform, ops, http, extras (acceptance scenarios §30)
+tests         platform, ops, transport, http, extras (acceptance scenarios §30)
 docs          architecture, traceability, runbooks, decisions
 ```
 

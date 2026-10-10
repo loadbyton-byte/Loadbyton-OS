@@ -22,6 +22,11 @@ export async function verifyInvariants(db: Db): Promise<Violation[]> {
     ["paid orders have exactly one provisioning job", `SELECT o.id::text FROM orders o WHERE o.status='paid' AND (SELECT count(*) FROM provision_jobs j WHERE j.order_id=o.id) <> 1`],
     ["one applied event per paid order", `SELECT o.id::text FROM orders o WHERE (SELECT count(*) FROM payment_events e WHERE e.order_id=o.id AND e.type='payment.succeeded' AND e.outcome='applied') > 1`],
     ["locked quote versions have lines", `SELECT v.id::text FROM quote_versions v WHERE v.locked AND NOT EXISTS (SELECT 1 FROM quote_lines l WHERE l.version_id=v.id)`],
+    ["a trip carries only orders that point back at it", `SELECT l.id::text FROM trip_legs l JOIN transport_orders o ON o.id=l.order_id WHERE o.trip_id IS DISTINCT FROM l.trip_id`],
+    ["delivered orders have a recorded proof of delivery", `SELECT o.id::text FROM transport_orders o WHERE o.status='delivered' AND NOT EXISTS (SELECT 1 FROM trip_legs l WHERE l.order_id=o.id AND l.kind='delivery' AND l.pod_name IS NOT NULL)`],
+    ["completed legs have arrival and departure", `SELECT id::text FROM trip_legs WHERE status='done' AND (arrived_at IS NULL OR departed_at IS NULL)`],
+    ["trips are fleet XOR subcontract and completed trips have no open stops", `SELECT t.id::text FROM trips t WHERE t.status='completed' AND EXISTS (SELECT 1 FROM trip_legs l WHERE l.trip_id=t.id AND l.status<>'done')`],
+    ["transport invoices total their order charges", `SELECT i.id::text FROM invoices i WHERE i.transport_order_id IS NOT NULL AND i.status<>'void' AND i.subtotal_minor <> (SELECT coalesce(sum(round(ch.qty*ch.unit_minor)),0) FROM transport_order_charges ch WHERE ch.invoice_id=i.id)`],
     ["documents are stored under their tenant prefix", `SELECT id::text FROM documents WHERE storage_key NOT LIKE tenant_id::text || '/%'`],
   ];
   const out: Violation[] = [];

@@ -44,7 +44,12 @@ export const csrfMw: MiddlewareHandler<Env> = async (c, next) => {
     setCookie(c, CSRF_COOKIE, tok, cookieOpts);
   }
   c.set("csrf", tok!);
-  if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/")) {
+  if (c.req.method === "POST" && c.req.path === "/app/driver/sync") {
+    // JSON batch from the offline queue: signed double-submit token in a header (cookie is HttpOnly=false-equivalent via JS read)
+    const h = c.req.header("x-csrf-token") ?? "";
+    if (!(c.req.header("content-type") ?? "").includes("application/json")) throw new HttpError(415, "Unsupported content type");
+    if (!valid(h) || !safeEqual(h, tok!)) throw new HttpError(403, "Invalid CSRF token", "csrf");
+  } else if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/")) {
     const ct = c.req.header("content-type") ?? "";
     if (!/form/.test(ct)) throw new HttpError(415, "Unsupported content type");
     const body = await c.req.parseBody({ all: true });
