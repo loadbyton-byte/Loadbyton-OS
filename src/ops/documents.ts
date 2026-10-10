@@ -39,7 +39,7 @@ export async function uploadDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scann
   return storeDocument(c, ctx, f, scan);
 }
 
-export interface DocInput { job_id?: string | null; trip_id?: string | null; transport_order_id?: string | null; kind: string; title: string; issuer?: string; customer_visible?: boolean; filename: string; data: Buffer }
+export interface DocInput { job_id?: string | null; trip_id?: string | null; transport_order_id?: string | null; dlv_shipment_id?: string | null; kind: string; title: string; issuer?: string; customer_visible?: boolean; filename: string; data: Buffer }
 
 /** Permission-free storage path: callers (office upload, driver POD photo) enforce their own authorisation first. */
 export async function storeDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scanner = basicScan) {
@@ -63,11 +63,11 @@ export async function storeDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scanne
   const version = f.job_id
     ? Number((await c.query<any>(`SELECT coalesce(max(version),0)+1 v FROM documents WHERE job_id=$1 AND kind=$2`, [f.job_id, kind])).rows[0].v) : 1;
   const r = await c.query<{ id: string }>(
-    `INSERT INTO documents(tenant_id,job_id,trip_id,transport_order_id,kind,title,version,status,issuer,customer_visible,storage_key,filename,mime,size_bytes,sha256,created_by)
-     VALUES ($1,$2,$15,$16,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    `INSERT INTO documents(tenant_id,job_id,trip_id,transport_order_id,dlv_shipment_id,kind,title,version,status,issuer,customer_visible,storage_key,filename,mime,size_bytes,sha256,created_by)
+     VALUES ($1,$2,$15,$16,$17,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
     [ctx.tenantId, f.job_id || null, kind, reqStr(f.title, "Title", 200), version, f.issuer ? "issued" : "draft", optStr(f.issuer, 200),
       !!f.customer_visible, key, path.basename(f.filename).slice(0, 200), ALLOWED[ext], f.data.length, sha256(f.data), ctx.userId,
-      f.trip_id || null, f.transport_order_id || null]);
+      f.trip_id || null, f.transport_order_id || null, f.dlv_shipment_id || null]);
   await audit(c, ctx.tenantId, actorOf(ctx), "document.uploaded", "document", r.rows[0].id, { kind, sha256: sha256(f.data) });
   return r.rows[0].id;
 }

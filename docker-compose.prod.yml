@@ -1,0 +1,30 @@
+# Production on a single Oracle Cloud VM (Always Free Ampere A1 works: node:22-alpine is multi-arch), with:
+#   · PostgreSQL on Neon or Supabase (DATABASE_URL in .env) — no database container
+#   · Cloudflare in front through a Cloudflare Tunnel (no inbound ports opened on the VM)
+# Usage:   cp .env.example .env   # fill it in (see docs/DEPLOYMENT.md)
+#          docker compose -f docker-compose.prod.yml up -d --build
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      STORAGE_DIR: /app/data/files
+    expose: ["3000"]
+    volumes: [files:/app/data/files]
+    healthcheck: { test: ["CMD-SHELL", "wget -qO- http://localhost:3000/healthz || exit 1"], interval: 30s, timeout: 5s, retries: 3, start_period: 40s }
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
+
+  # Outbound-only tunnel to Cloudflare. Create the tunnel in Cloudflare Zero Trust → Networks → Tunnels, add public hostnames
+  #   www.YOUR-DOMAIN, app.YOUR-DOMAIN, admin.YOUR-DOMAIN, help.YOUR-DOMAIN and *.YOUR-DOMAIN  →  http://web:3000
+  # then put its token in .env as CLOUDFLARE_TUNNEL_TOKEN. Remove this service if you terminate TLS another way.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on: { web: { condition: service_healthy } }
+
+volumes: { files: {} }
