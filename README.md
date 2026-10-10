@@ -4,14 +4,19 @@
 public commerce site, a tenant-isolated company application, billing/entitlements/provisioning, and a privileged control console.
 
 > **What is built, honestly.** Three sector workflows run end to end on top of the commerce and control planes:
+> **What is built, honestly.** Four sector workflows run end to end on top of the commerce and control planes:
 > **Forwarding Starter** (enquiry → quote → job → supplier costs → documents/milestones → invoice → collection),
 > **Transport** (orders → trip planning with capacity/availability/compliance checks → dispatch → offline-tolerant driver app with
-> proof of delivery → expenses, detention, subcontracting → invoice → trip profitability) and
+> proof of delivery → expenses, detention, subcontracting → invoice → trip profitability),
 > **E-commerce fulfilment** (merchant SKUs → inbound receiving → stock ledger with reservation → pick / scan-verified pack / ship →
-> returns → count adjustments with independent approval → activity billing and merchant invoice). All three are *Pilot*, not *Available*
-> (no production monitoring yet). The other sector packs, the Delivery/COD and Customs modules, marketplace and carrier-label connectors,
-> e-invoicing, native ledger, live GPS / route optimisation and real infrastructure/payment adapters are **not** built and are shown
-> publicly as *Planned* (blueprint §29: "Do not sell all 18 sector packs at launch").
+> returns → count adjustments with independent approval → activity billing and merchant invoice) and
+> **Contract warehouse / 3PL** (customer-owned custody stock on an immutable movement ledger → receiving with variances and quarantine →
+> FIFO allocation, pick, dispatch → blind cycle counts with independent approval → activity billing → invoice). All four are *Pilot*,
+> not *Available* (no production monitoring yet). The other sector packs, the Delivery/COD and Customs modules, marketplace and
+> carrier-label connectors, barcode/RF hardware, e-invoicing, native ledger, live GPS / route optimisation and real infrastructure/payment
+> adapters are **not** built and are shown publicly as *Planned* (blueprint §29: "Do not sell all 18 sector packs at launch").
+> See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.
+
 > See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.
 
 ## Quick start
@@ -20,9 +25,9 @@ public commerce site, a tenant-isolated company application, billing/entitlement
 npm install
 cp .env.example .env        # optional; dev defaults work
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
-npm test                    # 70+ tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment stock integrity, HTTP boundary
+npm test                    # 90+ tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty
-                            #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (warehouse) — all demo-password-123
+                            #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (e-commerce) · warehouse@… (3PL manager) — all demo-password-123
 npm run create-staff -- you@example.com "Your Name" '<12+ char password>' commercial_admin   # prints TOTP secret
 npm run e2e                 # browser walkthrough against a running server (needs Chromium)
 npm run verify              # database-wide invariants (use after every restore test)
@@ -37,6 +42,7 @@ Production-like: `docker compose up` (PostgreSQL 16). `PAYMENT_PROVIDER=mock` is
 | Commerce | `www` — `/`, `/sectors`, `/products`, `/find-my-bundle`, `/pricing`, `/how-activation-works`, `/integrations`, `/security`, `/status`, `/legal/*`, `/start`, `/contact` | Honest Available / Pilot / Planned labels |
 | Company app | `app` / `<slug>` — `/app/*` | Role-gated; navigation shows only relevant modules; `/app/transport/*` needs the Road transport sector |
 | Fulfilment | `/app/fulfilment/*` | Needs the E-commerce fulfilment sector; board, orders, pick list, inbound, stock & counts, returns, catalogue, locations, billing activity. Merchants (portal role) see only their own stock and orders |
+| Warehouse | `/app/warehouse/*` | Needs the Contract warehouse / 3PL sector: board, inbound, dispatch, stock + ledger, counts, locations & SKUs, activity billing; customer portal users see only their own stock |
 | Driver app | `/app/driver/*` | Phone-first, large touch targets; `driver` seats are limited (no other pages), offline queue + idempotent sync |
 | Control console | `admin` — `/admin/*` | Platform staff + TOTP; separate privilege; audited |
 | Guidance | `help` — `/help` | |
@@ -54,6 +60,10 @@ src/ops       enquiries, quotes, jobs, transport, fulfilment (+billing), finance
 src/adapters  accounting bridge (find-before-create idempotency)
 src/web       routes + UI (public, auth, app-core/sales/ops, admin)
 tests         platform, ops, transport, fulfilment (+http), http, extras (acceptance scenarios §30)
+src/ops       enquiries, quotes, jobs, transport, warehouse, finance, documents, dashboard, team, import, export
+src/adapters  accounting bridge (find-before-create idempotency)
+src/web       routes + UI (public, auth, app-core/sales/ops, admin)
+tests         platform, ops, transport, warehouse, http, extras (acceptance scenarios §30)
 docs          architecture, traceability, runbooks, decisions
 ```
 
