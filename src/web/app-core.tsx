@@ -17,6 +17,7 @@ import { ownerDashboard } from "../ops/dashboard.js";
 import { exportTenantData, invoicesCsv } from "../ops/exporter.js";
 import { listJobs } from "../ops/jobs.js";
 import { portalStock } from "../ops/warehouse.js";
+import { listRemittances, listShipments } from "../ops/delivery.js";
 import { listInvoices } from "../ops/finance.js";
 import { listDocuments } from "../ops/documents.js";
 import { listFulfilOrders, stockOverview } from "../ops/fulfilment.js";
@@ -69,6 +70,14 @@ core.use("/app/*", async (c, next) => {
         {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
       </div>));
   }
+  if (!driverOnly && !portalOnly && p.startsWith("/app/delivery") && !t.sectors.includes("courier-last-mile")) {
+    return appPage(c, "Sector not enabled", (
+      <div class="card" style="max-width:640px">
+        <h1>Courier / last mile is not selected</h1>
+        <p>Parcels, delivery runs, riders and cash on delivery belong to the <strong>Courier / last mile</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
+        {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
+      </div>));
+  }
   // forwarding workflow requires the sector to be selected. Invoices & collections and Tasks & exceptions are SHARED modules
   // (every sector bills and raises exceptions), so they are deliberately not in this list.
   const fwdOnly = ["/app/enquiries", "/app/quotes", "/app/jobs", "/app/rates", "/app/reports"];
@@ -97,7 +106,7 @@ core.get("/app", async (c) => {
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return c.redirect("/app/driver");
   const data = await withT(c, async (cn) => {
     const n = async (sql: string) => Number((await cn.query<any>(sql)).rows[0].n);
-    const fwd = t.sectors.includes("freight-forwarding"), ful = t.sectors.includes("ecommerce-fulfilment");
+    const fwd = t.sectors.includes("freight-forwarding"), ful = t.sectors.includes("ecommerce-fulfilment"), dlv = t.sectors.includes("courier-last-mile");
     const customer = { done: (await n(`SELECT count(*) n FROM parties WHERE kind='customer'`)) > 0, label: ful && !fwd ? "Add your first merchant (the business whose goods you store and ship)" : "Add or import your first customer", href: "/app/parties" };
     const colleague = { done: (await n(`SELECT count(*) n FROM memberships WHERE active`)) > 1, label: "Invite a colleague (individual account)", href: "/app/team" };
     const freight = [
@@ -117,7 +126,15 @@ core.get("/app", async (c) => {
       { done: (await n(`SELECT count(*) n FROM fulfil_orders WHERE status='shipped'`)) > 0, label: "Pick, pack and ship it", href: "/app/fulfilment/pick" },
       { done: (await n(`SELECT count(*) n FROM fulfil_rates`)) > 0, label: "Agree a rate card so activity can be billed", href: "/app/fulfilment/billing" },
     ];
-    const checklist = (ful && !fwd ? [customer, ...fulfilment] : fwd && ful ? [...freight, ...fulfilment] : freight).concat([colleague]);
+    const delivery = [
+      { done: (await n(`SELECT count(*) n FROM drivers WHERE active`)) > 0, label: "Add a rider and invite them to sign in on their phone", href: "/app/delivery/riders" },
+      { done: (await n(`SELECT count(*) n FROM dlv_shipments`)) > 0, label: "Add (or import) the first parcels", href: "/app/delivery/shipments/new" },
+      { done: (await n(`SELECT count(*) n FROM dlv_runs WHERE status IN ('out','closed')`)) > 0, label: "Build a run and send the rider out", href: "/app/delivery/runs/new" },
+      { done: (await n(`SELECT count(*) n FROM dlv_shipments WHERE status='delivered'`)) > 0, label: "Deliver a parcel from the rider app", href: "/app/delivery/runs" },
+      { done: (await n(`SELECT count(*) n FROM dlv_settlements`)) > 0, label: "Count a rider's cash at the cash desk", href: "/app/delivery/cash" },
+      { done: (await n(`SELECT count(*) n FROM dlv_rates`)) > 0, label: "Agree a rate card so deliveries can be billed", href: "/app/delivery/billing" },
+    ];
+    const checklist = [...(fwd || (!ful && !dlv) ? freight : [customer]), ...(ful ? fulfilment : []), ...(dlv ? delivery : []), colleague];
     const mine = (await cn.query<any>(`SELECT id,no,status,origin,destination FROM jobs WHERE assigned_to=$1 AND status IN ('planned','in_transit') ORDER BY created_at DESC LIMIT 8`, [ctx.userId])).rows;
     const tasks = (await cn.query<any>(`SELECT id,title,due_at FROM job_exceptions WHERE status='open' AND (owner_id=$1 OR owner_id IS NULL) ORDER BY due_at LIMIT 8`, [ctx.userId])).rows;
     return { checklist, mine, tasks };
@@ -197,7 +214,9 @@ core.get("/app/portal", async (c) => {
   const ctx = ctxOf(c);
   if (!ctx.partyId && !ctx.roles.includes("portal")) return c.redirect("/app");
   const ful = c.get("tenant")!.sectors.includes("ecommerce-fulfilment") && !!ctx.partyId;
+  const dlv = c.get("tenant")!.sectors.includes("courier-last-mile") && !!ctx.partyId;
   const d = await withT(c, async (cn) => ({
+    parcels: dlv ? (await listShipments(cn, { merchantId: ctx.partyId, limit: 100 })) : [], payouts: dlv ? await listRemittances(cn, ctx.partyId) : [],
     jobs: await listJobs(cn, ctx.partyId), invoices: await listInvoices(cn, ctx.partyId),
     docs: await listDocuments(cn, { portalPartyId: ctx.partyId }),
     orders: ful ? (await listFulfilOrders(cn, { partyId: ctx.partyId })).slice(0, 50) : [],
@@ -206,6 +225,14 @@ core.get("/app/portal", async (c) => {
   }));
   return appPage(c, "My shipments", (<>
     <PageHead title="My shipments" sub="A limited view: your shipments, issued documents and invoices only." />
+    {dlv ? (<>
+      <Table caption="Your parcels (latest 100)" head={["Waybill", "Your reference", "Consignee", ["COD", "num"], "Status", "Tracking"]} empty={d.parcels.length ? undefined : "No parcels yet."}>
+        {d.parcels.map((s: any) => <tr><td>{s.no}</td><td class="small">{s.external_ref ?? "—"}</td><td class="small">{s.consignee_name}</td><td class="num">{Number(s.cod_minor) ? <Money v={s.cod_minor} /> : "—"}</td><td><Badge s={s.status} label={s.status.replace(/_/g, " ")} /></td><td class="small"><a href={`/t/${s.track_token}`}>track</a></td></tr>)}</Table>
+      <div style="height:18px" />
+      <Table caption="Your COD payouts" head={["Statement", ["COD collected", "num"], ["Fees", "num"], ["Paid to you", "num"], "Status"]} empty={d.payouts.length ? undefined : "No payouts yet."}>
+        {d.payouts.map((r: any) => <tr><td>{r.no}</td><td class="num"><Money v={r.gross_minor} /></td><td class="num"><Money v={r.fees_minor} /></td><td class="num"><Money v={r.net_minor} /></td><td><Badge s={r.status === "pending_payment" ? "pending" : r.status} label={r.status === "pending_payment" ? "being prepared" : r.status} /></td></tr>)}</Table>
+      <div style="height:18px" />
+    </>) : null}
     {ful ? (<>
       <Table caption="Your stock with us" head={["SKU", "Product", ["Available", "num"], ["Reserved", "num"], ["Incoming", "num"], ["Quarantine", "num"]]} empty={d.stock.length ? undefined : "No SKUs yet."}>
         {d.stock.map((x: any) => <tr><td><strong>{x.code}</strong></td><td class="small">{x.name}</td><td class="num">{x.available}</td><td class="num">{x.reserved}</td><td class="num">{x.incoming}</td><td class="num">{x.quarantine}</td></tr>)}</Table>
@@ -294,7 +321,7 @@ core.get("/app/billing", async (c) => {
   const usage = await withT(c, async (cn) => ({ limits: await getLimits(cn, ctx.tenantId),
     used: { max_users: await currentUsage(cn, ctx.tenantId, "max_users"), jobs_per_month: await currentUsage(cn, ctx.tenantId, "jobs_per_month"),
       storage_mb: await currentUsage(cn, ctx.tenantId, "storage_mb"), max_branches: await currentUsage(cn, ctx.tenantId, "max_branches"),
-      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month"), fulfilment_orders_per_month: await currentUsage(cn, ctx.tenantId, "fulfilment_orders_per_month"), wh_orders_per_month: await currentUsage(cn, ctx.tenantId, "wh_orders_per_month") } }));
+      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month"), fulfilment_orders_per_month: await currentUsage(cn, ctx.tenantId, "fulfilment_orders_per_month"), wh_orders_per_month: await currentUsage(cn, ctx.tenantId, "wh_orders_per_month"), parcels_per_month: await currentUsage(cn, ctx.tenantId, "parcels_per_month") } }));
   const quotes: Record<string, Awaited<ReturnType<typeof priceCheckout>> | null> = {};
   for (const pl of plans) quotes[pl.plan_code] = await db.system((cn) => priceCheckout(cn, ctx.tenantId, pl)).catch(() => null);
   const csrf = c.get("csrf");
@@ -309,6 +336,7 @@ core.get("/app/billing", async (c) => {
       <div class="card"><h3>Documents</h3><div class="kpi">{usage.used.storage_mb} / {usage.limits.storage_mb} MB</div></div>
       {c.get("tenant")!.sectors.includes("road-transport") ? <div class="card"><h3>Trips this month</h3><div class="kpi">{usage.used.trips_per_month} / {usage.limits.trips_per_month}</div></div> : null}
       {c.get("tenant")!.sectors.includes("ecommerce-fulfilment") ? <div class="card"><h3>Fulfilment orders this month</h3><div class="kpi">{usage.used.fulfilment_orders_per_month} / {usage.limits.fulfilment_orders_per_month}</div></div> : null}
+      {c.get("tenant")!.sectors.includes("courier-last-mile") ? <div class="card"><h3>Parcels this month</h3><div class="kpi">{usage.used.parcels_per_month} / {usage.limits.parcels_per_month}</div></div> : null}
       {c.get("tenant")!.sectors.includes("contract-warehouse-3pl") ? <div class="card"><h3>Warehouse orders this month</h3><div class="kpi">{usage.used.wh_orders_per_month} / {usage.limits.wh_orders_per_month}</div><p class="small mute">Inbound notices + dispatch orders</p></div> : null}
     </div>
     <h2 style="margin-top:28px">Change plan</h2>

@@ -222,7 +222,7 @@ pub.get("/pricing", async (c) => {
         </table></div>
         <h2 style="margin-top:32px">How limits work</h2>
         <ul class="prose">
-          <li>A <strong>job</strong> is an operational case with a unique job ID; milestones are not metered separately. Billing units differ per sector: a forwarding <strong>job</strong>, a transport <strong>trip</strong> and a warehouse <strong>order</strong> (one inbound notice or one dispatch order) are separate allowances, and a parcel or a warehouse scan would be a different unit again.</li>
+          <li>A <strong>job</strong> is an operational case with a unique job ID; milestones are not metered separately. Billing units differ per sector: a forwarding <strong>job</strong>, a transport <strong>trip</strong>, a delivery <strong>parcel</strong> and a warehouse <strong>order</strong> (one inbound notice or one dispatch order) are separate allowances, and a warehouse scan would be a different unit again.</li>
           <li>Exceeding storage or record limits blocks <em>new</em> excess usage — it never blocks reading or exporting existing records.</li>
           <li>Downgrades apply at renewal after a preview of the consequences. Paid-period cancellation keeps agreed access. A published grace period precedes restriction.</li>
           <li>We do not offer unlimited messaging, AI, storage or visits in low-priced bundles. No unlimited 24/7 human support is implied on low-cost plans.</li>

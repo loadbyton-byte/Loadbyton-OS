@@ -14,7 +14,9 @@
   function flush() {
     var q = load(); if (!q.length) { banner(); return Promise.resolve(false); }
     return post(q).then(function (res) {
-      var done = {}; res.results.forEach(function (r) { done[r.client_event_id] = true; });
+      var done = {}, msgs = [];
+      res.results.forEach(function (r) { done[r.client_event_id] = true; if (r.outcome === "stored" || r.outcome === "rejected") msgs.push(r.reason || "That could not be applied."); });
+      if (msgs.length) { try { sessionStorage.setItem("lbt_driver_msg", msgs.join(" ")); } catch (e) {} }
       save(load().filter(function (e) { return !done[e.client_event_id]; })); banner(); return true;
     }).catch(function () { banner(); return false; });
   }
@@ -37,5 +39,11 @@
     flush().then(function (ok) { if (ok) window.location.reload(); else { banner(); if (btn) { btn.textContent = "Saved on phone"; } } });
   });
   window.addEventListener("online", function () { flush().then(function (ok) { if (ok) window.location.reload(); }); });
-  banner(); flush();
+  function showMsg() {
+    var m = null; try { m = sessionStorage.getItem("lbt_driver_msg"); sessionStorage.removeItem("lbt_driver_msg"); } catch (e) {}
+    if (!m) return;
+    var main = document.getElementById("main"); if (!main) return;
+    var d = document.createElement("div"); d.className = "alert err"; d.setAttribute("role", "alert"); d.textContent = "Not applied: " + m; main.insertBefore(d, main.firstChild);
+  }
+  showMsg(); banner(); flush();
 })();

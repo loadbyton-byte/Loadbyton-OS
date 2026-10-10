@@ -2,8 +2,11 @@ import type { Conn } from "../db/client.js";
 import { quotaExceeded, HttpError } from "../lib/util.js";
 import type { PlanVersion } from "./catalog.js";
 
-export type LimitKey = "max_users" | "max_branches" | "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month" | "storage_mb" | "max_sectors" | "max_entities";
-const KEYS: LimitKey[] = ["max_users", "max_branches", "jobs_per_month", "trips_per_month", "fulfilment_orders_per_month", "wh_orders_per_month", "storage_mb", "max_sectors", "max_entities"];
+/** Per-month billing units, one per sector. Each is consumed transactionally (see consumeQuota). */
+export type MeteredKey = "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month" | "parcels_per_month";
+const METERED: MeteredKey[] = ["jobs_per_month", "trips_per_month", "fulfilment_orders_per_month", "wh_orders_per_month", "parcels_per_month"];
+export type LimitKey = MeteredKey | "max_users" | "max_branches" | "storage_mb" | "max_sectors" | "max_entities";
+const KEYS: LimitKey[] = ["max_users", "max_branches", ...METERED, "storage_mb", "max_sectors", "max_entities"];
 
 /** Append entitlement rows for a plan version. Idempotent per (tenant, plan version, source). */
 export async function applyPlanEntitlements(c: Conn, tenantId: string, plan: PlanVersion, source: string) {
@@ -23,8 +26,8 @@ export async function getLimit(c: Conn, tenantId: string, key: LimitKey): Promis
     `SELECT int_limit FROM entitlements WHERE tenant_id=$1 AND key=$2 AND effective_from <= now()
      ORDER BY effective_from DESC, id DESC LIMIT 1`, [tenantId, key]);
   if (r.rows[0]) return Number(r.rows[0].int_limit);
-  // legacy plan versions predate the trip / fulfilment-order units: they get the same number as jobs
-  return key === "trips_per_month" || key === "fulfilment_orders_per_month" || key === "wh_orders_per_month" ? getLimit(c, tenantId, "jobs_per_month") : 0;
+  // legacy plan versions predate the per-sector units (trips, fulfilment/warehouse orders, parcels): they get the same number as jobs
+  return key !== "jobs_per_month" && (METERED as string[]).includes(key) ? getLimit(c, tenantId, "jobs_per_month") : 0;
 }
 
 export async function getLimits(c: Conn, tenantId: string): Promise<Record<LimitKey, number>> {
@@ -52,7 +55,7 @@ const monthKey = (d = new Date()) => d.toISOString().slice(0, 7);
  * Transactional quota consumption: the guarded upsert makes concurrent requests unable to exceed the limit,
  * and usage_events(tenant,key,ref) makes a retried request idempotent (one immutable usage event per ref).
  */
-export async function consumeQuota(c: Conn, tenantId: string, key: Extract<LimitKey, "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month">, ref: string, qty = 1) {
+export async function consumeQuota(c: Conn, tenantId: string, key: MeteredKey, ref: string, qty = 1) {
   await assertWritable(c, tenantId);
   const limit = await getLimit(c, tenantId, key);
   const ev = await c.query(
@@ -76,7 +79,7 @@ export async function usedThisMonth(c: Conn, tenantId: string, key: LimitKey) {
 }
 
 /** Count-based capacities (users, branches, sectors, storage) are checked against live state. */
-export async function assertCapacity(c: Conn, tenantId: string, key: Exclude<LimitKey, "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month">, adding = 1) {
+export async function assertCapacity(c: Conn, tenantId: string, key: Exclude<LimitKey, MeteredKey>, adding = 1) {
   await assertWritable(c, tenantId);
   const limit = await getLimit(c, tenantId, key);
   const used = await currentUsage(c, tenantId, key);
@@ -91,7 +94,7 @@ export async function currentUsage(c: Conn, tenantId: string, key: LimitKey): Pr
     max_entities: `SELECT count(*) n FROM entities WHERE tenant_id=$1`,
     storage_mb: `SELECT coalesce(sum(size_bytes),0)/1048576.0 n FROM documents WHERE tenant_id=$1`,
   };
-  if (key === "jobs_per_month" || key === "trips_per_month" || key === "fulfilment_orders_per_month" || key === "wh_orders_per_month") return usedThisMonth(c, tenantId, key);
+  if ((METERED as string[]).includes(key)) return usedThisMonth(c, tenantId, key);
   const r = await c.query<{ n: string | number }>(q[key], [tenantId]);
   return Math.ceil(Number(r.rows[0].n));
 }
