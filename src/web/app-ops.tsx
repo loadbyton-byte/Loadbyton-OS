@@ -144,7 +144,7 @@ ops.get("/app/tasks", async (c) => {
     <PageHead title="Tasks & exceptions" sub="Every item has an owner, a deadline and an escalation contact — escalation goes to the person who can resolve it, not to everyone." />
     <Table head={["Item", "Job", "Owner", "Escalates to", "Due", ""]} empty={d.rows.length ? undefined : "Nothing open. "}>
       {d.rows.map((x: any) => <tr><td>{x.title}{x.detail ? <div class="small mute">{x.detail}</div> : null}</td><td>{x.job_id ? <a href={J(x.job_id)}>{x.job_no}</a> : "—"}</td><td>{x.owner_name ?? "—"}</td><td>{x.escalate_name ?? "—"}</td>
-        <td>{new Date(x.due_at) < new Date() ? <Badge s="bad" label="overdue" /> : null} {formatDate(x.due_at)}</td><td>{can(c, "job.write") ? <PostBtn action={`/app/exceptions/${x.id}/resolve`} csrf={csrf} label="Resolve" /> : null}</td></tr>)}
+        <td>{new Date(x.due_at) < new Date() ? <Badge s="bad" label="overdue" /> : null} {formatDate(x.due_at)}</td><td>{can(c, "job.write") || can(c, "wh.write") ? <PostBtn action={`/app/exceptions/${x.id}/resolve`} csrf={csrf} label="Resolve" /> : null}</td></tr>)}
     </Table>
     {can(c, "job.write") ? <form method="post" action="/app/exceptions" class="inline-form" style="margin-top:14px"><Csrf t={csrf} /><input name="title" type="text" placeholder="New task or exception" required />
       <select name="owner_id"><option value="">Owner…</option>{d.team.map((m: any) => <option value={m.user_id}>{m.name}</option>)}</select><select name="escalate_to"><option value="">Escalate to…</option>{d.team.map((m: any) => <option value={m.user_id}>{m.name}</option>)}</select>
@@ -244,9 +244,9 @@ ops.get("/app/invoices/:id", async (c) => {
         <form method="post" action={`/app/invoices/${id}/receipt`} class="inline-form" style="margin-top:12px"><Csrf t={csrf} />
           <input name="amount" type="number" step="0.01" min="0.01" max={(out / 100).toFixed(2)} placeholder="Amount received" required /><input name="method" type="text" value="bank transfer" /><input name="reference" type="text" placeholder="Bank reference" /><input name="received_at" type="date" value={today()} /><button class="btn red sm" type="submit">Record receipt</button></form>) : null}
       {can(c, "finance.void") && inv.status !== "void" && Number(inv.paid_minor) === 0 ? (
-        <form method="post" action={`/app/invoices/${id}/void`} data-confirm="Void this invoice? Charges return to the job." class="inline-form" style="margin-top:12px"><Csrf t={csrf} /><input name="reason" type="text" placeholder="Reason for reversal" required /><button class="btn danger sm" type="submit">Void invoice</button></form>) : null}
+        <form method="post" action={`/app/invoices/${id}/void`} data-confirm="Void this invoice? Its charges are released and can be invoiced again." class="inline-form" style="margin-top:12px"><Csrf t={csrf} /><input name="reason" type="text" placeholder="Reason for reversal" required /><button class="btn danger sm" type="submit">Void invoice</button></form>) : null}
     </div>
   </>));
 });
 ops.post("/app/invoices/:id/receipt", async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, `/app/invoices/${id}`, async () => { await withT(c, (cn, ctx) => recordReceipt(cn, ctx, id, b)); return { to: `/app/invoices/${id}`, ok: "Receipt recorded." }; }); });
-ops.post("/app/invoices/:id/void", async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, `/app/invoices/${id}`, async () => { await withT(c, (cn, ctx) => voidInvoice(cn, ctx, id, str(b.reason))); return { to: `/app/invoices/${id}`, ok: "Invoice voided; charges released to the job." }; }); });
+ops.post("/app/invoices/:id/void", async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, `/app/invoices/${id}`, async () => { await withT(c, (cn, ctx) => voidInvoice(cn, ctx, id, str(b.reason))); return { to: `/app/invoices/${id}`, ok: "Invoice voided; its charges are released." }; }); });
