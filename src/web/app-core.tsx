@@ -79,6 +79,14 @@ core.use("/app/*", async (c, next) => {
         {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
       </div>));
   }
+  if (!driverOnly && !portalOnly && p.startsWith("/app/customs") && !t.sectors.includes("customs-brokerage")) {
+    return appPage(c, "Sector not enabled", (
+      <div class="card" style="max-width:640px">
+        <h1>Customs brokerage is not selected</h1>
+        <p>Customs cases, evidence checklists and handover packs belong to the <strong>Customs brokerage</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
+        {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
+      </div>));
+  }
   // forwarding workflow requires the sector to be selected. Invoices & collections and Tasks & exceptions are SHARED modules
   // (every sector bills and raises exceptions), so they are deliberately not in this list.
   const fwdOnly = ["/app/enquiries", "/app/quotes", "/app/jobs", "/app/rates", "/app/reports"];
@@ -107,7 +115,7 @@ core.get("/app", async (c) => {
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return c.redirect("/app/driver");
   const data = await withT(c, async (cn) => {
     const n = async (sql: string) => Number((await cn.query<any>(sql)).rows[0].n);
-    const fwd = t.sectors.includes("freight-forwarding"), ful = t.sectors.includes("ecommerce-fulfilment"), dlv = t.sectors.includes("courier-last-mile");
+    const fwd = t.sectors.includes("freight-forwarding"), ful = t.sectors.includes("ecommerce-fulfilment"), dlv = t.sectors.includes("courier-last-mile"), cus = t.sectors.includes("customs-brokerage");
     const customer = { done: (await n(`SELECT count(*) n FROM parties WHERE kind='customer'`)) > 0, label: ful && !fwd ? "Add your first merchant (the business whose goods you store and ship)" : "Add or import your first customer", href: "/app/parties" };
     const colleague = { done: (await n(`SELECT count(*) n FROM memberships WHERE active`)) > 1, label: "Invite a colleague (individual account)", href: "/app/team" };
     const freight = [
@@ -135,7 +143,14 @@ core.get("/app", async (c) => {
       { done: (await n(`SELECT count(*) n FROM dlv_settlements`)) > 0, label: "Count a rider's cash at the cash desk", href: "/app/delivery/cash" },
       { done: (await n(`SELECT count(*) n FROM dlv_rates`)) > 0, label: "Agree a rate card so deliveries can be billed", href: "/app/delivery/billing" },
     ];
-    const checklist = [...(fwd || (!ful && !dlv) ? freight : [customer]), ...(ful ? fulfilment : []), ...(dlv ? delivery : []), colleague];
+    const customsList = [
+      { done: (await n(`SELECT count(*) n FROM cus_cases`)) > 0, label: "Create the first customs case", href: "/app/customs/cases/new" },
+      { done: (await n(`SELECT count(*) n FROM cus_lines`)) > 0, label: "Add goods lines with the broker's HS codes and rates", href: "/app/customs/cases" },
+      { done: (await n(`SELECT count(*) n FROM cus_checklist WHERE status='received'`)) > 0, label: "Attach the supporting documents", href: "/app/customs/cases" },
+      { done: (await n(`SELECT count(*) n FROM cus_cases WHERE approved_by IS NOT NULL`)) > 0, label: "Get a case approved, then open its handover pack", href: "/app/customs/cases" },
+      { done: (await n(`SELECT count(*) n FROM cus_cases WHERE declaration_no IS NOT NULL`)) > 0, label: "Record the declaration number after lodging it", href: "/app/customs/cases" },
+    ];
+    const checklist = [...(fwd || (!ful && !dlv && !cus) ? freight : [customer]), ...(ful ? fulfilment : []), ...(dlv ? delivery : []), ...(cus ? customsList : []), colleague];
     const mine = (await cn.query<any>(`SELECT id,no,status,origin,destination FROM jobs WHERE assigned_to=$1 AND status IN ('planned','in_transit') ORDER BY created_at DESC LIMIT 8`, [ctx.userId])).rows;
     const tasks = (await cn.query<any>(`SELECT id,title,due_at FROM job_exceptions WHERE status='open' AND (owner_id=$1 OR owner_id IS NULL) ORDER BY due_at LIMIT 8`, [ctx.userId])).rows;
     return { checklist, mine, tasks };

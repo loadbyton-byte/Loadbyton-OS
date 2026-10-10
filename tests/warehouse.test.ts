@@ -379,7 +379,7 @@ describe("activity billing", () => {
     expect((await db.query<any>(`SELECT count(*)::int n FROM usage_counters WHERE tenant_id=$1 AND key='jobs_per_month'`, [s.t.tenantId])).rows[0].n).toBe(0);
     const plans = await db.system((c) => currentPlans(c));
     expect(plans.find((p) => p.plan_code === "starter")!.limits.wh_orders_per_month).toBe(150);
-    expect((await db.query<any>(`SELECT version FROM plan_versions WHERE plan_code='starter' ORDER BY version`)).rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
+    expect((await db.query<any>(`SELECT version FROM plan_versions WHERE plan_code='starter' ORDER BY version`)).rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });
 

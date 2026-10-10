@@ -185,7 +185,7 @@ describe("merchant webhooks", () => {
     expect((await co.run((c) => setWebhook(c, co.t.ctx, { merchant_id: co.shop, url: "https://merchant.example.com/h2", active: true }))).secret).toBeNull();   // same secret kept
     const rotated = await co.run((c) => setWebhook(c, co.t.ctx, { merchant_id: co.shop, url: "https://merchant.example.com/h2", active: true, rotate: true }));
     expect(rotated.secret).not.toBe(first.secret);
-    expect(() => unseal(seal("x").replace(/.$/, "A"))).toThrow();                                   // tampered ciphertext is refused
+    { const [v, iv, tag, ct] = seal("a webhook secret").split("."); expect(() => unseal([v, iv, tag, (ct[0] === "A" ? "B" : "A") + ct.slice(1)].join("."))).toThrow(); }                                   // tampered ciphertext is refused
     const sales = { ...co.t.ctx, roles: ["sales"], perms: permsFor(["sales"]) };
     await expect(co.run((c) => setWebhook(c, sales, { merchant_id: co.shop, url: "https://m.example.com/h", active: true }))).rejects.toThrow(/does not allow/);
   });

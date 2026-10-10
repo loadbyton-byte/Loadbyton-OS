@@ -28,7 +28,7 @@ cp .env.example .env        # optional; dev defaults work
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
 npm test                    # 170+ tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty
-                            #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (e-commerce) · warehouse@… (3PL manager) · delivery@… (courier owner) · rider1@… (rider phone view) — all demo-password-123
+                            #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (e-commerce) · warehouse@… (3PL manager) · delivery@… (courier owner) · customs@… (customs broker) · rider1@… (rider phone view) — all demo-password-123
 npm run create-staff -- you@example.com "Your Name" '<12+ char password>' commercial_admin   # prints TOTP secret
 npm run e2e                 # browser walkthrough against a running server (needs Chromium)
 npm run verify              # database-wide invariants (use after every restore test)
@@ -46,6 +46,7 @@ Real deployment — Oracle Cloud VM, Cloudflare tunnel, Neon/Supabase, Upstash, 
 | Company app | `app` / `<slug>` — `/app/*` | Role-gated; navigation shows only relevant modules; `/app/transport/*` needs the Road transport sector |
 | Fulfilment | `/app/fulfilment/*` | Needs the E-commerce fulfilment sector; board, orders, pick list, inbound, stock & counts, returns, catalogue, locations, billing activity. Merchants (portal role) see only their own stock and orders |
 | Warehouse | `/app/warehouse/*` | Needs the Contract warehouse / 3PL sector: board, inbound, dispatch, stock + ledger, counts, locations & SKUs, activity billing; customer portal users see only their own stock |
+| Customs | `/app/customs/*` | Needs the Customs brokerage sector (pilot): board, cases with goods lines (HS codes format-checked only; duty/VAT estimated from broker-entered rates), evidence checklist with uploads, second-person approval, printable handover pack + lines CSV, then recording the declaration number, assessment, inspections, queries, duty payments, deposits/guarantees (client money), release and invoicing with disbursements. **It does not file anything**: lodging is done by a licensed broker in Dubai Trade / Mirsal 2 |
 | Delivery | `/app/delivery/*` | Needs the Courier / last mile sector: board, parcels (form + CSV), printable labels, runs, riders, cash desk (handover, variance approval, merchant payouts), rates & billing, integrations (merchant API keys, signed webhooks, SMS opt-in). Merchants (portal role) see only their own parcels and payouts. Public parcel tracking at `/t/<token>` |
 | Driver app | `/app/driver/*` | Phone-first, large touch targets; `driver` seats are limited (no other pages); trips **and** delivery runs; offline queue + idempotent sync |
 | Control console | `admin` — `/admin/*` | Platform staff + TOTP; separate privilege; audited |
