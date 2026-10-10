@@ -31,6 +31,12 @@ export function navFor(c: C): NavItem[] {
     n.push({ href: "/app/transport", label: "Planning board", section: "Transport" }, { href: "/app/transport/orders", label: "Transport orders", section: "Transport" },
       { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" });
   }
+  if (t?.sectors.includes("contract-warehouse-3pl")) {
+    n.push({ href: "/app/warehouse", label: "Warehouse board", section: "Warehouse" }, { href: "/app/warehouse/inbound", label: "Inbound", section: "Warehouse" },
+      { href: "/app/warehouse/outbound", label: "Dispatch", section: "Warehouse" }, { href: "/app/warehouse/stock", label: "Stock", section: "Warehouse" },
+      { href: "/app/warehouse/counts", label: "Counts", section: "Warehouse" }, { href: "/app/warehouse/setup", label: "Locations & SKUs", section: "Warehouse" });
+    if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
+  }
   n.push({ href: "/app/parties", label: "Customers & suppliers", section: "Sell" });
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });
