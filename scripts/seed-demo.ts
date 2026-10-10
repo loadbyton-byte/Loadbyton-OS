@@ -9,6 +9,7 @@ import { acceptQuote, approveQuote, createQuote, sendQuote, submitQuote } from "
 import { getJob, recordMilestone } from "../src/ops/jobs.js";
 import { invoiceJob } from "../src/ops/finance.js";
 import { acceptInvite, invite } from "../src/ops/team.js";
+import { addLine as cusAddLine, approveCase as cusApprove, attachEvidence as cusAttach, createCase as cusCreate, getCase as cusGet, receiveDeposit as cusDeposit, recordAssessment as cusAssess, recordSubmission as cusSubmit, submitForReview as cusReview } from "../src/ops/customs.js";
 import { createInbound as fulCreateInbound, createLocation as fulCreateLocation, createOrder as createFulfilOrder, createReturn, createSku as fulCreateSku, getFulfilOrder, getInbound as fulGetInbound, getReturn, packScan, pickOrder, receiveInbound, receiveReturn, requestAdjustment, shipOrder } from "../src/ops/fulfilment.js";
 import { runStorageCharges, setRate as fulSetRate } from "../src/ops/fulfil-billing.js";
 
@@ -254,5 +255,25 @@ await db.tenant(kr.tenantId, async (c) => {
   const cashier = { ...kctx, roles: ["owner"] };
   await settleRider(c, cashier, riderToken.rider2, { counted: "190", note: "Customer paid with a torn note that was refused at the desk" });
 });
-console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123\n  Fulfilment owner: ${fEmail} / demo-password-123\n  Warehouse owner: ${wEmail} / demo-password-123\n  Delivery owner : ${kEmail} / demo-password-123\n  Rider (phone)  : rider1@loadbyton.example / demo-password-123`);
+// ── fifth demo company: customs brokerage (one case approved and handed over, one assessed, one still collecting documents, one deposit held)
+const cEmail = "customs@loadbyton.example";
+const cr = await registerCompany(db, { company: "DEMO Gulf Customs Services", contactName: "Demo Broker", email: cEmail, password: "demo-password-123", sectors: ["customs-brokerage"], goal: "Never lodge a declaration with a missing document" });
+const cctx = { userId: cr.userId, tenantId: cr.tenantId, roles: ["owner"], perms: permsFor(["owner"]), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
+await db.tenant(cr.tenantId, async (c) => {
+  const acme = await createParty(c, cctx, { kind: "customer", name: "DEMO Acme Imports LLC" });
+  const mk = (ref: string, over: Record<string, any> = {}) => cusCreate(c, cctx, { party_id: acme, direction: "import", mode: "sea", customs_office: "Jebel Ali", origin_country: "CN", destination_country: "AE", incoterm: "cif", currency: "USD", fx_rate: "3.6725", freight: "400", insurance: "40", transport_ref: ref, ...over });
+  const line = { description: "Laptops", hs_code: "8471.30.10", origin_country: "CN", qty: 10, net_kg: 25, gross_kg: 30, value: "1000.00", duty_pct: 5, vat_pct: 5 };
+  const ready = async (id: string) => {
+    await cusAddLine(c, cctx, id, line);
+    for (const it of (await cusGet(c, id)).checklist.filter((x: any) => x.mandatory && x.status === "missing"))
+      await cusAttach(c, cctx, id, { item_id: it.id, kind: it.kind, title: it.label, filename: `${it.kind}.pdf`, data: Buffer.from(`%PDF-1.4 demo ${id} ${it.id}`) });
+  };
+  const a = await mk("MAEU-DEMO-1"); await ready(a.id); await cusReview(c, cctx, a.id); await cusApprove(c, cctx, a.id);
+  const b = await mk("MAEU-DEMO-2"); await ready(b.id); await cusReview(c, cctx, b.id); await cusApprove(c, cctx, b.id);
+  await cusSubmit(c, cctx, b.id, { channel: "dubai_trade", declaration_no: "DT-DEMO-2001" });
+  await cusAssess(c, cctx, b.id, { duty: "190.00", vat: "199.50" });
+  const d = await mk("MAEU-DEMO-3"); await cusAddLine(c, cctx, d.id, line);                            // still collecting documents
+  await cusDeposit(c, cctx, { party_id: acme, kind: "cash_deposit", amount: "5000", reference: "DEP-DEMO-1" });
+});
+console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123\n  Fulfilment owner: ${fEmail} / demo-password-123\n  Warehouse owner: ${wEmail} / demo-password-123\n  Delivery owner : ${kEmail} / demo-password-123\n  Customs owner  : ${cEmail} / demo-password-123\n  Rider (phone)  : rider1@loadbyton.example / demo-password-123`);
 await db.close();

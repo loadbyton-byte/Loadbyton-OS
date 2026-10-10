@@ -3,8 +3,8 @@ import { quotaExceeded, HttpError } from "../lib/util.js";
 import type { PlanVersion } from "./catalog.js";
 
 /** Per-month billing units, one per sector. Each is consumed transactionally (see consumeQuota). */
-export type MeteredKey = "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month" | "parcels_per_month";
-const METERED: MeteredKey[] = ["jobs_per_month", "trips_per_month", "fulfilment_orders_per_month", "wh_orders_per_month", "parcels_per_month"];
+export type MeteredKey = "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month" | "parcels_per_month" | "cus_cases_per_month";
+const METERED: MeteredKey[] = ["jobs_per_month", "trips_per_month", "fulfilment_orders_per_month", "wh_orders_per_month", "parcels_per_month", "cus_cases_per_month"];
 export type LimitKey = MeteredKey | "max_users" | "max_branches" | "storage_mb" | "max_sectors" | "max_entities";
 const KEYS: LimitKey[] = ["max_users", "max_branches", ...METERED, "storage_mb", "max_sectors", "max_entities"];
 
