@@ -16,6 +16,7 @@ import { invite, listTeam, setRoles, deactivate } from "../ops/team.js";
 import { ownerDashboard } from "../ops/dashboard.js";
 import { exportTenantData, invoicesCsv } from "../ops/exporter.js";
 import { listJobs } from "../ops/jobs.js";
+import { portalStock } from "../ops/warehouse.js";
 import { listInvoices } from "../ops/finance.js";
 import { listDocuments } from "../ops/documents.js";
 import { assertCapacity } from "../platform/entitlements.js";
@@ -48,6 +49,14 @@ core.use("/app/*", async (c, next) => {
       <div class="card" style="max-width:640px">
         <h1>Road transport is not selected</h1>
         <p>Transport planning belongs to the <strong>Road transport</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
+        {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
+      </div>));
+  }
+  if (!driverOnly && !portalOnly && p.startsWith("/app/warehouse") && !t.sectors.includes("contract-warehouse-3pl")) {
+    return appPage(c, "Sector not enabled", (
+      <div class="card" style="max-width:640px">
+        <h1>Contract warehouse / 3PL is not selected</h1>
+        <p>Custody stock, receiving, dispatch and counts belong to the <strong>Contract warehouse / 3PL</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
         {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
       </div>));
   }
@@ -168,11 +177,14 @@ core.get("/app/portal", async (c) => {
   const d = await withT(c, async (cn) => ({
     jobs: await listJobs(cn, ctx.partyId), invoices: await listInvoices(cn, ctx.partyId),
     docs: await listDocuments(cn, { portalPartyId: ctx.partyId }),
+    stock: ctx.partyId ? await portalStock(cn, ctx.partyId) : [],
   }));
   return appPage(c, "My shipments", (<>
     <PageHead title="My shipments" sub="A limited view: your shipments, issued documents and invoices only." />
     <Table caption="Shipments" head={["Job", "Route", "Status"]} empty={d.jobs.length ? undefined : "No shipments yet."}>
       {d.jobs.map((j: any) => <tr><td>{j.no}</td><td>{j.origin} → {j.destination}</td><td><Badge s={j.status} /></td></tr>)}</Table>
+    {d.stock.length ? <><div style="height:18px" /><Table caption="Stock held for you" head={["SKU", "Description", ["On hand", "num"], ["Reserved", "num"], ["On hold", "num"]]}>
+      {d.stock.map((s: any) => <tr><td>{s.sku_code}</td><td>{s.sku_desc}</td><td class="num">{Number(s.on_hand)} {s.uom}</td><td class="num">{Number(s.reserved)}</td><td class="num">{Number(s.quarantined)}</td></tr>)}</Table></> : null}
     <div style="height:18px" />
     <Table caption="Documents shared with you" head={["Document", "Job", ""]} empty={d.docs.length ? undefined : "No documents shared."}>
       {d.docs.map((x: any) => <tr><td>{x.title}</td><td>{x.job_no}</td><td><a href={`/app/documents/${x.id}/download`}>Download</a></td></tr>)}</Table>
@@ -249,7 +261,7 @@ core.get("/app/billing", async (c) => {
   const usage = await withT(c, async (cn) => ({ limits: await getLimits(cn, ctx.tenantId),
     used: { max_users: await currentUsage(cn, ctx.tenantId, "max_users"), jobs_per_month: await currentUsage(cn, ctx.tenantId, "jobs_per_month"),
       storage_mb: await currentUsage(cn, ctx.tenantId, "storage_mb"), max_branches: await currentUsage(cn, ctx.tenantId, "max_branches"),
-      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month") } }));
+      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month"), wh_orders_per_month: await currentUsage(cn, ctx.tenantId, "wh_orders_per_month") } }));
   const quotes: Record<string, Awaited<ReturnType<typeof priceCheckout>> | null> = {};
   for (const pl of plans) quotes[pl.plan_code] = await db.system((cn) => priceCheckout(cn, ctx.tenantId, pl)).catch(() => null);
   const csrf = c.get("csrf");
@@ -263,6 +275,7 @@ core.get("/app/billing", async (c) => {
       <div class="card"><h3>Jobs this month</h3><div class="kpi">{usage.used.jobs_per_month} / {usage.limits.jobs_per_month}</div></div>
       <div class="card"><h3>Documents</h3><div class="kpi">{usage.used.storage_mb} / {usage.limits.storage_mb} MB</div></div>
       {c.get("tenant")!.sectors.includes("road-transport") ? <div class="card"><h3>Trips this month</h3><div class="kpi">{usage.used.trips_per_month} / {usage.limits.trips_per_month}</div></div> : null}
+      {c.get("tenant")!.sectors.includes("contract-warehouse-3pl") ? <div class="card"><h3>Warehouse orders this month</h3><div class="kpi">{usage.used.wh_orders_per_month} / {usage.limits.wh_orders_per_month}</div><p class="small mute">Inbound notices + dispatch orders</p></div> : null}
     </div>
     <h2 style="margin-top:28px">Change plan</h2>
     <p class="mute small">Net incremental price shown: setup already paid at a lower tier is credited. No proration in the pilot. Tax is shown at checkout.</p>
