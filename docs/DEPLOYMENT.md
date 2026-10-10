@@ -128,10 +128,32 @@ customer is a question for your accountant, and the receipt says so. The receipt
 5. Replace the test keys with live keys, delete `ALLOW_TEST_PAYMENT_KEYS`, redeploy. In the Stripe/Razorpay dashboards confirm webhook deliveries show `200`.
 6. Check the control console (`admin.yourdomain`) → *Queues & reviews*: any payment that could not be applied (amount mismatch, unknown order) lands there for a human.
 
-## 7. Known limits of this setup (pilot)
+## 7. Email (Resend)
+
+`MAIL_PROVIDER=resend`, `RESEND_API_KEY=re_…`, `MAIL_FROM="LOAD|BY|TON <noreply@yourdomain.com>"` — verify the domain in Resend first (add its DKIM/SPF DNS records in Cloudflare, *DNS only*).
+Sent: team invitations (with the one-time link, which is **removed from the database once delivered**), payment received, workspace ready. A rejected message (unverified domain, bad
+address) goes straight to the dead queue and shows on `lbt_outbox_rows{status="dead"}`; a provider outage is retried with back-off. Until configured the app prints one line per email (never the body).
+
+## 8. Document storage (Oracle Object Storage / Cloudflare R2)
+
+`STORAGE_DRIVER=s3`. **Oracle:** Identity → your user → Customer secret keys (this is the S3 access key/secret); endpoint `https://<namespace>.compat.objectstorage.<region>.oraclecloud.com`,
+`S3_REGION=<region>` (e.g. `me-dubai-1`), `S3_PATH_STYLE=true`. **Cloudflare R2:** R2 → API tokens (Object Read & Write on one bucket); endpoint `https://<account>.r2.cloudflarestorage.com`, `S3_REGION=auto`.
+The bucket must be private. Objects are stored as `<tenantId>/<uuid>`; downloads still go through the app (session + tenant + signed link checks), never a public URL.
+Moving existing files from the VM disk to the bucket is a one-off copy of `data/files/<tenantId>/<uuid>` to the same keys (e.g. `rclone copy`), done **before** switching the driver.
+
+## 9. SMS to consignees (optional)
+
+`SMS_PROVIDER=twilio` + `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`. Texts go only to UAE mobile numbers, only for merchants who were switched on under *Delivery → Integrations*,
+and only for “out for delivery” and “could not deliver” (the delivery code is included only for parcels that require it). The phone number, text and link are removed from the database after sending.
+Sender-ID registration and consent for marketing/transactional SMS in the UAE are your responsibility with your SMS provider.
+
+## 10. Monitoring
+
+See [`MONITORING.md`](MONITORING.md): `/healthz` (liveness), `/readyz` (database + background workers), `/metrics` (Prometheus text, bearer `METRICS_TOKEN`), recommended alerts.
+
+## 11. Known limits of this setup (pilot)
 
 - **One web instance.** Background workers (provisioning, outbox) run inside it. Run more instances only after setting `RUN_WORKERS=false` on all but one.
-- **Uploaded documents live on the VM's Docker volume.** There is no object-storage adapter yet (e.g. Oracle Object Storage / Cloudflare R2): back the volume up
-  (`scripts/backup.sh`) and treat the VM disk as the system of record for files.
-- **Email is a log stub** until a mail provider is chosen (blueprint decision #9): invitations are shown as links in the UI.
-- No metrics/alerting stack is wired; use Cloudflare/Oracle uptime checks on `/healthz` until one is (this is why every sector remains *Pilot*).
+- With `STORAGE_DRIVER=fs`, uploaded documents live on the VM's Docker volume: back it up (`scripts/backup.sh`). Use `s3` to move them off the VM.
+- **Alerting is yours to wire**: the app exposes health and metrics; something outside it must watch them and page a person (see MONITORING.md). Until that is running, sectors stay *Pilot*.
+- Merchant webhooks and the merchant API are in place, but a merchant's own endpoint reliability is outside our control: failed deliveries are retried 12 times with growing back-off (about three hours in total) and then wait in the dead queue.

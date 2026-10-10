@@ -7,6 +7,7 @@ import { assertWritable, consumeQuota } from "../platform/entitlements.js";
 import { must, nextNumber, optNum, optStr, reqStr } from "./common.js";
 import { issueInvoice, recordReceipt } from "./finance.js";
 import { parseCsv, type ImportReport } from "./importer.js";
+import { emitParcelEvent } from "./delivery-notify.js";
 import { dubaiToIso } from "./transport.js";
 
 /** Company day in UTC+4 (no DST). */
@@ -86,6 +87,14 @@ export async function createShipment(c: Conn, ctx: Ctx, f: Record<string, any>) 
   return r;
 }
 
+/** Same as createShipment, but a known merchant reference returns the existing parcel (idempotent API create) instead of an error. */
+export async function ensureShipment(c: Conn, ctx: Ctx, f: Record<string, any>) {
+  require(ctx, "dlv.write");
+  await assertWritable(c, ctx.tenantId);
+  await must(c.query(`SELECT id FROM parties WHERE id=$1 AND kind='customer'`, [f.merchant_id]), "Merchant");
+  return placeShipment(c, ctx, f as ShipmentInput);
+}
+
 /**
  * CSV import (one row per parcel). Required columns: external_ref, consignee_name, address, emirate.
  * Optional: consignee_phone, cod (AED), pieces, weight_kg, description, origin_emirate, require_code, max_attempts.
@@ -138,6 +147,7 @@ export async function cancelShipment(c: Conn, ctx: Ctx, id: string) {
   if (s.status !== "new") throw badRequest(`A parcel that is ${s.status.replace(/_/g, " ")} cannot be cancelled${s.status === "assigned" ? " — take it off its run first" : ""}.`);
   await c.query(`UPDATE dlv_shipments SET status='cancelled' WHERE id=$1`, [id]);
   await logEvent(c, ctx, id, null, "cancel");
+  await emitParcelEvent(c, ctx.tenantId, s, "parcel.cancelled", "cancelled");
   await audit(c, ctx.tenantId, actorOf(ctx), "dlv_shipment.cancelled", "dlv_shipment", id);
 }
 
@@ -162,6 +172,7 @@ export async function returnToSender(c: Conn, ctx: Ctx, id: string, reason: stri
   if (!["new", "undelivered"].includes(s.status)) throw badRequest(`A ${s.status.replace(/_/g, " ")} parcel cannot be returned from here.`);
   await c.query(`UPDATE dlv_shipments SET status='return_to_sender', run_id=NULL, last_failure=coalesce(last_failure,$2) WHERE id=$1`, [id, reqStr(reason, "Reason", 200)]);
   await logEvent(c, ctx, id, null, "rts", { reason });
+  await emitParcelEvent(c, ctx.tenantId, s, "parcel.return_to_sender", "return_to_sender", { reason });
   await audit(c, ctx.tenantId, actorOf(ctx), "dlv_shipment.rts", "dlv_shipment", id, { reason });
 }
 
@@ -173,6 +184,7 @@ export async function confirmReturned(c: Conn, ctx: Ctx, id: string) {
   await c.query(`UPDATE dlv_shipments SET status='returned', returned_at=now() WHERE id=$1`, [id]);
   await accrue(c, ctx.tenantId, s, "return", dubaiDay());
   await logEvent(c, ctx, id, null, "returned");
+  await emitParcelEvent(c, ctx.tenantId, s, "parcel.returned", "returned");
   await audit(c, ctx.tenantId, actorOf(ctx), "dlv_shipment.returned", "dlv_shipment", id);
 }
 
@@ -212,7 +224,10 @@ export async function addToRun(c: Conn, ctx: Ctx, runId: string, shipmentIds: st
   for (const s of rows) if (s.status !== "new") throw badRequest(`${s.no} is ${s.status.replace(/_/g, " ")} and cannot be assigned.`);
   const next = run.status === "out" ? "out_for_delivery" : "assigned";
   await c.query(`UPDATE dlv_shipments SET status=$2, run_id=$3 WHERE id = ANY($1::uuid[])`, [ids, next, runId]);
-  for (const s of rows) await logEvent(c, ctx, s.id, runId, run.status === "out" ? "out" : "assigned", { run: run.no });
+  for (const s of rows) {
+    await logEvent(c, ctx, s.id, runId, run.status === "out" ? "out" : "assigned", { run: run.no });
+    if (run.status === "out") await emitParcelEvent(c, ctx.tenantId, s, "parcel.out_for_delivery", "out_for_delivery", { run: run.no });
+  }
   await audit(c, ctx.tenantId, actorOf(ctx), "dlv_run.assigned", "dlv_run", runId, { parcels: ids.length });
 }
 
@@ -236,8 +251,11 @@ export async function startRun(c: Conn, ctx: Ctx, runId: string) {
   const busy = (await c.query<any>(`SELECT no FROM dlv_runs WHERE driver_id=$1 AND status='out' AND id<>$2 LIMIT 1`, [run.driver_id, runId])).rows[0];
   if (busy) throw badRequest(`This rider is still out on ${busy.no}. Close it first.`);
   await c.query(`UPDATE dlv_runs SET status='out', started_at=now() WHERE id=$1`, [runId]);
-  const moved = (await c.query<any>(`UPDATE dlv_shipments SET status='out_for_delivery' WHERE run_id=$1 AND status='assigned' RETURNING id`, [runId])).rows;
-  for (const s of moved) await logEvent(c, ctx, s.id, runId, "out", { run: run.no });
+  const moved = (await c.query<any>(`UPDATE dlv_shipments SET status='out_for_delivery' WHERE run_id=$1 AND status='assigned' RETURNING *`, [runId])).rows;
+  for (const s of moved) {
+    await logEvent(c, ctx, s.id, runId, "out", { run: run.no });
+    await emitParcelEvent(c, ctx.tenantId, s, "parcel.out_for_delivery", "out_for_delivery", { run: run.no });
+  }
   await audit(c, ctx.tenantId, actorOf(ctx), "dlv_run.started", "dlv_run", runId, { parcels: moved.length });
 }
 
@@ -330,6 +348,7 @@ export async function applyRiderEvent(c: Conn, ctx: Ctx, ev: RiderEvent): Promis
           [ctx.tenantId, s.id, run.driver_id, s.cod_minor, effIso, id]);
       }
       await accrueDelivery(c, ctx.tenantId, s, dubaiDay(new Date(eff)));
+      await emitParcelEvent(c, ctx.tenantId, { ...s, attempts: s.attempts + 1 }, "parcel.delivered", "delivered", { delivered_at: effIso, received_by: name, cod_collected_minor: Number(s.cod_minor) });
       applied = true;
     }
   } else if (ev.kind === "fail") {
@@ -345,6 +364,9 @@ export async function applyRiderEvent(c: Conn, ctx: Ctx, ev: RiderEvent): Promis
       await c.query(`INSERT INTO job_exceptions(tenant_id,title,detail,owner_id,due_at) VALUES ($1,$2,$3,$4, now() + interval '8 hours')`,
         [ctx.tenantId, `Parcel ${s.no}: consignee cannot pay COD`, `Call the merchant for a decision. ${text}`, s.created_by]);
     }
+    const after = { ...s, attempts };
+    await emitParcelEvent(c, ctx.tenantId, after, "parcel.attempt_failed", exhausted ? "return_to_sender" : "undelivered", { reason: FAIL_REASONS[reason], attempt: attempts, max_attempts: s.max_attempts, will_return: exhausted });
+    if (exhausted) await emitParcelEvent(c, ctx.tenantId, after, "parcel.return_to_sender", "return_to_sender", { reason: "all attempts used" });
     applied = true;
   }
 
@@ -579,6 +601,11 @@ export async function payRemittance(c: Conn, ctx: Ctx, id: string, f: { referenc
   const ref = reqStr(f.reference, "Bank transfer reference", 80);
   await c.query(`UPDATE dlv_remittances SET status='paid', pay_reference=$2, paid_by=$3, paid_at=now() WHERE id=$1`, [id, ref, ctx.userId]);
   await audit(c, ctx.tenantId, actorOf(ctx), "dlv_remittance.paid", "dlv_remittance", id, { ref, net: Number(r.net_minor) });
+  const set = (await c.query<any>(`SELECT webhook_active FROM dlv_merchant_settings WHERE merchant_id=$1`, [r.merchant_id])).rows[0];
+  if (set?.webhook_active) {
+    await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'merchant.webhook',$2,$3) ON CONFLICT (key) DO NOTHING`,
+      [ctx.tenantId, `mwh:remittance:${id}`, JSON.stringify({ merchant_id: r.merchant_id, type: "remittance.paid", data: { remittance: r.no, cod_collected_minor: Number(r.gross_minor), fees_minor: Number(r.fees_minor), paid_to_merchant_minor: Number(r.net_minor), bank_reference: ref } })]);
+  }
 }
 
 /** A statement prepared by mistake can be withdrawn while nothing else depends on it (no fees netted, not yet paid). */
@@ -697,7 +724,7 @@ export async function riderHome(c: Conn, driverId: string) {
 }
 
 // ───────────────────────── public tracking (no login; no personal data)
-const PUBLIC_STEP: Record<string, string> = {
+export const PUBLIC_STEP: Record<string, string> = {
   created: "Order received by the courier", assigned: "Assigned to a delivery run", out: "Out for delivery", deliver: "Delivered", fail: "Delivery attempt unsuccessful",
   reattempt: "Re-attempt scheduled", rts: "Being returned to the sender", returned: "Returned to the sender", cancel: "Cancelled",
 };

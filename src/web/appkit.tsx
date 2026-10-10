@@ -47,6 +47,7 @@ export function navFor(c: C): NavItem[] {
     const w = (href: string, label: string) => n.push({ href, label, section: "Delivery" });
     w("/app/delivery", "Delivery board"); w("/app/delivery/shipments", "Parcels"); w("/app/delivery/runs", "Runs"); w("/app/delivery/riders", "Riders"); w("/app/delivery/cash", "Cash desk");
     if (ctx.perms.has("dlv.bill")) w("/app/delivery/billing", "Rates & billing");
+    if (ctx.perms.has("settings.manage")) w("/app/delivery/integrations", "Integrations");
   }
   n.push({ href: "/app/parties", label: "Customers & suppliers", section: "Sell" });
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
