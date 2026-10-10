@@ -179,3 +179,22 @@ single-connection).
   handover expected = Σ its cash; rejected handover holds none; rider = collector; closed variances were decided by a second person;
   remitted only after a closed handover; remittance gross = Σ its cash and merchant matches; remittance fees = netted receipts;
   parcel is on a run exactly when assigned/out; attempts ≤ max; closed runs have no open parcels; delivery invoices total their charges.
+
+
+## Payments adapters (blueprint §22)
+
+`src/platform/payments/{stripe,razorpay}.ts` (REST over `fetch`, no SDKs), registered by `PAYMENT_PROVIDERS`; `platform/billing.ts` is provider-neutral.
+
+- **Outbound:** `startCheckout` opens a provider-hosted session once (Stripe Checkout with an idempotency key; Razorpay Payment Link), stores
+  `provider_session` + `checkout_url` so a pending order can be resumed, and closes the order as `failed` if the provider cannot be reached. The browser is sent to
+  the provider by a link/meta refresh, never by a form redirect (our `form-action 'self'` CSP would block it, and a redirect must never be what activates anything).
+- **Inbound:** `/webhooks/payments/:provider` verifies the provider's own signature over the raw body (Stripe: `t`/`v1` HMAC with 5-minute tolerance and rotation;
+  Razorpay: HMAC of the body, replay safety from the unique event id), translates to the internal `PaymentEvent`, and uses the same idempotent
+  `processPaymentEvent`: unique (provider, event id), order id + reference + amount + currency must all match, one order → one provisioning job.
+  A refund that lacks our metadata finds its order through the provider payment id of the earlier successful event. A successful payment that cannot be applied
+  is queued for staff review in the control console. Every understood event is answered `200` (providers retry non-2xx for days); bad signatures get `400`.
+- **Config safety:** `validateConfig` stops the process when a provider is half-configured, test keys are used in production (unless explicitly allowed for a smoke
+  test), the base URL is not https, or TLS verification is disabled for the database.
+- **Database:** `pgConnection` maps `sslmode`/`DATABASE_SSL` to verified TLS for Neon/Supabase; migrations take an advisory lock and use `MIGRATION_DATABASE_URL`
+  (direct connection) when given. **Rate limiting:** `lib/ratelimit.ts` — Upstash REST fixed-window counters shared across instances, falling back to an
+  in-process counter when Redis is unreachable; client address is read only from the header named by `TRUST_PROXY`.

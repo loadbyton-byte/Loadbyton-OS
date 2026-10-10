@@ -6,6 +6,7 @@ import { createParty } from "../src/ops/crm.js";
 import { createDriver } from "../src/ops/transport.js";
 import { invite } from "../src/ops/team.js";
 import { resetThrottle } from "../src/platform/auth.js";
+import { config } from "../src/config.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 
 let db: Db, app: ReturnType<typeof buildApp>;
@@ -165,6 +166,23 @@ describe("Delivery over HTTP", () => {
     for (const secret of ["Private Person", "0509876543", "Hidden Villa"]) expect(r.html).not.toContain(secret);
     expect((await anon.page("/t/not-a-real-token-123")).status).toBe(404);
     expect((await anon.page("/t/x")).status).toBe(404);
+  });
+
+  it("tracking lookups are rate limited per client address (taken only from the header the deployment trusts)", async () => {
+    resetThrottle();
+    const o = await company();
+    await o.office.post(`${D}/shipments`, { merchant_id: o.merchant, consignee_name: "x", address: "y", emirate: "Dubai" });
+    const token = (await db.query<any>(`SELECT track_token FROM dlv_shipments ORDER BY created_at DESC LIMIT 1`)).rows[0].track_token;
+    const saved = config.trustProxy;
+    config.trustProxy = "cloudflare";
+    try {
+      const hit = (ip: string) => app.request(`/t/${token}`, { headers: { "cf-connecting-ip": ip } });
+      for (let i = 0; i < 60; i++) expect((await hit("203.0.113.9")).status).toBe(200);
+      expect((await hit("203.0.113.9")).status).toBe(429);
+      expect((await hit("203.0.113.10")).status).toBe(200);                                  // another address is unaffected
+      config.trustProxy = "";
+      expect((await app.request(`/t/${token}`, { headers: { "x-forwarded-for": "203.0.113.9", "cf-connecting-ip": "203.0.113.9" } })).status).toBe(200);   // spoofable headers are ignored
+    } finally { config.trustProxy = saved; resetThrottle(); }
   });
 
   it("CSRF is required, roles are fenced, and another tenant gets a 404 for the same URL", async () => {

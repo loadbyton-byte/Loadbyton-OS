@@ -111,3 +111,10 @@ export const requireStaff: MiddlewareHandler<Env> = async (c, next) => {
 export function safeNext(n: string | undefined | null, fallback: string) {
   return n && /^\/[A-Za-z0-9\-._~\/%?=&]*$/.test(n) && !n.startsWith("//") ? n : fallback;
 }
+
+/** The caller's address, taken only from the header the deployment says it controls (Cloudflare / a trusted proxy); otherwise unknown. */
+export function clientIp(c: C): string {
+  if (config.trustProxy === "cloudflare") return (c.req.header("cf-connecting-ip") ?? "").trim();
+  if (config.trustProxy === "xff") return (c.req.header("x-forwarded-for") ?? "").split(",")[0].trim();
+  return "";
+}

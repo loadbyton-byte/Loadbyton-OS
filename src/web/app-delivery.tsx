@@ -7,7 +7,8 @@ import {
 } from "../ops/delivery.js";
 import { invite } from "../ops/team.js";
 import { listParties } from "../ops/crm.js";
-import { formBody, str, arr, type Env } from "./mw.js";
+import { formBody, str, arr, clientIp, type Env } from "./mw.js";
+import { rateLimit } from "../lib/ratelimit.js";
 import { act, appPage, can, Confirm, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, PublicShell, Table } from "./ui.js";
 
@@ -429,6 +430,8 @@ delivery.post(`${D}/billing/invoice`, async (c) => {
 // ───────── public tracking: no login, no personal data (a token is the capability)
 export const deliveryPublic = new Hono<Env>();
 deliveryPublic.get("/t/:token", async (c) => {
+  const ip = clientIp(c);
+  await rateLimit(`track:${ip || "unknown"}`, ip ? 60 : 600, 60, "Too many lookups. Please wait a minute and try again.");   // the token is unguessable; this stops scanning
   const t = await trackByToken(c.get("db"), c.req.param("token"));
   const p = { title: "Track your parcel", csrf: c.get("csrf"), path: c.req.path, user: null };
   if (!t) return c.html(<PublicShell p={p}><section class="block"><div class="wrap prose"><h1>Parcel not found</h1><p>Check the tracking link you were sent.</p></div></section></PublicShell>, 404);

@@ -1,3 +1,4 @@
+import { getAdapter, WebhookSignatureError } from "../platform/payments/index.js";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getCookie } from "hono/cookie";
@@ -9,7 +10,7 @@ import { SECTORS } from "../platform/catalog.js";
 import { completeMfa, endSession, login, newSession } from "../platform/auth.js";
 import { acceptInvite, inviteInfo } from "../ops/team.js";
 import { buildMockEvent, processPaymentEvent, signPayload, verifySignature, type PaymentEvent } from "../platform/billing.js";
-import { SESSION_COOKIE, arr, clearSessionCookie, formBody, safeNext, setSessionCookie, str, type Env } from "./mw.js";
+import { SESSION_COOKIE, arr, clearSessionCookie, clientIp, formBody, safeNext, setSessionCookie, str, type Env } from "./mw.js";
 import { Csrf, PublicShell, type Page } from "./ui.js";
 
 export const auth = new Hono<Env>();
@@ -109,7 +110,7 @@ auth.post("/login", async (c) => {
   const b = await formBody(c);
   const db = c.get("db");
   try {
-    const r = await login(db, str(b.email), str(b.password), c.req.header("x-forwarded-for") ?? "");
+    const r = await login(db, str(b.email), str(b.password), clientIp(c));
     setSessionCookie(c, r.token);
     if (r.staff) return c.redirect("/admin/mfa");
     return c.redirect(safeNext(str(b.next), "/app"));
@@ -211,10 +212,23 @@ export async function handlePaymentWebhook(db: Db, provider: string, raw: string
   return { status: r.outcome === "rejected" ? 422 : 200, body: r };
 }
 auth.post("/webhooks/payments/:provider", async (c) => {
-  if (c.req.param("provider") !== config.paymentProvider) throw new HttpError(404, "Unknown provider");
+  const provider = c.req.param("provider");
+  if (!config.paymentProviders.includes(provider)) throw new HttpError(404, "Unknown provider");
   const raw = await c.req.text();
-  const r = await handlePaymentWebhook(c.get("db"), c.req.param("provider"), raw, c.req.header("x-lbt-signature"));
-  return c.json(r.body, r.status as any);
+  if (provider === "mock") {
+    const r = await handlePaymentWebhook(c.get("db"), provider, raw, c.req.header("x-lbt-signature"));
+    return c.json(r.body, r.status as any);
+  }
+  const adapter = getAdapter(provider);
+  if (!adapter) throw new HttpError(404, "Unknown provider");
+  let parsed;
+  try { parsed = adapter.parseWebhook(raw, (n) => c.req.header(n)); }
+  catch (e) { if (e instanceof WebhookSignatureError) return c.json({ error: e.message }, 400); throw e; }
+  if (!parsed.event) return c.json({ outcome: "ignored", reason: parsed.ignored }, 200);
+  // 200 for everything we understood, even a rejected event: providers retry non-2xx for days, and a rejection is permanent.
+  // Rejected successes are queued for staff review inside processPaymentEvent.
+  const r = await processPaymentEvent(c.get("db"), provider, parsed.event);
+  return c.json(r, 200);
 });
 
 export { buildMockEvent, signPayload };

@@ -2,7 +2,8 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
-RUN npm ci
+# tsx (a dev dependency) runs the TypeScript sources directly, so dev dependencies are installed too
+RUN npm ci --include=dev
 COPY tsconfig.json ./
 COPY src ./src
 COPY public ./public
