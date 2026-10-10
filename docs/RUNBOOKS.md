@@ -60,3 +60,28 @@ Do not use it to hide a short pick — count the bin first.
 Billing activity → set each merchant's rate card (rates apply from now on) → *Create storage charges* once a month (snapshot of occupied
 locations; safe to repeat) → *Invoice merchant*. A wrong invoice is voided (finance), which returns the activity to the unbilled pool.
 
+
+## Warehouse: a count variance is waiting
+Warehouse → Counts → open the submitted count. Approvers see system vs counted; counters never do. *Approve adjustment* posts one `adjust`
+movement (visible in the Movement ledger with the count number and the approver). *Reject* leaves stock unchanged. If the page says the
+stock moved since the sheet was cut, nothing was adjusted: the line is back with the counters with a fresh snapshot — recount it. An
+adjustment that would drop stock below what is reserved is refused: cancel or re-allocate the dispatch order first.
+
+## Warehouse: a short pick
+Confirm the pick with what was actually found; the shortfall is released at once and the order dispatches what was picked. Raise a
+count of that location straight away — the shortage is a stock-accuracy problem, not just an order problem.
+
+## Warehouse: damaged goods / releasing from quarantine
+Damaged goods are received into a quarantine location (the system refuses to put them anywhere else). Quarantine stock is never
+allocated. Moving it out is a release decision and needs `wh.approve` (owner, finance, coordinator); it is audited.
+
+## Warehouse: billing run
+1. Warehouse → Activity billing → *Accrue storage to yesterday* (idempotent; only completed company days; safe to repeat).
+2. Resolve **Unrated** lines by adding the missing rate card — earlier activity is priced using the rate in effect on its day.
+3. *Invoice* per customer. A wrong invoice is voided (finance.void) which releases its charges for re-invoicing; fix the rate first by
+   adding a new rate from a later date (rates already in effect cannot be edited).
+
+## Warehouse: stock does not reconcile
+Run `npm run verify`. A "stock balance = sum of its ledger movements" violation means the balance table and the immutable ledger disagree:
+never edit either by hand — the ledger is the source of truth. Restore from backup, or post an approved count adjustment once the
+cause is understood. Reservation violations point at an interrupted allocation/pick; cancel the dispatch order to release them.

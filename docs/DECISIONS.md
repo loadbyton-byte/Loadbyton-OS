@@ -42,3 +42,15 @@
 | 28 | Multi-warehouse / multi-site stock and inter-site transfer | One stock pool per workspace |
 | 29 | Hand-held scanner / label printer hardware | Packing accepts a typed or keyboard-wedge scan; no mobile pick app (the driver-app pattern could be reused) |
 
+
+## Added with Warehouse
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 30 | Warehouse billing unit and plan allowances (`wh_orders_per_month`) | Hypotheses equal to the jobs allowance; plan v3. Alternatives: per scan/line, per pallet position |
+| 31 | Storage billing basis: per unit-day (today) vs per pallet position or per cbm | `accrueStorage` uses end-of-day units on hand; pallet/cbm needs SKU master data (units per pallet, dimensions) |
+| 32 | Who may release stock from quarantine and who approves count adjustments (and value thresholds) | `wh.approve` = owner, finance, coordinator; counter ≠ approver (owner excepted). No value-based tiers |
+| 33 | Stock rotation policy: FIFO by received date today; FEFO/expiry, lot-controlled and serial-tracked goods | `first_received_at`; lots are free text; no expiry |
+| 34 | Barcode/RF scanning hardware and a WMS/ERP integration | Scan/retry references exist (`client_ref`); no hardware or integration |
+| 35 | Backorders, partial-shipment policy and returns | Partial allocation closes the shortfall; no returns flow (belongs with E-commerce fulfilment) |
+| 36 | Insurance / liability cut-off for custody stock and bonded goods | Not modelled; bonded warehousing is explicitly out of scope (see /coverage) |

@@ -54,6 +54,8 @@ provider needs selection (decision §32) and connector acceptance tests.
 ## Known limitations
 
 See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no delivery/COD or customs modules, no contract-3PL custody workflows, no marketplace or carrier connectors, no native ledger,
+
+See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no delivery/customs modules, no native ledger,
 no Arabic/RTL, no e-invoicing adapter, rate limiting is in-memory, ClamAV scanning is a hook not an integration, and the `pg`
 (production) driver path is untested against a live PostgreSQL server in this repository's CI (PGlite is real Postgres but
 single-connection).
@@ -112,3 +114,36 @@ single-connection).
   allocations; staging = Σ picked-not-shipped; shipped orders have one shipment and shipped = packed; SKU merchant = order/inbound
   merchant; receipts = line totals; fulfilment invoices total their charges.
 
+
+## Warehouse (blueprint §15)
+
+`src/ops/warehouse.ts` (+ `web/app-warehouse.tsx`, `migrations/003_warehouse.sql`). Sector slug `contract-warehouse-3pl`.
+
+- **Owner separation is structural.** A SKU belongs to one customer (`wh_skus.owner_id`). Stock, movements and every order line carry
+  `owner_id` and reference the SKU through the composite key `(tenant_id, owner_id, sku_id)`, so a row that mixes owners cannot be
+  inserted — even by buggy code. Allocation only ever looks at the order owner's stock.
+- **Ledger first.** `wh_movements` is immutable (trigger). `wh_stock` is a maintained balance; every change goes through the single
+  `post()` function, which applies the balance change and appends the ledger row in one transaction, refuses negative stock, refuses to
+  drop below what is reserved, enforces location capacity, and is idempotent on an optional client reference (advisory lock +
+  unique key). `npm run verify` reconciles balances against the ledger, reservations against open allocations, transfers net to zero,
+  receipt/dispatch quantities against the ledger and warehouse invoices against their charges.
+- **Inbound:** notice (ASN) → receive per line into a location (receiving/storage; damaged **must** go to quarantine; good goods may
+  not) → close with recorded variances. Over-receipt needs an explicit acceptance. The retry check runs *before* the business rules so
+  a resent receipt that completed its line is reported as a repeat, not rejected as an over-receipt.
+- **Outbound:** allocate → pick → dispatch. Allocation reserves oldest-first (`first_received_at`, carried across moves) from *storage*
+  locations only (never quarantine or the receiving dock) and is all-or-nothing unless the operator accepts a partial shipment. A short
+  pick releases the difference immediately. Dispatch ships exactly what was picked and posts the ledger; the unshipped remainder is
+  closed (backorders are not modelled).
+- **Counts:** the sheet snapshots system quantity but hides it from counters (blind). Lines that match at submit need no decision;
+  variances need a *different* person with `wh.approve` (owners excepted, audited). If the stock moved after the snapshot the line is
+  marked stale and goes back to the counters with a fresh snapshot — a count only proves the balance at the moment it was cut. An
+  adjustment can never push stock below what is reserved. Stock found where the system expected none is added as a line.
+- **Billing unit:** the warehouse *order* (an inbound notice or a dispatch order; `wh_orders_per_month`, reference `wh_in:<id>` /
+  `wh_out:<id>`). Plan version 3 adds the key; v1/v2 subscriptions fall back to their jobs allowance.
+- **Money:** `accrue()` writes one `wh_charges` row per source event (`source_ref` unique): handling-in per receipt movement,
+  handling-out per dispatched line, an outbound-order fee, and daily storage = end-of-day units from the ledger × rate for each
+  *completed* company day (UTC+4), idempotent per owner-day, backfilled exactly. Rates are effective-dated per customer; a rate in
+  effect cannot be edited, only superseded. Activity with no rate is kept as *unrated* and priced automatically when the rate is set
+  (using the rate in effect on the day it happened) — it is never dropped and never invoiced at zero. Invoicing groups charges by
+  (type, rate, tax) so a month of storage is one line, goes through the shared `issueInvoice`, and a void releases the charges.
+- **Customer portal:** portal users see their own on-hand/reserved/on-hold units only (`portalStock`), nothing else of the warehouse.
