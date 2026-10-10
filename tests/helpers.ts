@@ -10,7 +10,7 @@ import { processProvisioningQueue } from "../src/platform/provisioning.js";
 export async function freshDb(): Promise<Db> { return openDb({ dir: null }); }
 
 export const ctxFor = (userId: string, tenantId: string, roles = ["owner"]): Ctx => ({
-  userId, tenantId, roles, perms: permsFor(roles), partyId: null, readOnly: false, supportStaffId: null,
+  userId, tenantId, roles, perms: permsFor(roles), partyId: null, driverId: null, readOnly: false, supportStaffId: null,
 });
 
 let n = 0;

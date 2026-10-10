@@ -29,3 +29,12 @@ Control console → Catalog → publish new version. Existing subscriptions keep
 
 ## Incident roles
 Name an incident commander and a customer-communications owner before the first paid customer (blueprint §26).
+
+## Driver events that were "stored, not applied"
+The planning board shows a count (last 7 days). Open the trip → *Driver event log*: each row says why (duplicate stop, arrival
+already recorded, proof already recorded, clock ahead, trip completed). Nothing is lost — device time and payload are kept. A real
+correction (e.g. wrong receiver name) is handled outside the phone flow; proof of delivery is deliberately not overwritable.
+
+## Compliance expiries
+Blocking items (registration, insurance, licence) prevent assignment and dispatch when they expire before the trip ends. Renew by
+adding the new item; the old one stays as history. Warning-only items never block.

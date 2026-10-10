@@ -57,3 +57,27 @@ See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no transport/w
 no Arabic/RTL, no e-invoicing adapter, rate limiting is in-memory, ClamAV scanning is a hook not an integration, and the `pg`
 (production) driver path is untested against a live PostgreSQL server in this repository's CI (PGlite is real Postgres but
 single-connection).
+
+## Transport (blueprint §14)
+
+`src/ops/transport.ts` (+ `web/app-transport.tsx`, `web/app-driver.tsx`, `migrations/002_transport.sql`).
+
+- **Billing unit:** the *trip* (`trips_per_month`, consumed with reference `trip:<id>`). Plan version 2 adds the key; version 1
+  subscriptions fall back to their jobs allowance (published versions are immutable). Driver logins are *limited seats*: they do not
+  use full-user seats but are capped at 5× the full-user allowance.
+- **Assignment rules:** `checkAssignment` returns every reason at once — vehicle weight/volume capacity, retired vehicle,
+  maintenance blocks, overlapping trips for vehicle *and* driver, expired *blocking* compliance items before the trip ends.
+  Dispatch re-runs the checks and requires the driver to have a login.
+- **Driver events** (`trip_events`, immutable): keyed by a client-generated `client_event_id` (unique per tenant) behind an advisory
+  lock, so replays and concurrent syncs create at most one record. The device time is stored verbatim; implausible clocks are
+  clamped to server time and flagged. Rules: earliest arrival wins; departure never precedes arrival; delivery stops cannot be left
+  without proof of delivery; the first POD is retained and later ones are stored-not-applied; expense events create `recorded`
+  expenses that only an independent approver can decide, and decisions are final. Events for completed trips never mutate state;
+  events for another driver's trip are refused outright.
+- **Offline:** `public/assets/driver.js` queues actions in `localStorage` with their ids and phone time and POSTs batches to
+  `/app/driver/sync` (CSRF via signed token header). Limits: there is no service worker, so the page must have been opened online
+  first; photo upload needs signal.
+- **Money:** order charges → `issueInvoice` (shared with forwarding: controlled numbering, per-line tax, accounting outbox).
+  Detention (minutes beyond free time × hourly rate) is billable once per stop (`source_leg_id` unique). Trip profit = order
+  charges − subcontract (actual, else estimate) − approved expenses − unapproved expenses (flagged as estimates); `reconciled`
+  only when nothing is estimated.

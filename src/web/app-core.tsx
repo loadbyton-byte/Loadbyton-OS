@@ -39,8 +39,18 @@ core.use("/app/*", async (c, next) => {
   c.set("tenant", { name: t.name, slug: t.slug, sectors: t.sectors, plan: t.plan, planCode: t.plan_code, subStatus: t.sub_status });
   c.set("memberships", (await membershipsFor(db, ctx.userId)).map((m) => ({ tenant_id: m.tenant_id, name: m.name })));
   const portalOnly = ctx.roles.length === 1 && ctx.roles[0] === "portal";
+  const driverOnly = ctx.roles.length === 1 && ctx.roles[0] === "driver";
   const p = c.req.path;
   if (portalOnly && !p.startsWith("/app/portal") && !p.startsWith("/app/documents/") && !p.startsWith("/app/invoices/") && p !== "/app/switch") return c.redirect("/app/portal");
+  if (driverOnly && !p.startsWith("/app/driver") && p !== "/app/switch") return c.redirect("/app/driver");
+  if (!driverOnly && !portalOnly && p.startsWith("/app/transport") && !t.sectors.includes("road-transport")) {
+    return appPage(c, "Sector not enabled", (
+      <div class="card" style="max-width:640px">
+        <h1>Road transport is not selected</h1>
+        <p>Transport planning belongs to the <strong>Road transport</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
+        {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
+      </div>));
+  }
   // forwarding workflow requires the sector to be selected
   const fwdOnly = ["/app/enquiries", "/app/quotes", "/app/jobs", "/app/rates", "/app/tasks", "/app/invoices", "/app/reports"];
   if (!portalOnly && fwdOnly.some((x) => p.startsWith(x)) && !t.sectors.includes("freight-forwarding")) {
@@ -65,6 +75,7 @@ core.post("/app/switch", async (c) => {
 // ── overview
 core.get("/app", async (c) => {
   const ctx = ctxOf(c), t = c.get("tenant")!;
+  if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return c.redirect("/app/driver");
   const data = await withT(c, async (cn) => {
     const n = async (sql: string) => Number((await cn.query<any>(sql)).rows[0].n);
     const checklist = [
@@ -190,8 +201,9 @@ core.get("/app/team", async (c) => {
         <tr><td>{m.name}{!m.active ? <> <Badge s="void" label="inactive" /></> : null}</td><td>{m.email}</td>
           <td>
             <form method="post" action="/app/team/roles" class="inline-form"><Csrf t={csrf} /><input type="hidden" name="user_id" value={m.user_id} />
-              {ROLES.map((r) => <label class="small" style="display:inline-flex;gap:4px;font-weight:500;margin:0 6px 0 0"><input type="checkbox" name="roles" value={r} checked={m.roles.includes(r)} /> {r}</label>)}
-              <button class="btn ghost sm" type="submit">Save</button></form>
+              {m.roles.includes("driver") ? <span class="small mute">driver seat (managed under Transport → Fleet &amp; drivers)</span> : (<>
+                {ROLES.filter((r) => r !== "driver").map((r) => <label class="small" style="display:inline-flex;gap:4px;font-weight:500;margin:0 6px 0 0"><input type="checkbox" name="roles" value={r} checked={m.roles.includes(r)} /> {r}</label>)}
+                <button class="btn ghost sm" type="submit">Save</button></>)}</form>
           </td>
           <td>{m.active ? <Confirm action="/app/team/deactivate" csrf={csrf} label="Deactivate" confirm={`Deactivate ${m.name}?`} fields={{ user_id: m.user_id }} /> : null}</td></tr>
       ))}
@@ -200,7 +212,7 @@ core.get("/app/team", async (c) => {
     <section class="card" style="margin-top:24px;max-width:720px"><h3>Invite someone</h3>
       <form method="post" action="/app/team/invite"><Csrf t={csrf} />
         <div class="field"><label for="ie">Email</label><input id="ie" name="email" type="email" required /></div>
-        <fieldset><legend>Roles</legend><div class="checks">{ROLES.map((r) => <label class="check"><input type="checkbox" name="roles" value={r} /><span>{r}</span></label>)}</div>
+        <fieldset><legend>Roles</legend><div class="checks">{ROLES.filter((r) => r !== "driver").map((r) => <label class="check"><input type="checkbox" name="roles" value={r} /><span>{r}</span></label>)}</div>
           <p class="hint">Purchasing an entitlement does not grant every staff member access: roles decide what each person can do.</p></fieldset>
         <div class="field"><label for="ip">Customer (portal role only)</label><select id="ip" name="party_id"><option value="">—</option>{d.customers.map((p: any) => <option value={p.id}>{p.name}</option>)}</select></div>
         <button class="btn red" type="submit">Create invitation</button>
@@ -236,7 +248,8 @@ core.get("/app/billing", async (c) => {
   ]);
   const usage = await withT(c, async (cn) => ({ limits: await getLimits(cn, ctx.tenantId),
     used: { max_users: await currentUsage(cn, ctx.tenantId, "max_users"), jobs_per_month: await currentUsage(cn, ctx.tenantId, "jobs_per_month"),
-      storage_mb: await currentUsage(cn, ctx.tenantId, "storage_mb"), max_branches: await currentUsage(cn, ctx.tenantId, "max_branches") } }));
+      storage_mb: await currentUsage(cn, ctx.tenantId, "storage_mb"), max_branches: await currentUsage(cn, ctx.tenantId, "max_branches"),
+      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month") } }));
   const quotes: Record<string, Awaited<ReturnType<typeof priceCheckout>> | null> = {};
   for (const pl of plans) quotes[pl.plan_code] = await db.system((cn) => priceCheckout(cn, ctx.tenantId, pl)).catch(() => null);
   const csrf = c.get("csrf");
@@ -249,6 +262,7 @@ core.get("/app/billing", async (c) => {
       <div class="card"><h3>Users</h3><div class="kpi">{usage.used.max_users} / {usage.limits.max_users}</div></div>
       <div class="card"><h3>Jobs this month</h3><div class="kpi">{usage.used.jobs_per_month} / {usage.limits.jobs_per_month}</div></div>
       <div class="card"><h3>Documents</h3><div class="kpi">{usage.used.storage_mb} / {usage.limits.storage_mb} MB</div></div>
+      {c.get("tenant")!.sectors.includes("road-transport") ? <div class="card"><h3>Trips this month</h3><div class="kpi">{usage.used.trips_per_month} / {usage.limits.trips_per_month}</div></div> : null}
     </div>
     <h2 style="margin-top:28px">Change plan</h2>
     <p class="mute small">Net incremental price shown: setup already paid at a lower tier is credited. No proration in the pilot. Tax is shown at checkout.</p>

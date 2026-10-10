@@ -2,14 +2,15 @@ import type { Conn } from "../db/client.js";
 import { quotaExceeded, HttpError } from "../lib/util.js";
 import type { PlanVersion } from "./catalog.js";
 
-export type LimitKey = "max_users" | "max_branches" | "jobs_per_month" | "storage_mb" | "max_sectors" | "max_entities";
-const KEYS: LimitKey[] = ["max_users", "max_branches", "jobs_per_month", "storage_mb", "max_sectors", "max_entities"];
+export type LimitKey = "max_users" | "max_branches" | "jobs_per_month" | "trips_per_month" | "storage_mb" | "max_sectors" | "max_entities";
+const KEYS: LimitKey[] = ["max_users", "max_branches", "jobs_per_month", "trips_per_month", "storage_mb", "max_sectors", "max_entities"];
 
 /** Append entitlement rows for a plan version. Idempotent per (tenant, plan version, source). */
 export async function applyPlanEntitlements(c: Conn, tenantId: string, plan: PlanVersion, source: string) {
   const have = await c.query(`SELECT 1 FROM entitlements WHERE tenant_id=$1 AND plan_version_id=$2 AND source=$3 LIMIT 1`, [tenantId, plan.id, source]);
   if (have.rows.length) return;
   for (const k of KEYS) {
+    if (plan.limits[k] == null) continue;   // key not part of this (older) plan version
     await c.query(
       `INSERT INTO entitlements(tenant_id,key,int_limit,plan_version_id,source) VALUES ($1,$2,$3,$4,$5)`,
       [tenantId, k, plan.limits[k], plan.id, source],
@@ -21,7 +22,9 @@ export async function getLimit(c: Conn, tenantId: string, key: LimitKey): Promis
   const r = await c.query<{ int_limit: number }>(
     `SELECT int_limit FROM entitlements WHERE tenant_id=$1 AND key=$2 AND effective_from <= now()
      ORDER BY effective_from DESC, id DESC LIMIT 1`, [tenantId, key]);
-  return r.rows[0] ? Number(r.rows[0].int_limit) : 0;
+  if (r.rows[0]) return Number(r.rows[0].int_limit);
+  // legacy plan versions (v1) predate the trip unit: they get the same number of trips as jobs
+  return key === "trips_per_month" ? getLimit(c, tenantId, "jobs_per_month") : 0;
 }
 
 export async function getLimits(c: Conn, tenantId: string): Promise<Record<LimitKey, number>> {
@@ -49,7 +52,7 @@ const monthKey = (d = new Date()) => d.toISOString().slice(0, 7);
  * Transactional quota consumption: the guarded upsert makes concurrent requests unable to exceed the limit,
  * and usage_events(tenant,key,ref) makes a retried request idempotent (one immutable usage event per ref).
  */
-export async function consumeQuota(c: Conn, tenantId: string, key: LimitKey, ref: string, qty = 1) {
+export async function consumeQuota(c: Conn, tenantId: string, key: Extract<LimitKey, "jobs_per_month" | "trips_per_month">, ref: string, qty = 1) {
   await assertWritable(c, tenantId);
   const limit = await getLimit(c, tenantId, key);
   const ev = await c.query(
@@ -73,7 +76,7 @@ export async function usedThisMonth(c: Conn, tenantId: string, key: LimitKey) {
 }
 
 /** Count-based capacities (users, branches, sectors, storage) are checked against live state. */
-export async function assertCapacity(c: Conn, tenantId: string, key: Exclude<LimitKey, "jobs_per_month">, adding = 1) {
+export async function assertCapacity(c: Conn, tenantId: string, key: Exclude<LimitKey, "jobs_per_month" | "trips_per_month">, adding = 1) {
   await assertWritable(c, tenantId);
   const limit = await getLimit(c, tenantId, key);
   const used = await currentUsage(c, tenantId, key);
@@ -82,13 +85,13 @@ export async function assertCapacity(c: Conn, tenantId: string, key: Exclude<Lim
 
 export async function currentUsage(c: Conn, tenantId: string, key: LimitKey): Promise<number> {
   const q: Record<string, string> = {
-    max_users: `SELECT count(*) n FROM memberships WHERE tenant_id=$1 AND active AND NOT ('portal' = ANY(roles))`,
+    max_users: `SELECT count(*) n FROM memberships WHERE tenant_id=$1 AND active AND NOT ('portal' = ANY(roles)) AND NOT ('driver' = ANY(roles))`,
     max_branches: `SELECT count(*) n FROM branches WHERE tenant_id=$1`,
     max_sectors: `SELECT count(*) n FROM tenant_sectors WHERE tenant_id=$1`,
     max_entities: `SELECT count(*) n FROM entities WHERE tenant_id=$1`,
     storage_mb: `SELECT coalesce(sum(size_bytes),0)/1048576.0 n FROM documents WHERE tenant_id=$1`,
   };
-  if (key === "jobs_per_month") return usedThisMonth(c, tenantId, key);
+  if (key === "jobs_per_month" || key === "trips_per_month") return usedThisMonth(c, tenantId, key);
   const r = await c.query<{ n: string | number }>(q[key], [tenantId]);
   return Math.ceil(Number(r.rows[0].n));
 }
@@ -98,7 +101,7 @@ export async function previewPlanChange(c: Conn, tenantId: string, target: PlanV
   const issues: string[] = [];
   for (const k of KEYS) {
     const used = await currentUsage(c, tenantId, k);
-    if (used > target.limits[k]) issues.push(`${k.replace(/_/g, " ")}: using ${used}, ${target.name} allows ${target.limits[k]}`);
+    if (target.limits[k] != null && used > target.limits[k]) issues.push(`${k.replace(/_/g, " ")}: using ${used}, ${target.name} allows ${target.limits[k]}`);
   }
   return {
     issues,

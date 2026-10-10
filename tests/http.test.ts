@@ -161,3 +161,75 @@ describe("HTTP boundary", () => {
     expect((await b.get("/app/team")).headers.get("location")).toBe("/app/portal");
   });
 });
+
+describe("Transport over HTTP", () => {
+  it("driver seat is fenced to its own trips; JSON offline sync needs the CSRF header and dedupes", async () => {
+    resetThrottle();
+    const { createVehicle, createDriver, createOrder, createTrip, dispatchTrip, getTrip } = await import("../src/ops/transport.js");
+    const t = await newTenant(db, undefined, ["road-transport"]);
+    const dubai = (h: number) => new Date(Date.now() + h * 3600000 + 4 * 3600000).toISOString().slice(0, 16);
+    const mk = async (name: string) => db.tenant(t.tenantId, async (c) => {
+      const drv = await createDriver(c, t.ctx, { name });
+      const email = `${name.toLowerCase()}-${Date.now()}@drivers.test`;
+      const token = await invite(c, t.ctx, { email, roles: ["driver"], driver_id: drv });
+      return { drv, token, email };
+    });
+    const d1 = await mk("Ali"), d2 = await mk("Omar");
+    await acceptInvite(db, d1.token, { name: "Ali", password: "driver-password-1" });
+    await acceptInvite(db, d2.token, { name: "Omar", password: "driver-password-2" });
+    const { cust, v1, v2 } = await db.tenant(t.tenantId, async (c) => ({
+      cust: await createParty(c, t.ctx, { kind: "customer", name: "C" }),
+      v1: await createVehicle(c, t.ctx, { reg_no: "A1", capacity_kg: 5000 }), v2: await createVehicle(c, t.ctx, { reg_no: "B2", capacity_kg: 5000 }),
+    }));
+    const plan = (veh: string, drv: string) => db.tenant(t.tenantId, async (c) => {
+      const o = await createOrder(c, t.ctx, { party_id: cust, pickup_address: "P", delivery_address: "D", weight_kg: 10, rate: "100" });
+      const tr = await createTrip(c, t.ctx, { vehicle_id: veh, driver_id: drv, planned_start: dubai(1), planned_end: dubai(5), order_ids: [o.id] });
+      await dispatchTrip(c, t.ctx, tr.id);
+      return { ...tr, legs: (await getTrip(c, tr.id)).legs };
+    });
+    const mine = await plan(v1, d1.drv), theirs = await plan(v2, d2.drv);
+
+    const b = new Browser();
+    expect((await b.login(d1.email, "driver-password-1")).headers.get("location")).toBe("/app");
+    expect((await b.get("/app")).headers.get("location")).toBe("/app/driver");
+    expect((await b.get("/app/jobs")).headers.get("location")).toBe("/app/driver");
+    expect((await b.get("/app/team")).headers.get("location")).toBe("/app/driver");
+    expect((await b.get("/app/transport")).headers.get("location")).toBe("/app/driver");
+    const home = await (await b.get("/app/driver")).text();
+    expect(home).toContain(mine.no); expect(home).not.toContain(theirs.no);
+    expect((await b.get(`/app/driver/trips/${mine.id}`)).status).toBe(200);
+    expect((await b.get(`/app/driver/trips/${theirs.id}`)).status).toBe(404);
+
+    // JSON sync: missing/forged CSRF header rejected
+    await b.csrf();
+    const csrf = b.jar.get("lbt_csrf")!;
+    const events = [{ client_event_id: "offline-evt-0001", trip_id: mine.id, leg_id: mine.legs[0].id, kind: "arrive", device_time: new Date(Date.now() - 600000).toISOString(), payload: {} }];
+    const send = (hdr: Record<string, string>) => b.req("/app/driver/sync", { method: "POST", body: JSON.stringify({ events }), headers: { "content-type": "application/json", ...hdr } });
+    expect((await send({})).status).toBe(403);
+    expect((await send({ "x-csrf-token": "forged.value" })).status).toBe(403);
+    const ok = await (await send({ "x-csrf-token": csrf })).json() as any;
+    expect(ok.results[0].outcome).toBe("applied");
+    const again = await (await send({ "x-csrf-token": csrf })).json() as any;
+    expect(again.results[0].outcome).toBe("duplicate");
+    // an event for someone else's trip is refused (403), nothing recorded
+    const evil = [{ ...events[0], client_event_id: "offline-evt-0002", trip_id: theirs.id, leg_id: theirs.legs[0].id }];
+    const r = await b.req("/app/driver/sync", { method: "POST", body: JSON.stringify({ events: evil }), headers: { "content-type": "application/json", "x-csrf-token": csrf } });
+    expect(r.status).toBe(403);
+    expect((await db.query<any>(`SELECT count(*)::int n FROM trip_events WHERE trip_id=$1`, [theirs.id])).rows[0].n).toBe(0);
+  });
+
+  it("transport pages require the Road transport sector; staff see the planning board", async () => {
+    resetThrottle();
+    const none = await signedUp("Fwd");                       // registered with freight-forwarding only
+    const res = await none.b.get("/app/transport");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Road transport is not selected");
+    const t = await newTenant(db, undefined, ["road-transport"]);
+    const email = (await db.query<any>(`SELECT email FROM users WHERE id=$1`, [t.userId])).rows[0].email;
+    const b = new Browser();
+    await b.login(email, "correct horse battery");
+    const board = await (await b.get("/app/transport")).text();
+    expect(board).toContain("Transport planning");
+    for (const p of ["/app/transport/orders", "/app/transport/trips", "/app/transport/fleet", "/app/transport/orders/new", "/app/transport/trips/new"]) expect((await b.get(p)).status).toBe(200);
+  });
+});

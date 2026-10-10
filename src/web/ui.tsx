@@ -37,10 +37,12 @@ function Head({ p }: { p: Page }) {
       <title>{p.title} · LOAD|BY|TON.store</title>
       <meta name="description" content={p.description ?? "Your logistics company, connected. Start free, choose the tools your business needs, and run enquiries, jobs, documents, deliveries and collections from one branded workspace."} />
       <meta name="theme-color" content="#071D35" />
+      <meta name="csrf-token" content={p.csrf} />
       <link rel="icon" href="/brand/favicon.ico" sizes="any" />
       <link rel="apple-touch-icon" href="/brand/by-mark-192.png" />
       <link rel="stylesheet" href="/assets/app.css" />
       <script src="/assets/app.js" defer></script>
+      {p.path.startsWith("/app/driver") ? <script src="/assets/driver.js" defer></script> : null}
     </head>
   );
 }

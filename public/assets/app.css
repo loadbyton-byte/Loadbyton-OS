@@ -68,3 +68,9 @@ footer.site{background:var(--navy);color:#B9C7D6;padding:40px 0;margin-top:0;bor
 .inline-form input[type=checkbox]{flex:0 0 auto}
 .kpi{white-space:nowrap}.plan .price{overflow-wrap:anywhere}.kpi{font-size:clamp(1.4rem,2.2vw,1.9rem)}
 .card h3{overflow-wrap:anywhere}
+/* driver surface: large touch targets, high contrast, one thing at a time */
+.btn.big{min-height:60px;font-size:1.15rem;padding:1em 1.4em;width:100%;justify-content:center;margin-top:10px}
+.driver-card{display:block;text-decoration:none;color:inherit;margin-bottom:14px}.driver-card h2{margin-bottom:.2em}
+.leg h2{font-size:1.25rem}.leg.done{opacity:.65}.leg.current{border:3px solid var(--red)}.leg .addr{font-size:1.15rem;font-weight:600;margin-bottom:.3em}
+.driver-form{margin-top:6px}.driver-form input,.driver-form select{min-height:56px;font-size:1.1rem}
+@media (max-width:860px){.side{padding:8px 0}.side .brand{padding:0 16px 8px;margin-bottom:4px}.side .brand img{max-width:120px}.side .me{margin-top:4px;padding:8px 16px}.side h4{display:none}}

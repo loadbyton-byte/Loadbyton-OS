@@ -103,12 +103,12 @@ export async function resolveCtx(db: Db, s: Session, hostSlug?: string | null): 
     const g = (await db.query<any>(
       `SELECT 1 FROM support_grants WHERE tenant_id=$1 AND staff_user_id=$2 AND status='approved' AND expires_at > now()`, [s.supportTenantId, s.userId])).rows;
     if (!g.length) return null;
-    return { userId: s.userId, tenantId: s.supportTenantId, roles: ["auditor"], perms: permsFor(["auditor"]), partyId: null, readOnly: true, supportStaffId: s.userId };
+    return { userId: s.userId, tenantId: s.supportTenantId, roles: ["auditor"], perms: permsFor(["auditor"]), partyId: null, driverId: null, readOnly: true, supportStaffId: s.userId };
   }
   if (!tenantId) return null;
-  const m = (await db.query<any>(`SELECT roles, party_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND active`, [tenantId, s.userId])).rows[0];
+  const m = (await db.query<any>(`SELECT roles, party_id, driver_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND active`, [tenantId, s.userId])).rows[0];
   if (!m) return null;
   const t = (await db.query<any>(`SELECT status FROM tenants WHERE id=$1`, [tenantId])).rows[0];
   if (!t || t.status !== "active") return null;
-  return { userId: s.userId, tenantId, roles: m.roles, perms: permsFor(m.roles), partyId: m.party_id, readOnly: false, supportStaffId: null };
+  return { userId: s.userId, tenantId, roles: m.roles, perms: permsFor(m.roles), partyId: m.party_id, driverId: m.driver_id, readOnly: false, supportStaffId: null };
 }

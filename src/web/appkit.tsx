@@ -20,11 +20,16 @@ export function need(c: C, perm: Perm) { requirePerm(ctxOf(c), perm); }
 export function navFor(c: C): NavItem[] {
   const ctx = ctxOf(c);
   if (ctx.roles.length === 1 && ctx.roles[0] === "portal") return [{ href: "/app/portal", label: "My shipments" }];
+  if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return [{ href: "/app/driver", label: "My trips" }];
   const t = c.get("tenant");
   const fwd = t?.sectors.includes("freight-forwarding");
   const n: NavItem[] = [{ href: "/app", label: "Overview" }];
   if (fwd) {
     n.push({ href: "/app/enquiries", label: "Enquiries", section: "Sell" }, { href: "/app/quotes", label: "Quotations", section: "Sell" });
+  }
+  if (t?.sectors.includes("road-transport")) {
+    n.push({ href: "/app/transport", label: "Planning board", section: "Transport" }, { href: "/app/transport/orders", label: "Transport orders", section: "Transport" },
+      { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" });
   }
   n.push({ href: "/app/parties", label: "Customers & suppliers", section: "Sell" });
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
