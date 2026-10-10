@@ -147,3 +147,54 @@ single-connection).
   (using the rate in effect on the day it happened) — it is never dropped and never invoiced at zero. Invoicing groups charges by
   (type, rate, tax) so a month of storage is one line, goes through the shared `issueInvoice`, and a void releases the charges.
 - **Customer portal:** portal users see their own on-hand/reserved/on-hold units only (`portalStock`), nothing else of the warehouse.
+
+
+## Delivery / COD (blueprint §14)
+
+`src/ops/delivery.ts` (+ `web/app-delivery.tsx`, rider screens in `web/app-driver.tsx`, `migrations/005_delivery.sql`). Sector slug `courier-last-mile`.
+
+- **Parcel lifecycle.** `new → assigned → out_for_delivery → delivered`, or `undelivered` (failed attempt) → re-attempt (`new`) or
+  `return_to_sender → returned`; `cancelled` only from `new`. Attempts are counted; reaching the parcel's maximum sends it to
+  return-to-sender automatically and raises an office task. A rider can retry the same parcel the same day while the run is still out.
+- **Intake** is idempotent on (merchant, external ref), validated *before* a waybill number is taken (no gaps), and metered as
+  `parcels_per_month` (plan v5; older versions fall back to the jobs allowance). Each parcel carries an unguessable public tracking
+  token and a 4-digit delivery code, optionally mandatory for the rider.
+- **Rider events** reuse the transport contract: client-generated event ids (advisory lock + unique key ⇒ exactly-once under retry
+  storms), device time kept verbatim and clamped when implausible, oldest-first batch application, immutable `dlv_events`. A parcel
+  recalled while a phone was offline is *stored, not applied* (a conflict on the board), and one foreign event inside a batch is
+  rejected without wedging the rest of the queue.
+- **Cash is a chain, each link enforced by the database:** `dlv_collections` (one per parcel, exactly the COD amount, only written by
+  a delivery, immutable by trigger, undeletable) → `dlv_settlements` (rider hands cash to the cash desk; a count that differs is a
+  variance needing a second person, the owner excepted; a rejected count returns the cash to the rider's pile) → `dlv_remittances`
+  (payout to the merchant of *counted-in* cash only; a collection can be in one remittance, never moved). Merchants are paid what was
+  **collected**; a shortage found at the desk stays on the record against the rider and is absorbed by the company.
+- **Fees** accrue once per parcel event (`dlv_charges`, unique `source_ref`) at the merchant's rate card in force that day. No rate
+  yet ⇒ the charge is kept *unrated* and priced when a rate is set (a zero price drops it before it is ever invoiced). Invoicing groups
+  charges by (type, rate, tax) through the shared `issueInvoice`; voiding the invoice returns charges to the unbilled pool. A
+  remittance can **net fees**: it invoices the merchant's unbilled charges and records a receipt “Netted from COD remittance” for
+  min(invoice total, COD available) — the rest of the invoice stays receivable.
+- **Public tracking** `/t/:token` needs no login and shows milestones, the merchant, the emirate and the COD amount due — never the
+  consignee's name, phone, address or code.
+- **Invariants checked by `npm run verify`:** collection = COD of a delivered parcel; delivered COD parcel has exactly one collection;
+  handover expected = Σ its cash; rejected handover holds none; rider = collector; closed variances were decided by a second person;
+  remitted only after a closed handover; remittance gross = Σ its cash and merchant matches; remittance fees = netted receipts;
+  parcel is on a run exactly when assigned/out; attempts ≤ max; closed runs have no open parcels; delivery invoices total their charges.
+
+
+## Payments adapters (blueprint §22)
+
+`src/platform/payments/{stripe,razorpay}.ts` (REST over `fetch`, no SDKs), registered by `PAYMENT_PROVIDERS`; `platform/billing.ts` is provider-neutral.
+
+- **Outbound:** `startCheckout` opens a provider-hosted session once (Stripe Checkout with an idempotency key; Razorpay Payment Link), stores
+  `provider_session` + `checkout_url` so a pending order can be resumed, and closes the order as `failed` if the provider cannot be reached. The browser is sent to
+  the provider by a link/meta refresh, never by a form redirect (our `form-action 'self'` CSP would block it, and a redirect must never be what activates anything).
+- **Inbound:** `/webhooks/payments/:provider` verifies the provider's own signature over the raw body (Stripe: `t`/`v1` HMAC with 5-minute tolerance and rotation;
+  Razorpay: HMAC of the body, replay safety from the unique event id), translates to the internal `PaymentEvent`, and uses the same idempotent
+  `processPaymentEvent`: unique (provider, event id), order id + reference + amount + currency must all match, one order → one provisioning job.
+  A refund that lacks our metadata finds its order through the provider payment id of the earlier successful event. A successful payment that cannot be applied
+  is queued for staff review in the control console. Every understood event is answered `200` (providers retry non-2xx for days); bad signatures get `400`.
+- **Config safety:** `validateConfig` stops the process when a provider is half-configured, test keys are used in production (unless explicitly allowed for a smoke
+  test), the base URL is not https, or TLS verification is disabled for the database.
+- **Database:** `pgConnection` maps `sslmode`/`DATABASE_SSL` to verified TLS for Neon/Supabase; migrations take an advisory lock and use `MIGRATION_DATABASE_URL`
+  (direct connection) when given. **Rate limiting:** `lib/ratelimit.ts` — Upstash REST fixed-window counters shared across instances, falling back to an
+  in-process counter when Redis is unreachable; client address is read only from the header named by `TRUST_PROXY`.

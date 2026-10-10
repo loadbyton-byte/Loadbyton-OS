@@ -47,6 +47,22 @@ async function execMulti(c: Conn, sql: string) {
   else await c.query(sql);
 }
 
+/**
+ * TLS settings for managed PostgreSQL (Neon, Supabase, RDS…). The certificate is verified unless you explicitly choose no-verify (never in production).
+ * Neon/Supabase strings usually end in ?sslmode=require: we strip that parameter and apply DATABASE_SSL instead, because node-postgres reads
+ * `sslmode=require` as full verification against the system roots only and its semantics changed between versions.
+ */
+export function pgConnection(url: string, c = config): { connectionString: string; ssl?: pg.ClientConfig["ssl"] } {
+  const u = new URL(url);
+  const mode = c.databaseSsl || (u.searchParams.get("sslmode") === "disable" ? "disable" : ["require", "verify-full", "verify-ca", "prefer"].includes(u.searchParams.get("sslmode") ?? "") ? "require" : "");
+  u.searchParams.delete("sslmode"); u.searchParams.delete("ssl");
+  const connectionString = u.toString();
+  if (!mode || mode === "disable") return { connectionString };
+  if (mode === "no-verify") return { connectionString, ssl: { rejectUnauthorized: false } };
+  if (mode !== "require") throw new Error(`DATABASE_SSL must be empty, "require", "no-verify" or "disable" (got "${mode}")`);
+  return { connectionString, ssl: c.databaseCa ? { rejectUnauthorized: true, ca: c.databaseCa.replace(/\\n/g, "\n") } : { rejectUnauthorized: true } };
+}
+
 export async function openDb(opts: { url?: string; dir?: string | null } = {}): Promise<Db> {
   const url = opts.url ?? config.databaseUrl;
   if (url) return openPg(url);
@@ -89,12 +105,16 @@ async function openPglite(dir: string | null): Promise<Db> {
 }
 
 async function openPg(url: string): Promise<Db> {
-  const pool = new pg.Pool({ connectionString: url, max: 10 });
+  const pool = new pg.Pool({ ...pgConnection(url), max: config.databasePoolMax, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 15_000 });
+  pool.on("error", (e) => console.error("[pg] idle client error", e.message));   // a dropped idle connection (serverless Postgres suspends) must not crash the process
   pg.types.setTypeParser(20, (v) => Number(v)); // int8 -> number (amounts stay well below 2^53 minor units)
   pg.types.setTypeParser(1082, (v) => v);      // date -> 'YYYY-MM-DD'
   pg.types.setTypeParser(1700, (v) => v);      // numeric stays string to preserve precision
-  const client = await pool.connect();
+  // Migrations run on the direct connection when one is given (poolers in transaction mode are meant for application queries).
+  const mPool = config.migrationDatabaseUrl ? new pg.Pool({ ...pgConnection(config.migrationDatabaseUrl), max: 1 }) : pool;
+  const client = await mPool.connect();
   try {
+    await client.query(`SELECT pg_advisory_lock(727001)`);        // two instances starting together must not both migrate
     await runMigrations({
       query: async (s, p) => {
         const r = await client.query(s, p as any[]);
@@ -102,7 +122,9 @@ async function openPg(url: string): Promise<Db> {
       },
     });
   } finally {
+    await client.query(`SELECT pg_advisory_unlock(727001)`).catch(() => {});
     client.release();
+    if (mPool !== pool) await mPool.end();
   }
   const withClient = async <T>(fn: (c: Conn) => Promise<T>, scope?: string): Promise<T> => {
     const cl = await pool.connect();

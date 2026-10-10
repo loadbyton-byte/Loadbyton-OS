@@ -85,3 +85,23 @@ allocated. Moving it out is a release decision and needs `wh.approve` (owner, fi
 Run `npm run verify`. A "stock balance = sum of its ledger movements" violation means the balance table and the immutable ledger disagree:
 never edit either by hand — the ledger is the source of truth. Restore from backup, or post an approved count adjustment once the
 cause is understood. Reservation violations point at an interrupted allocation/pick; cancel the dispatch order to release them.
+
+
+## Delivery: a rider's cash is short or over
+Cash desk → count the cash against “expected”. A difference needs a note and a **second person** (owner excepted) to Accept or send back for a recount.
+Accepting records the variance against the rider (`Cash differences on record`); the merchant is still paid what was collected. Never edit a collection: the database refuses it.
+If a rider took cash for a parcel the system refused (“stored, not applied” on the board), the cash arrives as an **overage** at handover — find the parcel from the board's conflict list and fix the parcel, not the cash.
+
+## Delivery: paying a merchant
+Cash desk → “Owed to merchants” → Prepare (tick *Net fees* to invoice their rated delivery charges and settle them out of the COD). A different person confirms the payout with the bank transfer reference.
+A statement with no fees netted can be withdrawn before it is paid. If a statement is wrong after fees were netted, pay it, then correct through finance (credit/void) — do not delete.
+
+## Delivery: undelivered and return-to-sender
+Board → “Needs a decision”. Re-attempt (optionally with a corrected phone/address) or return to the merchant. A parcel that used all attempts is already marked return-to-sender with a 24-hour task.
+Confirm *returned* when it is physically back with the merchant: that accrues the return fee once.
+
+## Delivery: billing run
+Rates & billing → set the merchant's rate (activity before the rate existed is priced at the rate in force that day). “Invoice” bills all rated, unbilled activity up to today. Voiding the invoice releases the charges.
+
+## Delivery: a rider cannot see their run
+The run must be **Sent out**, the rider needs a login (Riders → Invite), and a rider can have one run out at a time. Close the previous run first.

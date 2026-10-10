@@ -1,3 +1,4 @@
+import { rateLimit, resetRateLimits } from "../lib/ratelimit.js";
 import type { Db } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { permsFor, type Ctx } from "../lib/perms.js";
@@ -41,18 +42,13 @@ export async function revokeAllSessions(db: Db, userId: string) {
   await db.query(`UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, [userId]);
 }
 
-// naive in-memory throttle per email+ip; production should back this with shared storage
-const attempts = new Map<string, { n: number; first: number }>();
-function throttle(key: string) {
-  const now = Date.now(), a = attempts.get(key);
-  if (!a || now - a.first > 15 * 60_000) { attempts.set(key, { n: 1, first: now }); return; }
-  if (++a.n > 8) throw new HttpError(429, "Too many sign-in attempts. Try again in a few minutes.", "throttled");
-}
-export const resetThrottle = () => attempts.clear();
+// Sign-in throttle per email+ip: shared across instances when Upstash is configured (see lib/ratelimit.ts), per-process otherwise.
+const throttle = (key: string) => rateLimit(`auth:${key}`, 8, 15 * 60, "Too many sign-in attempts. Try again in a few minutes.");
+export const resetThrottle = resetRateLimits;
 
 export async function login(db: Db, email: string, password: string, ip = "") {
   const e = email.trim().toLowerCase();
-  throttle(`${e}|${ip}`);
+  await throttle(`${e}|${ip}`);
   const u = (await db.query<any>(`SELECT id,password_hash FROM users WHERE email=$1`, [e])).rows[0];
   dummyHash ??= await hashPassword("dummy-password-for-timing");
   const ok = await verifyPassword(password, u?.password_hash ?? dummyHash);
@@ -71,7 +67,7 @@ export async function completeMfa(db: Db, token: string, code: string) {
   const s = await loadSession(db, token);
   if (!s || !s.isStaff) throw new HttpError(403, "Not a platform staff account.", "forbidden");
   const st = (await db.query<any>(`SELECT totp_secret FROM platform_staff WHERE user_id=$1`, [s.userId])).rows[0];
-  throttle(`mfa|${s.userId}`);
+  await throttle(`mfa|${s.userId}`);
   if (!verifyTotp(st.totp_secret, code)) throw new HttpError(401, "That code is not valid.", "unauthorized");
   await db.query(`UPDATE sessions SET mfa_ok=true WHERE token_hash=$1`, [sha256(token)]);
   await db.system((c) => audit(c, null, { kind: "platform_staff", userId: s.userId }, "staff.mfa_ok"));
