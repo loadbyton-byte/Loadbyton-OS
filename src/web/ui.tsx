@@ -14,6 +14,7 @@ const BADGE: Record<string, string> = {
   operationally_complete: "ok", collected: "ok", closed: "ok", synced: "ok", resolved: "ok", ready: "ok", onboarding: "ok", won: "ok", verified: "ok", sent: "info",
   pending: "warn", pending_approval: "warn", draft: "info", open: "warn", invoiced: "info", issued: "info", part_paid: "warn", grace: "warn",
   qualified: "info", new: "info", quoted: "info", queued: "info", provisioning: "info", validation: "info", information_pending: "warn", in_transit: "info", planned_job: "info",
+  allocated: "info", picking: "info", picked: "info", packed: "info", shipped: "ok", receiving: "warn", backordered: "warn", received: "ok", expected: "info", stale: "bad",
   failed: "bad", rejected: "bad", lost: "bad", restricted: "bad", void: "bad", expired: "bad", dead: "bad", refunded: "bad", cancelled: "bad", denied: "bad", requested: "warn", revoked: "bad",
 };
 export const Badge = ({ s, label }: { s: string; label?: string }) => (

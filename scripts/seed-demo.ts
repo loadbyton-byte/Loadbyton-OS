@@ -9,6 +9,8 @@ import { acceptQuote, approveQuote, createQuote, sendQuote, submitQuote } from "
 import { getJob, recordMilestone } from "../src/ops/jobs.js";
 import { invoiceJob } from "../src/ops/finance.js";
 import { acceptInvite, invite } from "../src/ops/team.js";
+import { createInbound, createLocation, createOrder as createFulfilOrder, createReturn, createSku, getFulfilOrder, getInbound, getReturn, packScan, pickOrder, receiveInbound, receiveReturn, requestAdjustment, shipOrder } from "../src/ops/fulfilment.js";
+import { runStorageCharges, setRate } from "../src/ops/fulfil-billing.js";
 import { addCompliance, addMaintenance, applyDriverEvent, completeTrip, createDriver, createOrder, createTrip, createVehicle, dispatchTrip, getTrip } from "../src/ops/transport.js";
 
 if (process.env.NODE_ENV === "production") { console.error("Refusing to seed demo data in production."); process.exit(1); }
@@ -89,5 +91,59 @@ await db.tenant(tr.tenantId, async (c) => {
   const L2 = (await getTrip(c, moving)).legs;
   await run(moving, L2[0], "arrive", 50); await run(moving, L2[0], "depart", 30);
 });
-console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123`);
+// ── third demo company: e-commerce fulfilment (merchant orders, reservation, pick/pack/ship, returns, counts, activity billing)
+const fEmail = "fulfilment@loadbyton.example";
+const fr = await registerCompany(db, { company: "DEMO Souq Fulfilment", contactName: "Demo Warehouse Manager", email: fEmail, password: "demo-password-123", sectors: ["ecommerce-fulfilment"], goal: "Just exploring" });
+const fctx = { userId: fr.userId, tenantId: fr.tenantId, roles: ["owner"], perms: permsFor(["owner"]), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
+await db.tenant(fr.tenantId, async (c) => {
+  const threads = await createParty(c, fctx, { kind: "customer", name: "DEMO Desert Threads (apparel)" });
+  const oud = await createParty(c, fctx, { kind: "customer", name: "DEMO Oud & Co (fragrance)" });
+  const bin: Record<string, string> = {};
+  for (const code of ["A-01", "A-02", "A-03", "B-01", "B-02"]) bin[code] = await createLocation(c, fctx, { code, note: code.startsWith("A") ? "Apparel aisle" : "Fragrance cage" });
+  for (const party of [threads, oud]) for (const [code, amount] of [["receive_unit", "0.60"], ["pick_order", "2.50"], ["pick_unit", "0.40"], ["pack_order", "1.80"], ["return_unit", "1.50"], ["storage_location_month", "45"]])
+    await setRate(c, fctx, { party_id: party, code, amount, tax_code: "SR5" });
+  await createSku(c, fctx, { party_id: threads, code: "TEE-BLK-M", name: "Black tee, M", barcode: "6290000100011", reorder_point: 10 });
+  await createSku(c, fctx, { party_id: threads, code: "TEE-BLK-L", name: "Black tee, L", barcode: "6290000100028", reorder_point: 10 });
+  await createSku(c, fctx, { party_id: threads, code: "HOODIE-GRY-M", name: "Grey hoodie, M", barcode: "6290000100035", reorder_point: 5 });
+  await createSku(c, fctx, { party_id: oud, code: "OUD-50", name: "Oud attar 50 ml", barcode: "6290000200012", reorder_point: 8 });
+  await createSku(c, fctx, { party_id: oud, code: "OUD-100", name: "Oud attar 100 ml", barcode: "6290000200029", reorder_point: 5 });
+  const receive = async (party: string, lines: [string, number, number, string][]) => {
+    const inb = await createInbound(c, fctx, { party_id: party, reference: `PO-${Math.floor(Math.random() * 9000 + 1000)}`, lines: lines.map(([code, exp]) => `${code}, ${exp}`).join("\n") });
+    const d = await getInbound(c, inb.id);
+    for (const [code, , good, loc] of lines) await receiveInbound(c, fctx, inb.id, { line_id: d.lines.find((l: any) => l.code === code).id, good, damaged: code === "HOODIE-GRY-M" ? 1 : 0, location_id: bin[loc], token: eid() + eid() });
+  };
+  await receive(threads, [["TEE-BLK-M", 40, 40, "A-01"], ["TEE-BLK-L", 25, 25, "A-02"], ["HOODIE-GRY-M", 12, 10, "A-03"]]);
+  await receive(oud, [["OUD-50", 30, 30, "B-01"], ["OUD-100", 4, 4, "B-02"]]);
+  await createInbound(c, fctx, { party_id: oud, reference: "PO-RESTOCK-OUD100", expected_at: hrs(20), lines: "OUD-100, 24" });   // arrives tomorrow: the backorder below will fill itself
+
+  const ord = (party: string, ref: string, lines: string, extra: Record<string, any> = {}) =>
+    createFulfilOrder(c, fctx, { party_id: party, external_ref: ref, channel: "shopify", lines, ship_to_name: extra.name ?? "Aisha Rahman", ship_to_phone: "+971 50 000 1111", ship_to_address: extra.address ?? "Marina Walk 12, Dubai Marina", ship_to_city: "Dubai", ...extra });
+  const flow = async (id: string, upTo: "pick" | "pack" | "ship", tracking = "") => {
+    await pickOrder(c, fctx, id);
+    if (upTo === "pick") return;
+    for (const l of (await getFulfilOrder(c, id)).lines) await packScan(c, fctx, id, { code: l.code, qty: l.picked_qty });
+    if (upTo === "pack") return;
+    await shipOrder(c, fctx, id, { carrier: "Aramex", tracking_no: tracking, cartons: 1, weight_g: 700 });
+  };
+  const shipped = await ord(threads, "SHOP-5001", "TEE-BLK-M, 2", { name: "Khalid Al Suwaidi", address: "Al Nahda 2, Sharjah" });
+  await flow(shipped.id, "ship", "DEMO-AX-1001");
+  const ready = await ord(threads, "SHOP-5002", "HOODIE-GRY-M, 1\nTEE-BLK-L, 1");
+  await flow(ready.id, "pack");
+  const picking = await ord(threads, "SHOP-5003", "TEE-BLK-M, 3", { name: "Omar Haddad", address: "JLT Cluster D, Dubai" });
+  await pickOrder(c, fctx, picking.id);
+  await ord(oud, "NOON-7001", "OUD-50, 2", { channel: "noon", name: "Sara Bin Zayed", address: "Khalifa City, Abu Dhabi" });
+  await ord(oud, "NOON-7002", "OUD-50, 1", { channel: "noon", ship_by: hrs(-2), name: "Mariam Al Ali", address: "Mirdif, Dubai" });             // late
+  await ord(oud, "NOON-7003", "OUD-100, 6", { channel: "noon", name: "Yousef Karim", address: "Al Ain" });                                        // waits for the delivery
+  // a return against the shipped order: one resellable, one for inspection
+  const ret = await createReturn(c, fctx, { party_id: threads, order_no: (await getFulfilOrder(c, shipped.id)).order.no, reason: "Wrong size", lines: "TEE-BLK-M, 2" });
+  const rl = (await getReturn(c, ret.id)).lines[0].id;
+  await receiveReturn(c, fctx, ret.id, { line_id: rl, qty: 1, disposition: "restock", location_id: bin["A-01"], token: eid() + eid() });
+  await receiveReturn(c, fctx, ret.id, { line_id: rl, qty: 1, disposition: "quarantine", token: eid() + eid() });
+  // a cycle count that disagrees with the system, waiting for approval
+  const lSku = (await c.query<any>(`SELECT id FROM skus WHERE code='TEE-BLK-L'`)).rows[0].id;
+  await requestAdjustment(c, fctx, { sku_id: lSku, location_id: bin["A-02"], counted_qty: 23, reason: "Two units water-damaged in the aisle" });
+  await runStorageCharges(c, fctx, new Date().toISOString().slice(0, 7));
+});
+
+console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123\n  Fulfilment owner: ${fEmail} / demo-password-123`);
 await db.close();

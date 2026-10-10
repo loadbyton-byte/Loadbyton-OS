@@ -38,3 +38,25 @@ correction (e.g. wrong receiver name) is handled outside the phone flow; proof o
 ## Compliance expiries
 Blocking items (registration, insurance, licence) prevent assignment and dispatch when they expire before the trip ends. Renew by
 adding the new item; the old one stays as history. Warning-only items never block.
+
+## Short picks
+Board → "short pick(s) are open" (also on the dashboard task list). The picker found fewer units than the system promised: the
+missing units were released, the order shows *waiting* units, and a task names the SKU and bin. Count that bin (Stock → Count a bin);
+once a different person approves, the stock level is corrected and waiting orders re-allocate automatically. Resolve the task.
+
+## A count shows "stale" (voided)
+Stock moved between the count and the approval, so applying the old difference would be wrong. Nothing was changed. Count again.
+
+## Orders stuck "waiting for stock"
+Check Stock → *Waiting* and *Incoming* for the SKU. A pending inbound will serve the oldest waiting orders automatically when received.
+If stock exists in a non-sellable place, move it: units in `RECV` or `QUAR` are not allocatable until transferred to a bin
+(Stock → Move stock). "Try to allocate waiting orders" on the board re-runs the pass.
+
+## Closing an order short
+Only when the merchant agrees the missing units will not come. Use *Close short* with a reason (audited); the rest can then ship.
+Do not use it to hide a short pick — count the bin first.
+
+## Merchant billing run
+Billing activity → set each merchant's rate card (rates apply from now on) → *Create storage charges* once a month (snapshot of occupied
+locations; safe to repeat) → *Invoice merchant*. A wrong invoice is voided (finance), which returns the activity to the unbilled pool.
+

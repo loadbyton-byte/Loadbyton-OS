@@ -146,7 +146,7 @@ export async function addExceptionItem(c: Conn, ctx: Ctx, f: Record<string, any>
   await audit(c, ctx.tenantId, actorOf(ctx), "exception.opened", "job", f.job_id ?? undefined);
 }
 export async function resolveException(c: Conn, ctx: Ctx, id: string) {
-  require(ctx, "job.write");
+  require(ctx, ctx.perms.has("job.write") ? "job.write" : "wh.write");   // warehouse staff close the short-pick tasks they raise
   await c.query(`UPDATE job_exceptions SET status='resolved', resolved_at=now() WHERE id=$1`, [id]);
 }
 
