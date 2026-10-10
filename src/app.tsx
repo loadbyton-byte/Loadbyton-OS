@@ -12,6 +12,7 @@ import { transport } from "./web/app-transport.js";
 import { fulfil } from "./web/app-fulfil.js";
 import { warehouse } from "./web/app-warehouse.js";
 import { delivery, deliveryPublic } from "./web/app-delivery.js";
+import { customs } from "./web/app-customs.js";
 import { deliveryApi } from "./web/api-delivery.js";
 import { driver } from "./web/app-driver.js";
 import { admin } from "./web/admin.js";
@@ -55,6 +56,7 @@ export function buildApp(db: Db) {
   app.route("/", delivery);
   app.route("/", deliveryPublic);
   app.route("/", deliveryApi);
+  app.route("/", customs);
   app.route("/", driver);
 
   const errorPage = (c: any, status: number, title: string, message: string) =>

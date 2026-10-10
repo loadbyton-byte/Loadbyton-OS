@@ -58,7 +58,7 @@ describe("payments, entitlements, provisioning", () => {
     const jobs = await db.query(`SELECT * FROM provision_jobs WHERE tenant_id=$1`, [t.tenantId]);
     expect(jobs.rows).toHaveLength(1);
     const ents = await db.query(`SELECT * FROM entitlements WHERE tenant_id=$1 AND source=$2`, [t.tenantId, `order:${o.orderId}`]);
-    expect(ents.rows).toHaveLength(10);   // exactly one row per allowance key (users, branches, jobs, trips, fulfilment orders, warehouse orders, parcels, storage, sectors, entities) — a replay adds none
+    expect(ents.rows).toHaveLength(11);   // exactly one row per allowance key (users, branches, jobs, trips, fulfilment orders, warehouse orders, parcels, customs cases, storage, sectors, entities) — a replay adds none
     expect(await db.tenant(t.tenantId, (c) => getLimit(c, t.tenantId, "jobs_per_month"))).toBe(150);
   });
 

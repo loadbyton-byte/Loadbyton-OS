@@ -53,9 +53,9 @@ provider needs selection (decision §32) and connector acceptance tests.
 
 ## Known limitations
 
-See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no delivery/COD or customs modules, no contract-3PL custody workflows, no marketplace or carrier connectors, no native ledger,
+See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no customs filing integration (case management and handover only), no contract-3PL custody workflows, no marketplace or carrier connectors, no native ledger,
 
-See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no delivery/customs modules, no native ledger,
+See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no customs filing integration, no native ledger,
 no Arabic/RTL, no e-invoicing adapter, rate limiting is in-memory, ClamAV scanning is a hook not an integration, and the `pg`
 (production) driver path is untested against a live PostgreSQL server in this repository's CI (PGlite is real Postgres but
 single-connection).
