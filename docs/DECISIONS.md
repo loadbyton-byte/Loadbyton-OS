@@ -15,3 +15,13 @@
 | 11 | Verify domain ownership; produce **vector** logo master and check BY mark at favicon size | Raster logos extracted from the blueprint PDF are used; `public/brand/by-mark-*.png` favicon checked at 64 px |
 | 12 | Proration policy for mid-period upgrades | Pilot charges full first month, credits setup only |
 | 13 | Legal review of Terms/Privacy/DPA | Pages are marked **Draft** |
+
+## Added with Transport
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 14 | Route-estimate / live-GPS provider (and its consent + retention policy) | Estimated km is a manual figure; no tracking; `capture_location` is off by default and only gates POD coordinates |
+| 15 | Driver app: browser PWA with service worker vs native app | Today: server-rendered page + localStorage queue; add a service worker if drivers must open it offline |
+| 16 | Trip billing unit and plan allowances (`trips_per_month`) | Hypotheses equal to the jobs allowance; plan v2 |
+| 17 | Fuel/toll policy (who approves, limits, receipt upload) | One independent approver, no receipt upload yet |
+| 18 | Salik/toll and fuel-card integrations | Not built |

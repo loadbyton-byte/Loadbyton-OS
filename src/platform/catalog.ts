@@ -16,7 +16,7 @@ export const SECTORS: Sector[] = [
     workflow: "Air/ocean/road jobs; import/export/cross-trade; route legs, bookings, charges and documents" },
   { slug: "customs-brokerage", name: "Customs brokerage", family: "freight", advanced: true, availability: "planned", specialist: true,
     workflow: "Declaration cases, evidence, deposits, inspections and controlled submission handover" },
-  { slug: "road-transport", name: "Road transport", family: "movement", advanced: false, availability: "planned",
+  { slug: "road-transport", name: "Road transport", family: "movement", advanced: false, availability: "pilot",
     workflow: "Dispatch, trips, capacity, vehicles, drivers, subcontractors and POD" },
   { slug: "contract-warehouse-3pl", name: "Contract warehouse / 3PL", family: "storage", advanced: true, availability: "planned",
     workflow: "Customer-owned custody stock, locations, movements and activity billing" },
@@ -53,7 +53,7 @@ export const sectorBySlug = (s: string) => SECTORS.find((x) => x.slug === s);
 
 export const PRODUCTS = [
   { name: "LOAD|BY|TON Freight", blurb: "Enquiry → quote → job → supplier costs → documents → invoice → collection.", status: "pilot" as Availability },
-  { name: "LOAD|BY|TON Transport", blurb: "Trips, vehicles, drivers, subcontractors, POD and trip profitability.", status: "planned" as Availability },
+  { name: "LOAD|BY|TON Transport", blurb: "Trips, vehicles, drivers, subcontractors, POD and trip profitability.", status: "pilot" as Availability },
   { name: "LOAD|BY|TON Warehouse", blurb: "Owner-separated custody stock, movements, counts and activity billing.", status: "planned" as Availability },
   { name: "LOAD|BY|TON Delivery", blurb: "Parcels, attempts, proof of delivery and COD reconciliation.", status: "planned" as Availability },
   { name: "LOAD|BY|TON Customs", blurb: "Declaration cases, evidence and controlled handover to official channels.", status: "planned" as Availability },
@@ -71,24 +71,32 @@ export const INTEGRATIONS = [
 
 export interface PlanSeed {
   code: string; name: string; monthly: number; setup: number; contact?: boolean;
-  limits: { max_users: number; max_branches: number; jobs_per_month: number; storage_mb: number; max_sectors: number; max_entities: number };
+  limits: { max_users: number; max_branches: number; jobs_per_month: number; storage_mb: number; max_sectors: number; max_entities: number; trips_per_month?: number };
 }
 // Pricing is a hypothesis (blueprint §06), not an approved tariff. Published versions are immutable; change = new version.
 export const PLAN_SEEDS: PlanSeed[] = [
-  { code: "free", name: "Free Forever", monthly: 0, setup: 0, limits: { max_users: 2, max_branches: 1, jobs_per_month: 25, storage_mb: 250, max_sectors: 1, max_entities: 1 } },
-  { code: "starter", name: "Starter", monthly: 14900, setup: 19900, limits: { max_users: 3, max_branches: 1, jobs_per_month: 150, storage_mb: 2048, max_sectors: 1, max_entities: 1 } },
-  { code: "business", name: "Business", monthly: 34900, setup: 39900, limits: { max_users: 8, max_branches: 2, jobs_per_month: 500, storage_mb: 10240, max_sectors: 1, max_entities: 1 } },
-  { code: "operations", name: "Operations", monthly: 74900, setup: 79900, limits: { max_users: 15, max_branches: 3, jobs_per_month: 1500, storage_mb: 25600, max_sectors: 2, max_entities: 1 } },
-  { code: "enterprise", name: "Enterprise", monthly: 149900, setup: 0, contact: true, limits: { max_users: 100, max_branches: 20, jobs_per_month: 20000, storage_mb: 204800, max_sectors: 18, max_entities: 5 } },
+  { code: "free", name: "Free Forever", monthly: 0, setup: 0, limits: { max_users: 2, max_branches: 1, jobs_per_month: 25, storage_mb: 250, max_sectors: 1, max_entities: 1, trips_per_month: 25 } },
+  { code: "starter", name: "Starter", monthly: 14900, setup: 19900, limits: { max_users: 3, max_branches: 1, jobs_per_month: 150, storage_mb: 2048, max_sectors: 1, max_entities: 1, trips_per_month: 150 } },
+  { code: "business", name: "Business", monthly: 34900, setup: 39900, limits: { max_users: 8, max_branches: 2, jobs_per_month: 500, storage_mb: 10240, max_sectors: 1, max_entities: 1, trips_per_month: 500 } },
+  { code: "operations", name: "Operations", monthly: 74900, setup: 79900, limits: { max_users: 15, max_branches: 3, jobs_per_month: 1500, storage_mb: 25600, max_sectors: 2, max_entities: 1, trips_per_month: 1500 } },
+  { code: "enterprise", name: "Enterprise", monthly: 149900, setup: 0, contact: true, limits: { max_users: 100, max_branches: 20, jobs_per_month: 20000, storage_mb: 204800, max_sectors: 18, max_entities: 5, trips_per_month: 20000 } },
 ];
 
+/**
+ * v1 = original forwarding-era allowances (no trip quota); v2 adds the Transport billing unit (trips/month).
+ * Published versions are immutable, so v1 subscriptions keep what they bought; for them trips fall back to the
+ * jobs allowance (see getLimit). New purchases use the latest version.
+ */
 export async function ensureCatalog(c: Conn) {
   for (const p of PLAN_SEEDS) {
-    await c.query(
-      `INSERT INTO plan_versions(plan_code, version, name, monthly_minor, setup_minor, limits, contact_sales)
-       VALUES ($1,1,$2,$3,$4,$5,$6) ON CONFLICT (plan_code, version) DO NOTHING`,
-      [p.code, p.name, p.monthly, p.setup, JSON.stringify(p.limits), !!p.contact],
-    );
+    const { trips_per_month, ...v1Limits } = p.limits;
+    for (const [version, limits] of [[1, v1Limits], [2, p.limits]] as const) {
+      await c.query(
+        `INSERT INTO plan_versions(plan_code, version, name, monthly_minor, setup_minor, limits, contact_sales)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (plan_code, version) DO NOTHING`,
+        [p.code, version, p.name, p.monthly, p.setup, JSON.stringify(limits), !!p.contact],
+      );
+    }
   }
 }
 
