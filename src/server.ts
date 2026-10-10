@@ -6,7 +6,10 @@ import { ensureCatalog } from "./platform/catalog.js";
 import { processProvisioningQueue } from "./platform/provisioning.js";
 import { drainOutbox, defaultHandlers } from "./platform/outbox.js";
 import { accountingHandlers } from "./adapters/accounting.js";
+import { mailHandlers } from "./adapters/mail.js";
+import { deliveryNotifyHandlers } from "./adapters/delivery-notify.js";
 import { applyDueSubscriptionChanges } from "./platform/billing.js";
+import { WORKERS, markWorker } from "./platform/metrics.js";
 
 const db = await openDb();
 await db.system((c) => ensureCatalog(c));
@@ -17,12 +20,12 @@ const server = serve({ fetch: app.fetch, port: config.port }, (i) => console.log
 // In-process workers for the pilot. Run as a separate process (RUN_WORKERS=false on web) once load justifies it.
 let timers: NodeJS.Timeout[] = [];
 if (config.runWorkers) {
-  const handlers = { ...defaultHandlers, ...accountingHandlers(db) };
-  const safe = (name: string, fn: () => Promise<unknown>) => () => fn().catch((e) => console.error(`[worker:${name}]`, e));
+  const handlers = { ...defaultHandlers, ...accountingHandlers(db), ...mailHandlers(db), ...deliveryNotifyHandlers(db) };
+  const safe = (name: string, fn: () => Promise<unknown>) => () => fn().then(() => markWorker(name, true), (e) => { markWorker(name, false); console.error(`[worker:${name}]`, e); });
   timers = [
-    setInterval(safe("provisioning", () => processProvisioningQueue(db)), 5_000),
-    setInterval(safe("outbox", () => drainOutbox(db, handlers)), 5_000),
-    setInterval(safe("subscriptions", () => applyDueSubscriptionChanges(db)), 10 * 60_000),
+    setInterval(safe("provisioning", () => processProvisioningQueue(db)), WORKERS.provisioning),
+    setInterval(safe("outbox", () => drainOutbox(db, handlers)), WORKERS.outbox),
+    setInterval(safe("subscriptions", () => applyDueSubscriptionChanges(db)), WORKERS.subscriptions),
   ];
 }
 const shutdown = async () => { timers.forEach(clearInterval); server.close(); await db.close(); process.exit(0); };

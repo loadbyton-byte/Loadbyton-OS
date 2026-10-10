@@ -189,7 +189,7 @@ ops.get("/app/documents/:id/download", async (c) => {
   if (ctx.partyId && !(doc.customer_visible && doc.party_id === ctx.partyId)) throw new HttpError(403, "Not permitted", "forbidden");
   if (!exp || !sig) { const s = signDownload(ctx.tenantId, id); return c.redirect(`/app/documents/${id}/download?exp=${s.exp}&sig=${s.sig}`); }
   if (!verifyDownload(ctx.tenantId, id, exp, sig)) throw new HttpError(403, "This download link has expired. Go back and open it again.", "forbidden");
-  const buf = readDocumentFile(doc.storage_key, ctx.tenantId);
+  const buf = await readDocumentFile(doc.storage_key, ctx.tenantId);
   c.header("Content-Type", "application/octet-stream");
   c.header("Content-Disposition", `attachment; filename="${doc.filename.replace(/[^\w.\- ]/g, "_")}"`);
   c.header("Content-Security-Policy", "sandbox; default-src 'none'");

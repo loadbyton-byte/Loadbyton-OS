@@ -9,8 +9,12 @@ import { invite } from "../ops/team.js";
 import { listParties } from "../ops/crm.js";
 import { formBody, str, arr, clientIp, type Env } from "./mw.js";
 import { rateLimit } from "../lib/ratelimit.js";
+import { raw } from "hono/html";
+import { barcodeSvg } from "../lib/code128.js";
+import { createApiKey, listApiKeys, listMerchantSettings, revokeApiKey, sendTestWebhook, setNotifySms, setWebhook } from "../ops/delivery-notify.js";
 import { act, appPage, can, Confirm, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, PublicShell, Table } from "./ui.js";
+import { config } from "../config.js";
 
 export const delivery = new Hono<Env>();
 const D = "/app/delivery";
@@ -185,6 +189,7 @@ delivery.get(`${D}/shipments/:id`, async (c) => {
       <section><Table caption="Charges" head={["Charge", ["Amount", "num"], "Billing"]} empty={d.charges.length ? undefined : "No charges yet."}>
         {d.charges.map((g: any) => <tr><td>{CHARGE_LABEL[g.charge_type]}</td><td class="num">{g.unrated ? "no rate yet" : <Money v={Math.round(Number(g.qty) * Number(g.unit_minor))} />}</td><td>{g.invoice_id ? <a href={`/app/invoices/${g.invoice_id}`}>invoiced</a> : "unbilled"}</td></tr>)}</Table></section>
     </div>
+    <p class="small mute no-print" style="margin-top:14px"><a href={`${D}/labels?ids=${s.id}`} target="_blank">Print label</a></p>
     <p class="small mute" style="margin-top:14px">Public tracking link for the consignee (shows status only): <a href={`/t/${s.track_token}`}>/t/{s.track_token}</a></p>
   </>));
 });
@@ -245,7 +250,7 @@ delivery.get(`${D}/runs/:id`, async (c) => {
   const cod = d.shipments.reduce((a: number, s: any) => a + (s.status === "cancelled" ? 0 : Number(s.cod_minor)), 0);
   return appPage(c, r.no, (<>
     <PageHead title={`${r.no} · ${r.rider_name}`} sub={`${formatDay(r.run_date)} · ${d.shipments.length} parcel(s) · COD due ${fmtMoney(cod)}`}>
-      <a class="btn ghost sm" href={`${D}/runs`}>← Runs</a><button class="btn ghost sm" type="button" data-print>Print manifest</button>
+      <a class="btn ghost sm" href={`${D}/runs`}>← Runs</a><button class="btn ghost sm" type="button" data-print>Print manifest</button><a class="btn ghost sm" href={`${D}/labels?run=${id}`} target="_blank">Print labels</a>
     </PageHead>
     <p><Badge s={r.status === "out" ? "info" : r.status} /></p>
     {w ? (
@@ -425,6 +430,105 @@ delivery.post(`${D}/billing/invoice`, async (c) => {
     const r = await withT(c, (cn, ctx) => invoiceMerchant(cn, ctx, str(b.merchant_id)));
     return { to: `${D}/billing`, ok: `Invoice ${r.no} issued for ${r.charges} line(s).${r.warnings.length ? " " + r.warnings.join(" ") : ""}` };
   });
+});
+
+
+// ───────── printable waybill labels (100 × 150 mm) with a Code 128 barcode of the waybill number
+delivery.get(`${D}/labels`, async (c) => {
+  need(c, "read");
+  const ids = (c.req.query("ids") ?? "").split(",").filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 100), run = c.req.query("run") ?? "", fresh = c.req.query("status") === "new";
+  const t = c.get("tenant")!;
+  const rows = await withT(c, async (cn) => {
+    if (run && /^[0-9a-f-]{36}$/i.test(run)) return (await getRun(cn, run)).shipments;
+    if (fresh) return (await listShipments(cn, { status: "new", limit: 100 })).reverse();
+    const out: any[] = [];
+    for (const id of ids) out.push((await getShipment(cn, id)).shipment);
+    return out;
+  });
+  return c.html(
+    <html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Labels</title><link rel="stylesheet" href="/assets/app.css" /><script src="/assets/app.js" defer></script>
+      <style>{`@page{size:100mm 150mm;margin:0}body{background:#fff;margin:0}.lbl{box-sizing:border-box;width:100mm;height:150mm;padding:5mm;page-break-after:always;border-bottom:1px dashed #999;display:flex;flex-direction:column;gap:2mm;font:12px/1.3 system-ui,Arial,sans-serif;color:#000}
+      .lbl h1{font-size:15px;margin:0}.lbl .big{font-size:20px;font-weight:800}.lbl .cod{border:3px solid #000;padding:2mm;text-align:center;font-size:22px;font-weight:900}.lbl .bc{text-align:center}.lbl .bc svg{width:90mm;height:22mm}.lbl .addr{font-size:15px;font-weight:700}
+      @media screen{.lbl{margin:8px auto;border:1px solid #bbb}.bar{position:sticky;top:0;background:#071D35;color:#fff;padding:8px 16px}}@media print{.bar{display:none}.lbl{border:0}}`}</style></head>
+    <body><div class="bar no-print">{rows.length} label(s) · <button class="btn sm" type="button" data-print>Print</button></div>
+      {rows.map((s: any) => (
+        <section class="lbl">
+          <h1>{t.name}</h1>
+          <div class="bc">{raw(barcodeSvg(s.no, { module: 2, height: 70 }))}<div class="big">{s.no}</div></div>
+          <div class="cod">{Number(s.cod_minor) ? `COD  ${fmtMoney(Number(s.cod_minor))}` : "PREPAID"}</div>
+          <div class="addr">{s.consignee_name}<br />{s.consignee_phone ?? ""}<br />{s.address}<br />{s.emirate}</div>
+          <div>From: {s.merchant_name ?? ""}{s.external_ref ? ` · Ref ${s.external_ref}` : ""}</div>
+          <div>{s.pieces} pc · {Number(s.weight_kg) ? `${Number(s.weight_kg)} kg` : ""}{s.deliver_by ? ` · by ${formatDate(s.deliver_by)}` : ""}{s.require_code ? " · CODE REQUIRED" : ""}</div>
+          {s.description ? <div>{s.description}</div> : null}
+        </section>))}
+      {rows.length ? null : <p style="padding:20px">No labels to print.</p>}
+    </body></html>);
+});
+
+// ───────── integrations: merchant API keys, webhook endpoints, SMS opt-in
+const Integrations = (p: { csrf: string; keys: any[]; merchants: any[]; settings: any[]; newKey?: { key: string; name: string } | null; newSecret?: { secret: string; merchant: string } | null; base: string }) => (<>
+  <PageHead title="Integrations" sub="Let a merchant's own systems create parcels and follow them, and push status changes to them as they happen." />
+  {p.newKey ? <div class="alert ok"><strong>API key “{p.newKey.name}” created.</strong> Copy it now — it is shown once and only a fingerprint is kept.<br /><code style="user-select:all;word-break:break-all">{p.newKey.key}</code></div> : null}
+  {p.newSecret ? <div class="alert ok"><strong>Webhook signing secret for {p.newSecret.merchant}.</strong> Copy it now — it is shown once.<br /><code style="user-select:all;word-break:break-all">{p.newSecret.secret}</code></div> : null}
+  <Table caption="API keys" head={["Merchant", "Name", "Key", "Last used", "Status", ""]} empty={p.keys.length ? undefined : "No keys yet."}>
+    {p.keys.map((k: any) => <tr><td>{k.merchant_name}</td><td>{k.name}</td><td><code>{k.prefix}…</code></td><td class="small">{k.last_used_at ? formatDate(k.last_used_at) : "never"}</td><td>{k.revoked_at ? <Badge s="void" label="revoked" /> : <Badge s="active" />}</td>
+      <td>{k.revoked_at ? null : <Confirm action={`${D}/integrations/keys/${k.id}/revoke`} csrf={p.csrf} label="Revoke" confirm="Revoke this key? Systems using it stop working immediately." cls="ghost sm" />}</td></tr>)}</Table>
+  <form method="post" action={`${D}/integrations/keys`} class="inline-form" style="margin:10px 0 24px"><Csrf t={p.csrf} />
+    <select name="merchant_id" required aria-label="Merchant"><option value="">— merchant —</option>{p.merchants.map((m: any) => <option value={m.id}>{m.name}</option>)}</select>
+    <input name="name" type="text" placeholder="Key name (e.g. Shopify sync)" required /><button class="btn sm" type="submit">Create key</button></form>
+  <Table caption="Webhooks and SMS per merchant" head={["Merchant", "Webhook address (https)", "Active", "SMS to consignees", ""]}>
+    {p.settings.map((m: any) => <tr><td>{m.name}</td>
+      <td><form method="post" action={`${D}/integrations/webhook`} class="inline-form"><Csrf t={p.csrf} /><input type="hidden" name="merchant_id" value={m.merchant_id} /><input name="url" type="url" value={m.webhook_url} placeholder="https://merchant.example/hooks/loadbyton" style="min-width:280px" />
+        <label class="check"><input type="checkbox" name="active" value="1" checked={m.webhook_active} /><span>on</span></label><label class="check"><input type="checkbox" name="rotate" value="1" /><span>new secret</span></label><button class="btn ghost sm" type="submit">Save</button></form></td>
+      <td>{m.webhook_active ? <Badge s="active" label="on" /> : "off"}</td>
+      <td><form method="post" action={`${D}/integrations/sms`} class="inline-form"><Csrf t={p.csrf} /><input type="hidden" name="merchant_id" value={m.merchant_id} /><label class="check"><input type="checkbox" name="on" value="1" checked={m.notify_sms} /><span>send</span></label><button class="btn ghost sm" type="submit">Save</button></form></td>
+      <td>{m.webhook_active ? <PostBtn action={`${D}/integrations/webhook-test`} csrf={p.csrf} label="Send test" cls="ghost sm" fields={{ merchant_id: m.merchant_id }} /> : null}</td></tr>)}</Table>
+  <p class="small mute">SMS goes to UAE mobile numbers only, for “out for delivery” and “could not deliver”. Turn it on only for merchants who have their customers' consent to be contacted; sender-ID registration with your SMS provider and UAE regulations are your responsibility.</p>
+  <section class="card" style="margin-top:20px"><h3>API quick start</h3>
+    <pre style="overflow:auto;font-size:.8rem;white-space:pre-wrap">{`curl -X POST ${p.base}/api/v1/parcels \
+  -H "Authorization: Bearer lbtk_…" -H "Content-Type: application/json" \
+  -d '{"reference":"ORDER-1001","consignee_name":"Aisha","consignee_phone":"0501234567","address":"Villa 4, Al Barsha","emirate":"Dubai","cod":249.5}'`}</pre>
+    <p class="small">Endpoints: <code>POST /api/v1/parcels</code> (idempotent on <code>reference</code>) · <code>GET /api/v1/parcels?status=&amp;limit=&amp;before=</code> · <code>GET /api/v1/parcels/:waybill-or-reference</code> · <code>POST /api/v1/parcels/:id/cancel</code> (only before dispatch) · <code>GET /api/v1/remittances</code>. 120 requests/minute per key.</p>
+    <p class="small">Webhooks: <code>POST</code> JSON <code>{`{id, type, created, data}`}</code> with header <code>LBT-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code> where <code>v1 = HMAC-SHA256(secret, t + "." + rawBody)</code>. Reject if <code>t</code> is more than 5 minutes old; de-duplicate on <code>id</code>; answer 2xx within 10 s (otherwise we retry with back-off). Types: <code>parcel.out_for_delivery</code>, <code>parcel.delivered</code>, <code>parcel.attempt_failed</code>, <code>parcel.return_to_sender</code>, <code>parcel.returned</code>, <code>parcel.cancelled</code>, <code>remittance.paid</code>.</p></section>
+</>);
+delivery.get(`${D}/integrations`, async (c) => {
+  need(c, "settings.manage");
+  const d = await withT(c, async (cn) => ({ keys: await listApiKeys(cn), merchants: await listParties(cn, "customer"), settings: await listMerchantSettings(cn) }));
+  return appPage(c, "Integrations", <Integrations csrf={c.get("csrf")} base={config.baseUrl.replace(/\/$/, "")} {...d} />);
+});
+delivery.post(`${D}/integrations/keys`, async (c) => {
+  need(c, "settings.manage");
+  const b = await formBody(c);
+  try {
+    const r = await withT(c, (cn, ctx) => createApiKey(cn, ctx, { merchant_id: str(b.merchant_id), name: str(b.name) }));
+    const d = await withT(c, async (cn) => ({ keys: await listApiKeys(cn), merchants: await listParties(cn, "customer"), settings: await listMerchantSettings(cn) }));
+    return appPage(c, "Integrations", <Integrations csrf={c.get("csrf")} base={config.baseUrl.replace(/\/$/, "")} {...d} newKey={{ key: r.key, name: str(b.name) }} />);   // rendered directly, never put in a URL
+  } catch (e) { if (e instanceof HttpError && e.status < 500) return c.redirect(`${D}/integrations?err=${encodeURIComponent(e.message)}`); throw e; }
+});
+delivery.post(`${D}/integrations/keys/:id/revoke`, async (c) => {
+  need(c, "settings.manage");
+  return act(c, `${D}/integrations`, async () => { await withT(c, (cn, ctx) => revokeApiKey(cn, ctx, c.req.param("id"))); return { to: `${D}/integrations`, ok: "Key revoked." }; });
+});
+delivery.post(`${D}/integrations/webhook`, async (c) => {
+  need(c, "settings.manage");
+  const b = await formBody(c);
+  try {
+    const r = await withT(c, (cn, ctx) => setWebhook(cn, ctx, { merchant_id: str(b.merchant_id), url: str(b.url), active: str(b.active) === "1", rotate: str(b.rotate) === "1" }));
+    if (!r.secret) return c.redirect(`${D}/integrations?ok=${encodeURIComponent("Webhook saved.")}`);
+    const d = await withT(c, async (cn) => ({ keys: await listApiKeys(cn), merchants: await listParties(cn, "customer"), settings: await listMerchantSettings(cn) }));
+    const name = d.merchants.find((m: any) => m.id === str(b.merchant_id))?.name ?? "merchant";
+    return appPage(c, "Integrations", <Integrations csrf={c.get("csrf")} base={config.baseUrl.replace(/\/$/, "")} {...d} newSecret={{ secret: r.secret, merchant: name }} />);
+  } catch (e) { if (e instanceof HttpError && e.status < 500) return c.redirect(`${D}/integrations?err=${encodeURIComponent(e.message)}`); throw e; }
+});
+delivery.post(`${D}/integrations/sms`, async (c) => {
+  need(c, "settings.manage");
+  const b = await formBody(c);
+  return act(c, `${D}/integrations`, async () => { await withT(c, (cn, ctx) => setNotifySms(cn, ctx, str(b.merchant_id), str(b.on) === "1")); return { to: `${D}/integrations`, ok: "SMS setting saved." }; });
+});
+delivery.post(`${D}/integrations/webhook-test`, async (c) => {
+  need(c, "settings.manage");
+  const b = await formBody(c);
+  return act(c, `${D}/integrations`, async () => { await withT(c, (cn, ctx) => sendTestWebhook(cn, ctx, str(b.merchant_id))); return { to: `${D}/integrations`, ok: "Test event queued; it is delivered within seconds." }; });
 });
 
 // ───────── public tracking: no login, no personal data (a token is the capability)
