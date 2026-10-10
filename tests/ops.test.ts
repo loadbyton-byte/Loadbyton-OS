@@ -158,8 +158,8 @@ describe("documents", () => {
       const { exp, sig } = signDownload(t.tenantId, id);
       expect(verifyDownload(t.tenantId, id, exp, sig)).toBe(true);
       expect(verifyDownload(o.tenantId, id, exp, sig)).toBe(false);
-      expect(readDocumentFile(doc.storage_key, t.tenantId).equals(pdf)).toBe(true);
-      expect(() => readDocumentFile(doc.storage_key, o.tenantId)).toThrow();
+      expect((await readDocumentFile(doc.storage_key, t.tenantId)).equals(pdf)).toBe(true);
+      await expect(readDocumentFile(doc.storage_key, o.tenantId)).rejects.toThrow();
     });
   });
   it("storage allowance blocks new uploads but keeps existing readable", async () => {

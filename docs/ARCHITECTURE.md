@@ -198,3 +198,13 @@ single-connection).
 - **Database:** `pgConnection` maps `sslmode`/`DATABASE_SSL` to verified TLS for Neon/Supabase; migrations take an advisory lock and use `MIGRATION_DATABASE_URL`
   (direct connection) when given. **Rate limiting:** `lib/ratelimit.ts` — Upstash REST fixed-window counters shared across instances, falling back to an
   in-process counter when Redis is unreachable; client address is read only from the header named by `TRUST_PROXY`.
+
+
+## Platform adapters: mail, storage, monitoring, delivery integrations
+
+- **Mail** (`adapters/mail.ts`): outbox topic `email` → pure templates → Resend (or log). Recipients are resolved from the database at send time; a 4xx other than 429 is *permanent* (dead queue at once), 5xx/429/network are retried (8 attempts). One-time credentials (`link`) and personal data in a row (`body`, `to`) are **removed from the payload in the same statement that marks it sent**.
+- **Storage** (`lib/storage.ts`): `Storage {put,get}` over local disk (path-escape refusal) or any S3-compatible store through a hand-written AWS SigV4 signer (verified against AWS's published GET example). Keys are `<tenantId>/<uuid>`; reads re-check the tenant prefix and still go through the signed, authorised download route.
+- **Monitoring** (`platform/metrics.ts`): worker heartbeats stamped by each background loop; `/readyz` fails when a worker is silent (3× its interval), failing or never started; `/metrics` exposes aggregate counts only (no tenant names, no emails).
+- **Merchant API** (`web/api-delivery.ts`): bearer keys (`lbtk_…`, sha256 stored, 5 per merchant), tenant context established from the key, every query filtered by the key's merchant, JSON errors, per-key rate limit, exempt from CSRF because it never reads cookies.
+- **Merchant webhooks** (`ops/delivery-notify.ts`, `adapters/delivery-notify.ts`, `lib/safe-http.ts`): events are written to the outbox **in the same transaction as the state change** (so an event exists exactly when the change does; keys are unique per parcel/type/attempt). Delivery signs `t.body` with the merchant's sealed secret, calls the address through a connection whose own DNS lookup rejects private/loopback/link-local/metadata addresses (rebinding-proof), never follows redirects, caps the response, and times out. Retries: 12 attempts with back-off up to 1 h; `410` is permanent.
+- **SMS**: opt-in per merchant; UAE mobile numbers only; sent for out-for-delivery and failed attempts only.

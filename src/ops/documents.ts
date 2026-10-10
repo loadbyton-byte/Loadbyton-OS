@@ -1,8 +1,8 @@
-import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { Conn } from "../db/client.js";
 import { config } from "../config.js";
+import { storage } from "../lib/storage.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
 import { HttpError, badRequest, hmac, safeEqual, sha256 } from "../lib/util.js";
@@ -57,9 +57,7 @@ export async function storeDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scanne
   const kind = (DOC_KINDS as readonly string[]).includes(f.kind) ? f.kind : "other";
   if (f.job_id) await must(c.query(`SELECT id FROM jobs WHERE id=$1`, [f.job_id]), "Job");
   const key = `${ctx.tenantId}/${crypto.randomUUID()}`;
-  const full = path.join(config.storageDir, key);
-  fs.mkdirSync(path.dirname(full), { recursive: true });
-  fs.writeFileSync(full, f.data, { mode: 0o600 });
+  await storage.put(key, f.data);
   const version = f.job_id
     ? Number((await c.query<any>(`SELECT coalesce(max(version),0)+1 v FROM documents WHERE job_id=$1 AND kind=$2`, [f.job_id, kind])).rows[0].v) : 1;
   const r = await c.query<{ id: string }>(
@@ -80,11 +78,9 @@ export function signDownload(tenantId: string, docId: string, ttlSec = 300) {
 export function verifyDownload(tenantId: string, docId: string, exp: number, sig: string) {
   return exp > Date.now() / 1000 && safeEqual(sig, hmac(config.sessionSecret, `dl:${tenantId}:${docId}:${exp}`));
 }
-export function readDocumentFile(storageKey: string, tenantId: string): Buffer {
+export async function readDocumentFile(storageKey: string, tenantId: string): Promise<Buffer> {
   if (!storageKey.startsWith(`${tenantId}/`)) throw new HttpError(403, "Not permitted", "forbidden");
-  const full = path.resolve(config.storageDir, storageKey);
-  if (!full.startsWith(path.resolve(config.storageDir) + path.sep)) throw new HttpError(403, "Not permitted", "forbidden");
-  return fs.readFileSync(full);
+  return storage.get(storageKey);
 }
 
 export const listDocuments = (c: Conn, opts: { jobId?: string; portalPartyId?: string | null } = {}) =>
