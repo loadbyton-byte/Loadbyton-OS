@@ -31,13 +31,19 @@ export function navFor(c: C): NavItem[] {
     n.push({ href: "/app/transport", label: "Planning board", section: "Transport" }, { href: "/app/transport/orders", label: "Transport orders", section: "Transport" },
       { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" });
   }
+  if (t?.sectors.includes("ecommerce-fulfilment")) {
+    const w = (href: string, label: string) => n.push({ href, label, section: "Fulfilment" });
+    w("/app/fulfilment", "Fulfilment board"); w("/app/fulfilment/orders", "Orders"); w("/app/fulfilment/pick", "Pick list"); w("/app/fulfilment/inbound", "Inbound");
+    w("/app/fulfilment/stock", "Stock"); w("/app/fulfilment/returns", "Returns"); w("/app/fulfilment/catalog", "Catalogue"); w("/app/fulfilment/locations", "Locations");
+    if (ctx.perms.has("wh.rates") || ctx.perms.has("finance.write")) w("/app/fulfilment/billing", "Billing activity");
+  }
   n.push({ href: "/app/parties", label: "Customers & suppliers", section: "Sell" });
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });
   n.push({ href: "/app/documents", label: "Documents", section: "Operate" });
-  if (fwd) n.push({ href: "/app/tasks", label: "Tasks & exceptions", section: "Operate" },
+  if (t && t.sectors.length) n.push({ href: "/app/tasks", label: "Tasks & exceptions", section: "Operate" },
     { href: "/app/invoices", label: "Invoices & collections", section: "Money" });
-  if (ctx.perms.has("dashboard.owner")) n.push({ href: "/app/reports", label: "Owner dashboard", section: "Money" });
+  if (fwd && ctx.perms.has("dashboard.owner")) n.push({ href: "/app/reports", label: "Owner dashboard", section: "Money" });   // job-margin view: freight only
   if (ctx.perms.has("team.manage")) n.push({ href: "/app/team", label: "Team", section: "Admin" });
   if (ctx.perms.has("billing.manage")) n.push({ href: "/app/billing", label: "Plan & billing", section: "Admin" });
   if (ctx.perms.has("settings.manage")) n.push({ href: "/app/settings", label: "Settings", section: "Admin" });

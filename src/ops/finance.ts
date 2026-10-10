@@ -96,6 +96,7 @@ export async function voidInvoice(c: Conn, ctx: Ctx, invoiceId: string, reason: 
   if (inv.status === "void") throw badRequest("Already void.");
   await c.query(`UPDATE invoices SET status='void' WHERE id=$1`, [invoiceId]);
   await c.query(`UPDATE job_charges SET invoice_id=NULL WHERE invoice_id=$1`, [invoiceId]);
+  await c.query(`UPDATE fulfil_charges SET invoice_id=NULL WHERE invoice_id=$1`, [invoiceId]);   // activity returns to the unbilled pool
   if (inv.job_id) await c.query(`UPDATE jobs SET financial_status='open' WHERE id=$1 AND financial_status IN ('invoiced','collected')`, [inv.job_id]);
   if (inv.transport_order_id) {
     await c.query(`UPDATE transport_order_charges SET invoice_id=NULL WHERE invoice_id=$1`, [invoiceId]);

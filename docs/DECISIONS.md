@@ -25,3 +25,20 @@
 | 16 | Trip billing unit and plan allowances (`trips_per_month`) | Hypotheses equal to the jobs allowance; plan v2 |
 | 17 | Fuel/toll policy (who approves, limits, receipt upload) | One independent approver, no receipt upload yet |
 | 18 | Salik/toll and fuel-card integrations | Not built |
+
+## Added with E-commerce fulfilment
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 19 | Fulfilment billing unit and plan allowances (`fulfilment_orders_per_month`: 50 / 500 / 2,000 / 8,000 / 100,000) | Hypotheses in `PLAN_SEEDS`; plan v3. v1/v2 subscriptions fall back to their jobs allowance |
+| 20 | Marketplace / storefront connector provider and order-ingestion contract (Shopify, Noon, Amazon, WooCommerce, REST) | Orders enter by form or CSV, idempotent on (merchant, external ref). No connectors, so marketplace stock levels are not pushed back |
+| 21 | Carrier label and tracking provider(s) | Carrier and tracking number are typed in at dispatch; tracking is unique per carrier. No labels, rates or status feeds |
+| 22 | COD handling (belongs with Delivery) | Not stored or reconciled at all. Do not offer COD fulfilment until the Delivery module exists |
+| 23 | Storage billing basis (pallet/cbm/location, daily accrual vs month-end snapshot) | `runStorageCharges` bills the locations occupied *when run*, once per merchant per month |
+| 24 | Lot/batch/expiry/serial tracking and FEFO | Not built; required before food, cosmetics with expiry, or electronics with serials |
+| 25 | Count policy: who may approve, variance thresholds, scheduled cycle counts | Every non-zero variance needs a *different* approver (owner may approve their own because small tenants have one user); no thresholds or schedule |
+| 26 | Shortage policy: backorder vs. partial shipment per merchant; short-pick investigation SLA | Default is "ship complete" (all-or-nothing); partial is a per-order flag; a short pick raises a 4-hour task |
+| 27 | Recipient personal-data retention, deletion and who may see it | Names, phones and addresses are kept on orders indefinitely and are readable by every non-portal/driver staff role; no anonymisation job or field-level restriction (links to #8 retention workflow) |
+| 28 | Multi-warehouse / multi-site stock and inter-site transfer | One stock pool per workspace |
+| 29 | Hand-held scanner / label printer hardware | Packing accepts a typed or keyboard-wedge scan; no mobile pick app (the driver-app pattern could be reused) |
+
