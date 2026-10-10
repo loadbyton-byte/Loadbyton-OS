@@ -1,25 +1,27 @@
 import { forbidden } from "./util.js";
 
-export const ROLES = ["owner", "sales", "pricing", "coordinator", "dispatcher", "warehouse", "finance", "hr", "auditor", "portal"] as const;
+export const ROLES = ["owner", "sales", "pricing", "coordinator", "dispatcher", "warehouse", "finance", "hr", "auditor", "portal", "driver"] as const;
 export type Role = (typeof ROLES)[number];
 
 export type Perm =
   | "read" | "party.write" | "enquiry.write" | "quote.write" | "quote.approve" | "rate.write"
   | "job.write" | "job.cost" | "doc.write" | "finance.write" | "finance.void" | "team.manage"
-  | "billing.manage" | "settings.manage" | "export" | "audit.read" | "dashboard.owner";
+  | "billing.manage" | "settings.manage" | "export" | "audit.read" | "dashboard.owner"
+  | "transport.write" | "transport.expense" | "driver.act";
 
 const R: Record<Role, Perm[]> = {
   owner: ["read", "party.write", "enquiry.write", "quote.write", "quote.approve", "rate.write", "job.write", "job.cost", "doc.write",
-    "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner"],
+    "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner", "transport.write", "transport.expense"],
   sales: ["read", "party.write", "enquiry.write", "quote.write"],
   pricing: ["read", "rate.write", "quote.write", "quote.approve"],
-  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost"],
-  dispatcher: ["read", "job.write", "doc.write"],
+  coordinator: ["read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write"],
+  dispatcher: ["read", "job.write", "doc.write", "transport.write"],
   warehouse: ["read", "doc.write"],
-  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner"],
+  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense"],
   hr: ["read", "team.manage"],
   auditor: ["read", "audit.read", "export"],
   portal: [],
+  driver: ["driver.act"],   // limited seat: sees only trips assigned to them
 };
 
 export function permsFor(roles: string[]): Set<Perm> {
@@ -35,6 +37,7 @@ export interface Ctx {
   roles: string[];
   perms: Set<Perm>;
   partyId: string | null;          // portal users
+  driverId: string | null;         // driver users
   readOnly: boolean;               // support-grant sessions are read-only
   supportStaffId: string | null;   // actor identity preserved for audit when a grant is used
 }

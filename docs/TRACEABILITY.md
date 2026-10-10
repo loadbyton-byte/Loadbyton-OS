@@ -11,18 +11,18 @@ Legend: ✅ built and tested · 🟡 partial · ⛔ not built (shown as *Planned
 | 06 | Pricing & allowances | ✅ | 5 plans, immutable versions, net incremental setup credit, tax shown at checkout; "pilot hypothesis" banner |
 | 07 | Unit economics | 📝 | Not product code |
 | 08 | 18 sector profiles | 🟡 | Catalogue, public pages, diagnostic, specialist flags ✅; only Freight forwarding workflow built |
-| 09 | Product/org structure | 🟡 | Tenant ≠ entity ≠ branch ✅, roles ✅; Transport/Warehouse/Delivery/Customs domains ⛔ |
+| 09 | Product/org structure | 🟡 | Tenant ≠ entity ≠ branch ✅, roles ✅ (+ limited driver seat); Transport ✅; Warehouse/Delivery/Customs domains ⛔ |
 | 10 | Customer & staff experience | ✅ | Start free → empty real workspace → checklist; paid upgrade preview; individual invitations; role-aware nav; "Why this number?" links |
 | 11 | Information architecture | 🟡 | All public pages ✅; app: Overview/Enquiries/Quotations/Customers/Rates/Jobs/Documents/Tasks/Finance/Reports/Team/Settings/Billing/Audit ✅, Dispatch/Warehouse/Deliveries/Clearance/Inbox ⛔; console: tenants/orders/provisioning/catalog/queues/leads/support grants ✅, partner commissions, rollout cohorts, setup orders, technician appointments, restore ops ⛔ |
 | 12 | Enquiry → collection (10 steps) | 🟡 | Steps 2–10 ✅. Step 1 intake is manual capture with dedupe — no inbound email/WhatsApp ingestion ⛔ |
 | 13 | Freight/commercial spec | 🟡 | Parties, rates w/ validity, versioned quotes, approvals, jobs, refs, document versions with issuer ✅. Consolidation allocations, chargeable-weight rules, document template generation, tenders/lost-reason analytics ⛔ |
-| 14 | Transport, delivery, COD | ⛔ | Not built (planned) |
+| 14 | Transport, delivery, COD | 🟡 | **Transport ✅ (pilot):** orders, trips/legs, capacity + availability + maintenance + compliance-expiry checks, subcontractors, driver app with large targets, POD, offline events with local ids/device time and conflict-safe server resolution, fuel/tolls with independent approval, detention billing, trip profitability. Route estimate is a manual km figure; **route optimisation and live GPS need providers and are not built**; POD location only when company policy enables it. **Delivery (parcels) and COD ⛔** |
 | 15 | Warehouse & fulfilment | ⛔ | Not built (planned) |
 | 16 | Customs & UAE readiness | 🟡 | Honest handover stance, tax code per line, AED, no ASP claim ✅; Mirsal/e-invoicing adapters, Arabic/RTL ⛔ |
 | 17 | Finance integrity | 🟡 | Job costing, accruals, operational vs financial closure, numbering, void-by-reversal, outbox + external ids + find-before-create ✅; native ledger deliberately later |
 | 18 | Work, comms, AI | 🟡 | Owner/due/escalation queue ✅, consent flag ✅; business-calendar SLA, shared inbox, AI ⛔ |
 | 19 | Three planes | ✅ | Modular monolith + workers; separate DB roles |
-| 20 | Data model & invariants | 🟡 | Identity/Commercial/Operations/Finance/Platform/Service/Integration groups ✅; Transport/Warehouse groups ⛔. Invariants: `platform/invariants.ts` |
+| 20 | Data model & invariants | 🟡 | Identity/Commercial/Operations/Transport/Finance/Platform/Service/Integration groups ✅; Warehouse group ⛔. Invariants: `platform/invariants.ts` |
 | 21 | Isolation & security | 🟡 | RLS, composite FKs, signed files, upload gating, staff MFA, audit, session revocation ✅; MFA for sensitive *company* roles, deletion workflow, malware scanner integration ⛔ |
 | 22 | Payments & entitlements | ✅ | Signed/replay-resistant webhook, idempotent transitions, effective-dated entitlements, transactional quotas, downgrade preview, grace/restricted. **Real provider adapter pending** |
 | 23 | Provisioning | 🟡 | State machine + 9 idempotent steps ✅; DNS/TLS adapters simulated; custom-domain TXT verification ✅ |
@@ -46,13 +46,14 @@ Legend: ✅ built and tested · 🟡 partial · ⛔ not built (shown as *Planned
 | Free-to-paid upgrade | `platform.test` "free → paid…" |
 | Job delivered with late supplier invoice | `ops.test` "delivered job with a late supplier invoice…" |
 | Warehouse count adjustment | ⛔ module not built |
+| Transport-specific: capacity/compliance/maintenance/double-booking; conflicting late events; decided expenses immutable; detention billed once; void releases charges; driver fencing | `transport.test`, `http.test` |
 | COD collection mismatch | ⛔ module not built |
 | Accounting provider retry after timeout | `ops.test` "accounting provider timeout then retry…" |
-| Offline driver proof synchronized twice | ⛔ module not built |
+| Offline driver proof synchronized twice | `transport.test` "the same batch synced twice…" (+ concurrent triple sync, out-of-order batch), `http.test` JSON sync with CSRF header; real-browser offline queue verified manually (Chromium offline → queue → online → flushed) |
 | Downgrade while above capacity | `platform.test` "downgrade above capacity…", "restricted subscription is read-only…" |
 | Domain removed or re-assigned | `platform.test` "domain: ownership verified…" |
 | Backup restored | Runbook + `npm run verify` (invariants tested in `extras.test`); a live restore drill needs real infrastructure |
 
 "Definition of done" (§30): a feature is released only with UI, API, authorisation, entitlement enforcement, state logic, audit,
-realistic tests, documentation, monitoring and a support runbook. Forwarding Starter has all except **production monitoring**
+realistic tests, documentation, monitoring and a support runbook. Forwarding Starter and Transport have all except **production monitoring**
 (no metrics/alerting stack is wired). Hence its public status is *Pilot*, not *Available*.

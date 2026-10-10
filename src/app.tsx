@@ -8,6 +8,8 @@ import { auth } from "./web/auth.js";
 import { core } from "./web/app-core.js";
 import { sales } from "./web/app-sales.js";
 import { ops } from "./web/app-ops.js";
+import { transport } from "./web/app-transport.js";
+import { driver } from "./web/app-driver.js";
 import { admin } from "./web/admin.js";
 import { PublicShell } from "./web/ui.js";
 
@@ -28,6 +30,8 @@ export function buildApp(db: Db) {
   app.route("/", core);
   app.route("/", sales);
   app.route("/", ops);
+  app.route("/", transport);
+  app.route("/", driver);
 
   const errorPage = (c: any, status: number, title: string, message: string) =>
     c.html(
