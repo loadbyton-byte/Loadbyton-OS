@@ -9,8 +9,13 @@ import { acceptQuote, approveQuote, createQuote, sendQuote, submitQuote } from "
 import { getJob, recordMilestone } from "../src/ops/jobs.js";
 import { invoiceJob } from "../src/ops/finance.js";
 import { acceptInvite, invite } from "../src/ops/team.js";
-import { createInbound, createLocation, createOrder as createFulfilOrder, createReturn, createSku, getFulfilOrder, getInbound, getReturn, packScan, pickOrder, receiveInbound, receiveReturn, requestAdjustment, shipOrder } from "../src/ops/fulfilment.js";
-import { runStorageCharges, setRate } from "../src/ops/fulfil-billing.js";
+import { createInbound as fulCreateInbound, createLocation as fulCreateLocation, createOrder as createFulfilOrder, createReturn, createSku as fulCreateSku, getFulfilOrder, getInbound as fulGetInbound, getReturn, packScan, pickOrder, receiveInbound, receiveReturn, requestAdjustment, shipOrder } from "../src/ops/fulfilment.js";
+import { runStorageCharges, setRate as fulSetRate } from "../src/ops/fulfil-billing.js";
+
+import {
+  accrueStorage, addFoundLine, allocateOutbound, closeInbound, confirmPick, createInbound, createLocation, createOutbound, createSku, createWarehouse,
+  decideCountLine, dispatchOutbound, getCount, getInbound, receiveLine, recordCount, setRate, startCount, submitCount,
+} from "../src/ops/warehouse.js";
 import { addCompliance, addMaintenance, applyDriverEvent, completeTrip, createDriver, createOrder, createTrip, createVehicle, dispatchTrip, getTrip } from "../src/ops/transport.js";
 
 if (process.env.NODE_ENV === "production") { console.error("Refusing to seed demo data in production."); process.exit(1); }
@@ -91,7 +96,7 @@ await db.tenant(tr.tenantId, async (c) => {
   const L2 = (await getTrip(c, moving)).legs;
   await run(moving, L2[0], "arrive", 50); await run(moving, L2[0], "depart", 30);
 });
-// ── third demo company: e-commerce fulfilment (merchant orders, reservation, pick/pack/ship, returns, counts, activity billing)
+// ── fourth demo company: e-commerce fulfilment (merchant orders, reservation, pick/pack/ship, returns, counts, activity billing)
 const fEmail = "fulfilment@loadbyton.example";
 const fr = await registerCompany(db, { company: "DEMO Souq Fulfilment", contactName: "Demo Warehouse Manager", email: fEmail, password: "demo-password-123", sectors: ["ecommerce-fulfilment"], goal: "Just exploring" });
 const fctx = { userId: fr.userId, tenantId: fr.tenantId, roles: ["owner"], perms: permsFor(["owner"]), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
@@ -99,22 +104,22 @@ await db.tenant(fr.tenantId, async (c) => {
   const threads = await createParty(c, fctx, { kind: "customer", name: "DEMO Desert Threads (apparel)" });
   const oud = await createParty(c, fctx, { kind: "customer", name: "DEMO Oud & Co (fragrance)" });
   const bin: Record<string, string> = {};
-  for (const code of ["A-01", "A-02", "A-03", "B-01", "B-02"]) bin[code] = await createLocation(c, fctx, { code, note: code.startsWith("A") ? "Apparel aisle" : "Fragrance cage" });
+  for (const code of ["A-01", "A-02", "A-03", "B-01", "B-02"]) bin[code] = await fulCreateLocation(c, fctx, { code, note: code.startsWith("A") ? "Apparel aisle" : "Fragrance cage" });
   for (const party of [threads, oud]) for (const [code, amount] of [["receive_unit", "0.60"], ["pick_order", "2.50"], ["pick_unit", "0.40"], ["pack_order", "1.80"], ["return_unit", "1.50"], ["storage_location_month", "45"]])
-    await setRate(c, fctx, { party_id: party, code, amount, tax_code: "SR5" });
-  await createSku(c, fctx, { party_id: threads, code: "TEE-BLK-M", name: "Black tee, M", barcode: "6290000100011", reorder_point: 10 });
-  await createSku(c, fctx, { party_id: threads, code: "TEE-BLK-L", name: "Black tee, L", barcode: "6290000100028", reorder_point: 10 });
-  await createSku(c, fctx, { party_id: threads, code: "HOODIE-GRY-M", name: "Grey hoodie, M", barcode: "6290000100035", reorder_point: 5 });
-  await createSku(c, fctx, { party_id: oud, code: "OUD-50", name: "Oud attar 50 ml", barcode: "6290000200012", reorder_point: 8 });
-  await createSku(c, fctx, { party_id: oud, code: "OUD-100", name: "Oud attar 100 ml", barcode: "6290000200029", reorder_point: 5 });
+    await fulSetRate(c, fctx, { party_id: party, code, amount, tax_code: "SR5" });
+  await fulCreateSku(c, fctx, { party_id: threads, code: "TEE-BLK-M", name: "Black tee, M", barcode: "6290000100011", reorder_point: 10 });
+  await fulCreateSku(c, fctx, { party_id: threads, code: "TEE-BLK-L", name: "Black tee, L", barcode: "6290000100028", reorder_point: 10 });
+  await fulCreateSku(c, fctx, { party_id: threads, code: "HOODIE-GRY-M", name: "Grey hoodie, M", barcode: "6290000100035", reorder_point: 5 });
+  await fulCreateSku(c, fctx, { party_id: oud, code: "OUD-50", name: "Oud attar 50 ml", barcode: "6290000200012", reorder_point: 8 });
+  await fulCreateSku(c, fctx, { party_id: oud, code: "OUD-100", name: "Oud attar 100 ml", barcode: "6290000200029", reorder_point: 5 });
   const receive = async (party: string, lines: [string, number, number, string][]) => {
-    const inb = await createInbound(c, fctx, { party_id: party, reference: `PO-${Math.floor(Math.random() * 9000 + 1000)}`, lines: lines.map(([code, exp]) => `${code}, ${exp}`).join("\n") });
-    const d = await getInbound(c, inb.id);
+    const inb = await fulCreateInbound(c, fctx, { party_id: party, reference: `PO-${Math.floor(Math.random() * 9000 + 1000)}`, lines: lines.map(([code, exp]) => `${code}, ${exp}`).join("\n") });
+    const d = await fulGetInbound(c, inb.id);
     for (const [code, , good, loc] of lines) await receiveInbound(c, fctx, inb.id, { line_id: d.lines.find((l: any) => l.code === code).id, good, damaged: code === "HOODIE-GRY-M" ? 1 : 0, location_id: bin[loc], token: eid() + eid() });
   };
   await receive(threads, [["TEE-BLK-M", 40, 40, "A-01"], ["TEE-BLK-L", 25, 25, "A-02"], ["HOODIE-GRY-M", 12, 10, "A-03"]]);
   await receive(oud, [["OUD-50", 30, 30, "B-01"], ["OUD-100", 4, 4, "B-02"]]);
-  await createInbound(c, fctx, { party_id: oud, reference: "PO-RESTOCK-OUD100", expected_at: hrs(20), lines: "OUD-100, 24" });   // arrives tomorrow: the backorder below will fill itself
+  await fulCreateInbound(c, fctx, { party_id: oud, reference: "PO-RESTOCK-OUD100", expected_at: hrs(20), lines: "OUD-100, 24" });   // arrives tomorrow: the backorder below will fill itself
 
   const ord = (party: string, ref: string, lines: string, extra: Record<string, any> = {}) =>
     createFulfilOrder(c, fctx, { party_id: party, external_ref: ref, channel: "shopify", lines, ship_to_name: extra.name ?? "Aisha Rahman", ship_to_phone: "+971 50 000 1111", ship_to_address: extra.address ?? "Marina Walk 12, Dubai Marina", ship_to_city: "Dubai", ...extra });
@@ -145,5 +150,53 @@ await db.tenant(fr.tenantId, async (c) => {
   await runStorageCharges(c, fctx, new Date().toISOString().slice(0, 7));
 });
 
-console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123\n  Fulfilment owner: ${fEmail} / demo-password-123`);
+
+// ── third demo company: contract warehouse / 3PL (customer-owned stock, FIFO dispatch, a counted variance, activity billing)
+const wEmail = "warehouse@loadbyton.example";
+const wr = await registerCompany(db, { company: "DEMO Jebel Ali 3PL", contactName: "Demo Warehouse Manager", email: wEmail, password: "demo-password-123", sectors: ["contract-warehouse-3pl"], goal: "Bill every activity" });
+const wctx = { userId: wr.userId, tenantId: wr.tenantId, roles: ["owner"], perms: permsFor(["owner"]), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
+await db.tenant(wr.tenantId, async (c) => {
+  const food = await createParty(c, wctx, { kind: "customer", name: "DEMO Al Safa Foods" });
+  const fash = await createParty(c, wctx, { kind: "customer", name: "DEMO Marina Fashion" });
+  const wh = await createWarehouse(c, wctx, { code: "JA1", name: "Jebel Ali Warehouse 1", address: "Jebel Ali Free Zone, Dubai" });
+  const L = {
+    rec: await createLocation(c, wctx, { warehouse_id: wh, code: "REC-1", kind: "receiving" }),
+    a1: await createLocation(c, wctx, { warehouse_id: wh, code: "A-01-01", kind: "storage", capacity_units: 400 }),
+    a2: await createLocation(c, wctx, { warehouse_id: wh, code: "A-01-02", kind: "storage", capacity_units: 400 }),
+    qrn: await createLocation(c, wctx, { warehouse_id: wh, code: "QRN-1", kind: "quarantine" }),
+  };
+  const rice = await createSku(c, wctx, { owner_id: food, code: "RICE-5KG", description: "Basmati rice 5 kg", uom: "carton" });
+  const oil = await createSku(c, wctx, { owner_id: food, code: "OIL-1L", description: "Sunflower oil 1 L", uom: "carton" });
+  const tee = await createSku(c, wctx, { owner_id: fash, code: "TEE-M-BLK", description: "T-shirt M black", uom: "piece" });
+  for (const [owner, type, amt] of [[food, "storage_unit_day", "0.40"], [food, "handling_in_unit", "1.50"], [food, "handling_out_unit", "2.00"], [food, "outbound_order", "20.00"],
+    [fash, "storage_unit_day", "0.15"], [fash, "handling_in_unit", "0.60"], [fash, "handling_out_unit", "0.80"], [fash, "outbound_order", "15.00"]] as const) {
+    await setRate(c, wctx, { owner_id: owner, charge_type: type, amount: amt, effective_from: day(-30) });
+  }
+  const receive = async (owner: string, sku: string, qty: number, loc: string, extra: Record<string, any> = {}) => {
+    const i = await createInbound(c, wctx, { owner_id: owner, warehouse_id: wh, customer_ref: `PO-${Math.floor(Math.random() * 9000 + 1000)}`, lines: [{ sku_id: sku, qty }] });
+    await receiveLine(c, wctx, (await getInbound(c, i.id)).lines[0].id, { qty, location_id: loc, lot: "L2610", ...extra });
+    await closeInbound(c, wctx, i.id);
+  };
+  await receive(food, rice, 240, L.a1); await receive(food, rice, 160, L.a2); await receive(food, oil, 120, L.a1);
+  await receive(fash, tee, 500, L.rec);
+  await receive(food, oil, 6, L.qrn, { condition: "damaged" });                           // damaged on arrival → quarantine
+  await createInbound(c, wctx, { owner_id: fash, warehouse_id: wh, customer_ref: "ASN-0042", expected_on: day(2), lines: [{ sku_id: tee, qty: 300 }] });   // still expected
+  const o = await createOutbound(c, wctx, { owner_id: food, warehouse_id: wh, ship_to: "Carrefour DC, Al Quoz", customer_ref: "SO-7781", lines: [{ sku_id: rice, qty: 200 }, { sku_id: oil, qty: 40 }] });
+  await allocateOutbound(c, wctx, o.id); await confirmPick(c, wctx, o.id, {}); await dispatchOutbound(c, wctx, o.id, { carrier_ref: "DXB K 4471" });
+  const o2 = await createOutbound(c, wctx, { owner_id: food, warehouse_id: wh, ship_to: "Spinneys, Umm Suqeim", required_by: new Date(Date.now() + 5 * 3600_000 + 4 * 3600_000).toISOString().slice(0, 16), lines: [{ sku_id: rice, qty: 60 }] });
+  await allocateOutbound(c, wctx, o2.id);                                                   // allocated, waiting to be picked
+  await createOutbound(c, wctx, { owner_id: food, warehouse_id: wh, ship_to: "Choithrams, JLT", lines: [{ sku_id: rice, qty: 900 }] });   // more than we hold: will not allocate
+  await accrueStorage(c, wctx, { now: new Date(Date.now() + 86400_000) });
+});
+// a counted variance awaiting an independent decision: a counter (warehouse role) and the owner as approver
+const counterId = (await db.system((c) => c.query<any>(`INSERT INTO users(email,name,password_hash) VALUES ('counter@loadbyton.example','Demo Counter','x') RETURNING id`))).rows[0].id;
+await db.system((c) => c.query(`INSERT INTO memberships(tenant_id,user_id,roles) VALUES ($1,$2,'{warehouse}')`, [wr.tenantId, counterId]));
+const counter = { ...wctx, userId: counterId, roles: ["warehouse"], perms: permsFor(["warehouse"]) };
+await db.tenant(wr.tenantId, async (c) => {
+  const wh = (await c.query<any>(`SELECT id FROM warehouses LIMIT 1`)).rows[0].id, loc = (await c.query<any>(`SELECT id FROM warehouse_locations WHERE code='A-01-02'`)).rows[0].id;
+  const k = await startCount(c, counter, { warehouse_id: wh, location_id: loc });
+  for (const l of (await getCount(c, k.id)).lines) await recordCount(c, counter, l.id, Number(l.system_qty) - 4);   // 4 cartons short
+  await submitCount(c, counter, k.id);
+});
+console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123\n  Fulfilment owner: ${fEmail} / demo-password-123\n  Warehouse owner: ${wEmail} / demo-password-123`);
 await db.close();
