@@ -1,0 +1,31 @@
+# Runbooks
+
+## Restore test (blueprint §24, §30 "Backup restored")
+A green backup job is not enough. Quarterly, and before any schema release:
+
+1. Restore the latest backup into an isolated database (`pg_restore` / provider PITR) and restore the object-store prefix.
+2. `DATABASE_URL=<restored> npm run verify` — must print `All invariants hold.`
+3. Sign in to a test tenant on the restored stack; open a job → documents download; open the audit trail; compare balances on
+   the owner dashboard against production for that tenant.
+4. Record RPO/RTO achieved vs targets (RPO ≤ 1 h, RTO ≤ 8 h are objectives to validate, not guarantees).
+
+## Failed provisioning
+Control console → Provisioning → failed jobs show the failing step in `failure_reason`. Fix the cause (adapter outage, DNS), press
+**Retry**: completed steps are skipped. Customer sees "Activation is delayed" with no data loss; their free workspace stays usable.
+
+## Payment reconciliation
+Control console → Orders & payments → "Rejected / ignored provider events". For every `rejected`, compare with the provider
+dashboard. Never mark an order paid by hand; replay the provider's event through the signed webhook instead.
+
+## Refund received
+Creates a `staff.review` item. Decide entitlement treatment (keep until period end vs restrict) and record it; acknowledge.
+
+## Support access
+Staff request a grant (reason shown to the customer) → customer owner approves in Settings (default 4 h, max 24 h) → staff open the
+workspace **read-only**; every view start is audited with the staff identity.
+
+## Plan price change
+Control console → Catalog → publish new version. Existing subscriptions keep their version; new purchases use the new one.
+
+## Incident roles
+Name an incident commander and a customer-communications owner before the first paid customer (blueprint §26).
