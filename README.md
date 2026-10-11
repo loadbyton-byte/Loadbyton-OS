@@ -12,8 +12,7 @@ public commerce site, a tenant-isolated company application, billing/entitlement
 > **Contract warehouse / 3PL** (customer-owned custody stock on an immutable movement ledger → receiving with variances and quarantine →
 > FIFO allocation, pick, dispatch → blind cycle counts with independent approval → activity billing → invoice) and
 > **Delivery / COD** (merchant parcels → delivery runs → rider phone app with proof of delivery and failed attempts → exact-cash COD
-> collection → rider cash handover with independent variance approval → merchant remittance, fees netted → rate-card billing). All five are *Pilot*,
-> not *Available* (no production monitoring yet). The other sector packs, the Customs module, marketplace and
+> collection → rider cash handover with independent variance approval → merchant remittance, fees netted → rate-card billing). All 18 sector packs are now shown as *Available* by owner decision; the per-sector evidence (qualified review, live cases, production monitoring and alert drills) is still tracked in `/admin/readiness` and is not implied by the label. The Customs module, the Customs module, marketplace and
 > carrier-label connectors, barcode/RF hardware, e-invoicing, native ledger, live GPS / route optimisation and real infrastructure/payment
 > adapters are **not** built and are shown publicly as *Planned* (blueprint §29: "Do not sell all 18 sector packs at launch").
 > See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.

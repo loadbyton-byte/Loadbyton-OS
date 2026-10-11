@@ -83,7 +83,7 @@ pub.get("/sectors/:slug", async (c) => {
         <h2>Specialist workflow and required controls</h2>
         <p>{s.workflow}.</p>
         {s.availability === "available"
-          ? <div class="alert info">This sector pack has passed its release gate: reviewed, run on live cases and owned by a named support lead.</div>
+          ? <div class="alert info">This sector pack is available. Its release evidence (review, live cases, support owner) is tracked in our readiness register and shared on request.</div>
           : s.availability === "planned"
           ? <div class="alert info">This sector pack is <strong>planned</strong>, not yet released. Registering records your interest and shapes our interview and acceptance work; it does not buy functionality that does not exist yet.</div>
           : <div class="alert warn">This workflow is in <strong>pilot</strong> with design partners. Expect rapid change and hands-on support.</div>}

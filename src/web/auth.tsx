@@ -57,7 +57,7 @@ auth.get("/start", async (c) => {
             <div class="field"><label for="emirate">Emirate</label><select id="emirate" name="emirate">{EMIRATES.map((e) => <option>{e}</option>)}</select></div>
           </div>
           <fieldset class="sector-picker"><legend>Sectors you operate in</legend>
-            <p class="hint">Free includes one sector. Pick more and we will record your interest. Sectors marked Planned are not released yet.</p>
+            <p class="hint">Free includes one sector. Pick more and we will record your interest.</p>
             <div class="checks">{SECTORS.map((s) => (
               <label class="check"><input type="checkbox" name="sector" value={s.slug} checked={pre.includes(s.slug) || (!pre.length && s.slug === "freight-forwarding")} /><span>{s.name}<br /><span class="small mute">{s.availability === "planned" ? "Planned" : s.availability === "available" ? "Available" : "Pilot"}</span></span></label>
             ))}</div>
