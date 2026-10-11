@@ -28,10 +28,49 @@ export async function publishDocumentTemplate(c:Conn,ctx:Ctx,f:Record<string,unk
  const version=Number((await c.query<any>(`SELECT coalesce(max(version),0)+1 n FROM document_templates WHERE kind=$1`,[kind])).rows[0].n);if(version>1000)throw badRequest('Review template version retention before publishing more versions.');
  const id=(await c.query<any>(`INSERT INTO document_templates(tenant_id,reference,kind,version,title,footer,fields,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,[ctx.tenantId,reference,kind,version,title,footer,JSON.stringify(DRAFT_FORMS[kind].fields),ctx.userId])).rows[0].id;await audit(c,ctx.tenantId,actorOf(ctx),'document.template_published','document_template',id,{kind,version});return id;
 }
+const schemaHash=(fields:unknown)=>sha256(canonical(fields));
+/** A draft may only be generated from the newest published version of its kind, and only while that version's fields still match the platform's standard form. */
+async function assertTemplateUsable(c:Conn,template:any){
+ const latest=Number((await c.query<any>(`SELECT max(version) n FROM document_templates WHERE kind=$1`,[template.kind])).rows[0].n);
+ if(template.version<latest)throw badRequest(`A newer reviewed version (v${latest}) of this template exists. Use it so drafts follow the current reviewed wording.`);
+ if(Object.hasOwn(DRAFT_FORMS,template.kind)&&schemaHash(template.fields)!==schemaHash(DRAFT_FORMS[template.kind as DraftKind].fields))throw badRequest('This template predates a change to the standard form fields. An owner must republish it (re-confirming the reviewed footer) before new drafts are generated.');
+}
+export async function templateStatus(c:Conn,ctx:Ctx){
+ await gate(c,ctx);
+ const rows=(await c.query<any>(`SELECT t.id,t.kind,t.version,t.title,t.footer,t.fields,t.created_at,(SELECT count(*) FROM generated_documents g WHERE g.template_id=t.id)::int AS drafts FROM document_templates t ORDER BY t.kind,t.version DESC`)).rows;
+ return (Object.keys(DRAFT_FORMS) as DraftKind[]).map(kind=>{
+  const versions=rows.filter(r=>r.kind===kind),latest=versions[0]??null;
+  return {kind,name:DRAFT_FORMS[kind].name,latest:latest&&{id:latest.id,version:latest.version,title:latest.title,created_at:latest.created_at},outdated:!!latest&&schemaHash(latest.fields)!==schemaHash(DRAFT_FORMS[kind].fields),
+   versions:versions.map(v=>({id:v.id,version:v.version,drafts:v.drafts,superseded:v.version<(latest?.version??0),current_fields:schemaHash(v.fields)===schemaHash(DRAFT_FORMS[kind].fields)}))};
+ });
+}
+/** The owner re-confirms the already-reviewed wording against the changed form; a new immutable version is created and the old one is superseded. */
+export async function republishTemplate(c:Conn,ctx:Ctx,f:Record<string,unknown>){
+ require(ctx,'settings.manage');await gate(c,ctx,true);
+ const kind=String(f.kind) as DraftKind;if(!Object.hasOwn(DRAFT_FORMS,kind))throw badRequest('Choose a supported document draft.');
+ if(f.confirm_reviewed!==true&&f.confirm_reviewed!=='1'&&f.confirm_reviewed!=='on')throw badRequest('Confirm that you re-read the reviewed footer against the changed fields.');
+ await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[`${ctx.tenantId}:document-templates`]);
+ const latest=(await c.query<any>(`SELECT * FROM document_templates WHERE kind=$1 ORDER BY version DESC LIMIT 1`,[kind])).rows[0];
+ if(!latest)throw badRequest('Publish the reviewed template first.');
+ if(schemaHash(latest.fields)===schemaHash(DRAFT_FORMS[kind].fields))throw badRequest('This template already matches the current form fields.');
+ if(latest.version>=1000)throw badRequest('Review template version retention before publishing more versions.');
+ const reference=recordId(f.reference,'Template reference'),dup=(await c.query<any>(`SELECT id FROM document_templates WHERE reference=$1`,[reference])).rows[0];if(dup)return dup.id;
+ const id=(await c.query<any>(`INSERT INTO document_templates(tenant_id,reference,kind,version,title,footer,fields,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,[ctx.tenantId,reference,kind,latest.version+1,latest.title,latest.footer,JSON.stringify(DRAFT_FORMS[kind].fields),ctx.userId])).rows[0].id;
+ await audit(c,ctx.tenantId,actorOf(ctx),'document.template_republished','document_template',id,{kind,from:latest.version,to:latest.version+1});return id;
+}
+export async function diffTemplates(c:Conn,ctx:Ctx,fromId:string,toId:string){
+ await gate(c,ctx);
+ const a=await must(c.query<any>(`SELECT * FROM document_templates WHERE id=$1`,[recordId(fromId,'Template')]),'Template'),b=await must(c.query<any>(`SELECT * FROM document_templates WHERE id=$1`,[recordId(toId,'Template')]),'Template');
+ if(a.kind!==b.kind)throw badRequest('Compare two versions of the same document kind.');
+ const fa=new Map<string,any>(a.fields.map((x:any)=>[x.key,x])),fb=new Map<string,any>(b.fields.map((x:any)=>[x.key,x]));
+ return {kind:a.kind,from:a.version,to:b.version,title_changed:a.title!==b.title,footer_changed:a.footer!==b.footer,
+  added:[...fb.keys()].filter(k=>!fa.has(k)),removed:[...fa.keys()].filter(k=>!fb.has(k)),changed:[...fb.keys()].filter(k=>fa.has(k)&&canonical(fa.get(k))!==canonical(fb.get(k)))};
+}
 async function source(c:Conn,id:string){return must(c.query<any>(`SELECT j.id,j.no,j.mode,j.status,j.origin,j.destination,j.pieces,j.weight_kg,j.volume_cbm,e.name AS entity_name,e.legal_name,p.name AS customer FROM jobs j JOIN entities e ON e.id=j.entity_id JOIN parties p ON p.id=j.party_id WHERE j.id=$1`,[id]),'Job');}
 export async function generateDocumentDraft(c:Conn,ctx:Ctx,f:Record<string,unknown>){
  await gate(c,ctx,true);const jobId=recordId(f.job_id,'Job'),templateId=recordId(f.template_id,'Published template'),docId=recordId(f.source_document_id,'Issued customer/provider evidence'),reference=recordId(f.reference,'Draft reference');
  const template=await must(c.query<any>(`SELECT * FROM document_templates WHERE id=$1`,[templateId]),'Published template'),snapshot=await source(c,jobId);
+ await assertTemplateUsable(c,template);
  const values:Record<string,string>={};for(const spec of template.fields){const value=reqStr(f[spec.key],spec.label,1000);if(['integer','decimal','money'].includes(spec.type)){
   const pattern=spec.type==='integer'?/^\d{1,8}$/:spec.type==='money'?/^\d{1,12}(\.\d{1,2})?$/:/^\d{1,10}(\.\d{1,6})?$/;if(!pattern.test(value)||!Number.isFinite(Number(value))||spec.type==='integer'&&Number(value)<1)throw badRequest(`${spec.label} requires an exact non-negative quantity${spec.type==='integer'?' of at least one':''}.`);
  }if(spec.type==='currency'&&!/^[A-Z]{3}$/.test(value))throw badRequest('Choose a three-letter uppercase goods currency.');values[spec.key]=value;}

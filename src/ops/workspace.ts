@@ -56,8 +56,10 @@ export async function draftReply(c:Conn,ctx:Ctx,id:string,body:string,ref:string
 }
 export async function approveReply(c:Conn,ctx:Ctx,id:string) {
  require(ctx,'inbox.approve');await assertWritable(c,ctx.tenantId);
- const row=await must(c.query<any>(`SELECT m.*,v.email_consent,v.status AS conversation_status,p.email FROM conversation_messages m JOIN conversations v ON v.id=m.conversation_id JOIN parties p ON p.id=v.party_id WHERE m.id=$1 FOR UPDATE OF m`,[recordId(id)]),'Draft reply');
+ const row=await must(c.query<any>(`SELECT m.*,v.email_consent,v.status AS conversation_status,v.identity_state,v.party_id,p.email FROM conversation_messages m JOIN conversations v ON v.id=m.conversation_id JOIN parties p ON p.id=v.party_id WHERE m.id=$1 FOR UPDATE OF m`,[recordId(id)]),'Draft reply');
  if(['approved','sent'].includes(row.status))return;
+ if(row.identity_state==='unverified')throw badRequest('Verify who the sender is before sending account information by email.');
+ if((await c.query<any>(`SELECT status FROM channel_consents WHERE party_id=$1 AND channel='email' ORDER BY id DESC LIMIT 1`,[row.party_id])).rows[0]?.status==='opt_out')throw badRequest('This customer has opted out of email.');
  if(row.direction!=='outbound'||row.status!=='draft'||row.conversation_status!=='open'||!row.email_consent||!row.email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email))throw badRequest('Outbound email requires an open conversation, valid recipient, consent and a reviewed draft');
  await consumeQuota(c,ctx.tenantId,'messages_per_month',`message:${id}`);
  await c.query(`UPDATE conversation_messages SET status='approved',approved_by=$2,approved_recipient=$3 WHERE id=$1`,[id,ctx.userId,row.email]);

@@ -123,6 +123,10 @@ export async function verifyInvariants(db: Db): Promise<Violation[]> {
     ["house shipments share their master's mode", `SELECT j.id::text FROM jobs j JOIN freight_masters m ON m.id=j.master_id WHERE j.mode <> m.mode`],
     ["a closed master has houses and every charge allocated", `SELECT m.id::text FROM freight_masters m WHERE m.status='closed' AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.master_id=m.id) OR EXISTS (SELECT 1 FROM freight_master_costs k WHERE k.master_id=m.id AND k.allocated_at IS NULL))`],
     ["allocated master charges are shared out exactly, into matching job costs", `SELECT k.id::text FROM freight_master_costs k WHERE k.allocated_at IS NOT NULL AND (k.amount_minor <> coalesce((SELECT sum(a.amount_minor) FROM freight_master_allocations a WHERE a.master_cost_id=k.id),0) OR EXISTS (SELECT 1 FROM freight_master_allocations a JOIN job_costs jc ON jc.id=a.job_cost_id WHERE a.master_cost_id=k.id AND (jc.estimated_minor <> a.amount_minor OR jc.job_id <> a.job_id)))`],
+    ["an extraction applied to a job was accepted by a person first", `SELECT id::text FROM document_extractions WHERE (applied_job_id IS NOT NULL AND status <> 'accepted') OR (status <> 'proposed' AND reviewed_by IS NULL)`],
+    ["a received message that became a conversation points to one", `SELECT id::text FROM inbound_events WHERE status IN ('conversation','resolved') AND conversation_id IS NULL`],
+    ["a verified contact identity records who verified it and how", `SELECT id::text FROM contact_identities WHERE verified_at IS NOT NULL AND (verified_by IS NULL OR method IS NULL OR note IS NULL)`],
+    ["a recorded WhatsApp or phone reply carries its evidence reference", `SELECT m.id::text FROM conversation_messages m JOIN conversations v ON v.id=m.conversation_id JOIN inbound_channels ch ON ch.id=v.channel_id WHERE m.direction='outbound' AND m.status='sent' AND ch.kind IN ('whatsapp','telephony') AND (m.external_id IS NULL OR m.external_id = '')`],
     ["documents are stored under their tenant prefix", `SELECT id::text FROM documents WHERE storage_key NOT LIKE tenant_id::text || '/%'`],
   ];
   const out: Violation[] = [];
