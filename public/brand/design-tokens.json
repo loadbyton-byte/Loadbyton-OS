@@ -1,0 +1,104 @@
+{
+  "version": "1.0.0",
+  "sourceCommit": "8c0e8e9f5239b1689f333ec21cdb9cdffc7e2fa4",
+  "primitive": {
+    "color": {
+      "navy": "#0F2B3D",
+      "deep": "#0A1A24",
+      "red": "#E53935",
+      "redAccessible": "#C62828",
+      "cream": "#FFFDF7",
+      "paper": "#F5F6F4",
+      "white": "#FFFFFF",
+      "ink": "#0F2129",
+      "muted": "#586A72",
+      "line": "#E5E8E3",
+      "blue": "#2563EB",
+      "green": "#2E7D32",
+      "amber": "#8A5A00"
+    },
+    "font": {
+      "display": "Geist",
+      "body": "Inter",
+      "mono": "JetBrains Mono",
+      "arabic": "Noto Sans Arabic",
+      "packageVersion": "5.3.0",
+      "license": "SIL Open Font License 1.1"
+    },
+    "space": [
+      4,
+      8,
+      12,
+      16,
+      24,
+      32,
+      48,
+      64,
+      80,
+      96
+    ],
+    "radius": {
+      "small": 4,
+      "medium": 6,
+      "large": 8
+    }
+  },
+  "semantic": {
+    "light": {
+      "surface": "#FFFDF7",
+      "text": "#0F2129",
+      "textSecondary": "#586A72",
+      "action": "#0F2B3D",
+      "actionText": "#FFFFFF",
+      "accentAction": "#C62828",
+      "link": "#2563EB",
+      "success": "#2E7D32",
+      "warning": "#8A5A00",
+      "danger": "#C62828"
+    },
+    "dark": {
+      "surface": "#0A1A24",
+      "raised": "#0F2B3D",
+      "text": "#F8FAFC",
+      "textSecondary": "#CBD5E1",
+      "action": "#F8FAFC",
+      "actionText": "#0F2B3D",
+      "accentAction": "#C62828",
+      "link": "#93C5FD",
+      "success": "#86EFAC",
+      "warning": "#FCD34D",
+      "danger": "#FF8B93"
+    }
+  },
+  "typeScalePx": [
+    12,
+    14,
+    16,
+    18,
+    20,
+    24,
+    30,
+    38,
+    48,
+    60
+  ],
+  "component": {
+    "button": {
+      "radius": 6,
+      "minHeight": 44,
+      "paddingInline": 20
+    },
+    "input": {
+      "radius": 6,
+      "minHeight": 44
+    },
+    "card": {
+      "radius": 8
+    },
+    "logo": {
+      "clearSpaceUnits": 18,
+      "fullMinWidthPx": 156,
+      "iconMinWidthPx": 16
+    }
+  }
+}

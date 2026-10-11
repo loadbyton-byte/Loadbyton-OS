@@ -70,7 +70,7 @@ These remain real work, not items that merely need environment variables:
 | Finance | Foreign-currency customer invoicing; native general ledger only after its roadmap justification and controller review; live accounting-system acceptance of the receipt / credit-note bridge |
 | UAE readiness | Accredited e-invoicing provider onboarding, its adapter and the official specification validation; Mirsal access; native-speaker review and completion of the long tail of Arabic content (marketing pages, long help text) |
 | Legal/data operations | Legal/regulatory confirmation of the retention periods and erasure scope chosen per customer (a decision, not software); field policy is applied to exports, not yet to every legacy list screen |
-| Brand/business | Approved vector brand master (the audit shows none exists), registrar proof of domain ownership, verified market/unit-economics/GTM evidence, assigned coverage/support/governance owners — each tracked as a gate in the readiness register |
+| Brand/business | Vector masters, app/social/print assets, local fonts, templates and a review library are created in `public/brand` based on Project-Loadbyton. Remaining: owner artwork approval, registrar/domain proof, verified market/unit-economics/GTM evidence and assigned coverage/support/governance owners — tracked as gates in the readiness register |
 
 The blueprint's release roadmap explicitly stages foundation → first paid workflow → commercial launch → supervised pilots → expansion. Public statuses preserve that distinction. This change closes many software gaps but does not claim that every future portfolio item above is complete.
 

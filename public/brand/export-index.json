@@ -1,0 +1,709 @@
+{
+  "exports": [
+    {
+      "source": "masters/logo-parent-navy.svg",
+      "file": "exports/masters/logo-parent-navy.png",
+      "width": 450,
+      "height": 112
+    },
+    {
+      "source": "masters/logo-parent-navy.svg",
+      "file": "exports/masters/logo-parent-navy.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "logo-navy.svg",
+      "file": "exports/logo-navy.png",
+      "width": 560,
+      "height": 112
+    },
+    {
+      "source": "logo-navy.svg",
+      "file": "exports/logo-navy.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/logo-os-navy.svg",
+      "file": "exports/masters/logo-os-navy.png",
+      "width": 450,
+      "height": 150
+    },
+    {
+      "source": "masters/logo-os-navy.svg",
+      "file": "exports/masters/logo-os-navy.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/logo-parent-white.svg",
+      "file": "exports/masters/logo-parent-white.png",
+      "width": 450,
+      "height": 112
+    },
+    {
+      "source": "masters/logo-parent-white.svg",
+      "file": "exports/masters/logo-parent-white.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "logo-white.svg",
+      "file": "exports/logo-white.png",
+      "width": 560,
+      "height": 112
+    },
+    {
+      "source": "logo-white.svg",
+      "file": "exports/logo-white.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/logo-os-white.svg",
+      "file": "exports/masters/logo-os-white.png",
+      "width": 450,
+      "height": 150
+    },
+    {
+      "source": "masters/logo-os-white.svg",
+      "file": "exports/masters/logo-os-white.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/logo-parent-black.svg",
+      "file": "exports/masters/logo-parent-black.png",
+      "width": 450,
+      "height": 112
+    },
+    {
+      "source": "masters/logo-parent-black.svg",
+      "file": "exports/masters/logo-parent-black.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "logo-black.svg",
+      "file": "exports/logo-black.png",
+      "width": 560,
+      "height": 112
+    },
+    {
+      "source": "logo-black.svg",
+      "file": "exports/logo-black.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/logo-os-black.svg",
+      "file": "exports/masters/logo-os-black.png",
+      "width": 450,
+      "height": 150
+    },
+    {
+      "source": "masters/logo-os-black.svg",
+      "file": "exports/masters/logo-os-black.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/logo-parent-mono-white.svg",
+      "file": "exports/masters/logo-parent-mono-white.png",
+      "width": 450,
+      "height": 112
+    },
+    {
+      "source": "masters/logo-parent-mono-white.svg",
+      "file": "exports/masters/logo-parent-mono-white.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "logo-mono-white.svg",
+      "file": "exports/logo-mono-white.png",
+      "width": 560,
+      "height": 112
+    },
+    {
+      "source": "logo-mono-white.svg",
+      "file": "exports/logo-mono-white.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/logo-os-mono-white.svg",
+      "file": "exports/masters/logo-os-mono-white.png",
+      "width": 450,
+      "height": 150
+    },
+    {
+      "source": "masters/logo-os-mono-white.svg",
+      "file": "exports/masters/logo-os-mono-white.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "logo-silver.svg",
+      "file": "exports/logo-silver.png",
+      "width": 560,
+      "height": 112
+    },
+    {
+      "source": "logo-silver.svg",
+      "file": "exports/logo-silver.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "by-mark.svg",
+      "file": "exports/by-mark.png",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "source": "masters/by-mark-reverse.svg",
+      "file": "exports/masters/by-mark-reverse.png",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "source": "masters/by-mark-mono.svg",
+      "file": "exports/masters/by-mark-mono.png",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "source": "masters/by-mark-transparent.svg",
+      "file": "exports/masters/by-mark-transparent.png",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "source": "masters/by-mark-transparent.svg",
+      "file": "exports/masters/by-mark-transparent.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "masters/by-mark-transparent-white.svg",
+      "file": "exports/masters/by-mark-transparent-white.png",
+      "width": 128,
+      "height": 128
+    },
+    {
+      "source": "masters/by-mark-transparent-white.svg",
+      "file": "exports/masters/by-mark-transparent-white.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "favicon.svg",
+      "file": "exports/favicon.png",
+      "width": 32,
+      "height": 32
+    },
+    {
+      "source": "app-icon-maskable.svg",
+      "file": "exports/app-icon-maskable.png",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "source": "products/freight-navy.svg",
+      "file": "exports/products/freight-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/freight-white.svg",
+      "file": "exports/products/freight-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/transport-navy.svg",
+      "file": "exports/products/transport-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/transport-white.svg",
+      "file": "exports/products/transport-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/warehouse-navy.svg",
+      "file": "exports/products/warehouse-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/warehouse-white.svg",
+      "file": "exports/products/warehouse-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/fulfilment-navy.svg",
+      "file": "exports/products/fulfilment-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/fulfilment-white.svg",
+      "file": "exports/products/fulfilment-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/delivery-navy.svg",
+      "file": "exports/products/delivery-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/delivery-white.svg",
+      "file": "exports/products/delivery-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/customs-navy.svg",
+      "file": "exports/products/customs-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/customs-white.svg",
+      "file": "exports/products/customs-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/finance-navy.svg",
+      "file": "exports/products/finance-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/finance-white.svg",
+      "file": "exports/products/finance-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/intelligence-navy.svg",
+      "file": "exports/products/intelligence-navy.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "products/intelligence-white.svg",
+      "file": "exports/products/intelligence-white.png",
+      "width": 450,
+      "height": 160
+    },
+    {
+      "source": "illustrations/shipment.svg",
+      "file": "exports/illustrations/shipment.png",
+      "width": 800,
+      "height": 600
+    },
+    {
+      "source": "illustrations/warehouse.svg",
+      "file": "exports/illustrations/warehouse.png",
+      "width": 800,
+      "height": 600
+    },
+    {
+      "source": "illustrations/documents.svg",
+      "file": "exports/illustrations/documents.png",
+      "width": 800,
+      "height": 600
+    },
+    {
+      "source": "illustrations/cash-control.svg",
+      "file": "exports/illustrations/cash-control.png",
+      "width": 800,
+      "height": 600
+    },
+    {
+      "source": "illustrations/empty-jobs.svg",
+      "file": "exports/illustrations/empty-jobs.png",
+      "width": 640,
+      "height": 400
+    },
+    {
+      "source": "illustrations/empty-documents.svg",
+      "file": "exports/illustrations/empty-documents.png",
+      "width": 640,
+      "height": 400
+    },
+    {
+      "source": "illustrations/restricted.svg",
+      "file": "exports/illustrations/restricted.png",
+      "width": 640,
+      "height": 400
+    },
+    {
+      "source": "illustrations/maintenance.svg",
+      "file": "exports/illustrations/maintenance.png",
+      "width": 640,
+      "height": 400
+    },
+    {
+      "source": "templates/social-square.svg",
+      "file": "exports/templates/social-square.png",
+      "width": 1080,
+      "height": 1080
+    },
+    {
+      "source": "templates/social-square.svg",
+      "file": "exports/templates/social-square.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/social-portrait.svg",
+      "file": "exports/templates/social-portrait.png",
+      "width": 1080,
+      "height": 1350
+    },
+    {
+      "source": "templates/social-portrait.svg",
+      "file": "exports/templates/social-portrait.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/social-story.svg",
+      "file": "exports/templates/social-story.png",
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "source": "templates/social-story.svg",
+      "file": "exports/templates/social-story.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/open-graph.svg",
+      "file": "exports/templates/open-graph.png",
+      "width": 1200,
+      "height": 630
+    },
+    {
+      "source": "templates/open-graph.svg",
+      "file": "exports/templates/open-graph.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/linkedin-post.svg",
+      "file": "exports/templates/linkedin-post.png",
+      "width": 1200,
+      "height": 627
+    },
+    {
+      "source": "templates/linkedin-post.svg",
+      "file": "exports/templates/linkedin-post.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/linkedin-cover.svg",
+      "file": "exports/templates/linkedin-cover.png",
+      "width": 1584,
+      "height": 396
+    },
+    {
+      "source": "templates/linkedin-cover.svg",
+      "file": "exports/templates/linkedin-cover.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/company-cover.svg",
+      "file": "exports/templates/company-cover.png",
+      "width": 1128,
+      "height": 191
+    },
+    {
+      "source": "templates/company-cover.svg",
+      "file": "exports/templates/company-cover.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/x-cover.svg",
+      "file": "exports/templates/x-cover.png",
+      "width": 1500,
+      "height": 500
+    },
+    {
+      "source": "templates/x-cover.svg",
+      "file": "exports/templates/x-cover.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/email-header.svg",
+      "file": "exports/templates/email-header.png",
+      "width": 1200,
+      "height": 320
+    },
+    {
+      "source": "templates/email-header.svg",
+      "file": "exports/templates/email-header.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/presentation-cover.svg",
+      "file": "exports/templates/presentation-cover.png",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "source": "templates/presentation-cover.svg",
+      "file": "exports/templates/presentation-cover.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/web-hero.svg",
+      "file": "exports/templates/web-hero.png",
+      "width": 1920,
+      "height": 960
+    },
+    {
+      "source": "templates/web-hero.svg",
+      "file": "exports/templates/web-hero.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/launch-announcement.svg",
+      "file": "exports/templates/launch-announcement.png",
+      "width": 1080,
+      "height": 1080
+    },
+    {
+      "source": "templates/launch-announcement.svg",
+      "file": "exports/templates/launch-announcement.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/youtube-cover.svg",
+      "file": "exports/templates/youtube-cover.png",
+      "width": 2560,
+      "height": 1440
+    },
+    {
+      "source": "templates/youtube-cover.svg",
+      "file": "exports/templates/youtube-cover.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/business-card-front.svg",
+      "file": "exports/templates/business-card-front.png",
+      "width": 910,
+      "height": 610
+    },
+    {
+      "source": "templates/business-card-front.svg",
+      "file": "exports/templates/business-card-front.pdf",
+      "physicalMm": [
+        91,
+        61
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/business-card-back.svg",
+      "file": "exports/templates/business-card-back.png",
+      "width": 910,
+      "height": 610
+    },
+    {
+      "source": "templates/business-card-back.svg",
+      "file": "exports/templates/business-card-back.pdf",
+      "physicalMm": [
+        91,
+        61
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/letterhead-a4.svg",
+      "file": "exports/templates/letterhead-a4.png",
+      "width": 2160,
+      "height": 3030
+    },
+    {
+      "source": "templates/letterhead-a4.svg",
+      "file": "exports/templates/letterhead-a4.pdf",
+      "physicalMm": [
+        216,
+        303
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/sales-one-pager-a4.svg",
+      "file": "exports/templates/sales-one-pager-a4.png",
+      "width": 2160,
+      "height": 3030
+    },
+    {
+      "source": "templates/sales-one-pager-a4.svg",
+      "file": "exports/templates/sales-one-pager-a4.pdf",
+      "physicalMm": [
+        216,
+        303
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/proposal-cover-a4.svg",
+      "file": "exports/templates/proposal-cover-a4.png",
+      "width": 2160,
+      "height": 3030
+    },
+    {
+      "source": "templates/proposal-cover-a4.svg",
+      "file": "exports/templates/proposal-cover-a4.pdf",
+      "physicalMm": [
+        216,
+        303
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/invoice-layout.svg",
+      "file": "exports/templates/invoice-layout.png",
+      "width": 2160,
+      "height": 3030
+    },
+    {
+      "source": "templates/invoice-layout.svg",
+      "file": "exports/templates/invoice-layout.pdf",
+      "physicalMm": [
+        216,
+        303
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/packing-list-layout.svg",
+      "file": "exports/templates/packing-list-layout.png",
+      "width": 2160,
+      "height": 3030
+    },
+    {
+      "source": "templates/packing-list-layout.svg",
+      "file": "exports/templates/packing-list-layout.pdf",
+      "physicalMm": [
+        216,
+        303
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/pod-layout.svg",
+      "file": "exports/templates/pod-layout.png",
+      "width": 2160,
+      "height": 3030
+    },
+    {
+      "source": "templates/pod-layout.svg",
+      "file": "exports/templates/pod-layout.pdf",
+      "physicalMm": [
+        216,
+        303
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/envelope-dl.svg",
+      "file": "exports/templates/envelope-dl.png",
+      "width": 2260,
+      "height": 1160
+    },
+    {
+      "source": "templates/envelope-dl.svg",
+      "file": "exports/templates/envelope-dl.pdf",
+      "physicalMm": [
+        226,
+        116
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/staff-badge.svg",
+      "file": "exports/templates/staff-badge.png",
+      "width": 600,
+      "height": 960
+    },
+    {
+      "source": "templates/staff-badge.svg",
+      "file": "exports/templates/staff-badge.pdf",
+      "physicalMm": [
+        60,
+        96
+      ],
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/presentation-content.svg",
+      "file": "exports/templates/presentation-content.png",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "source": "templates/presentation-content.svg",
+      "file": "exports/templates/presentation-content.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "templates/presentation-closing.svg",
+      "file": "exports/templates/presentation-closing.png",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "source": "templates/presentation-closing.svg",
+      "file": "exports/templates/presentation-closing.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    },
+    {
+      "source": "brand-overview.svg",
+      "file": "exports/brand-overview.png",
+      "width": 1800,
+      "height": 1440
+    },
+    {
+      "source": "brand-overview.svg",
+      "file": "exports/brand-overview.pdf",
+      "physicalMm": null,
+      "colourSpace": "RGB proof; printer ICC conversion required"
+    }
+  ],
+  "browserVerification": {
+    "assets": 97,
+    "mobileWidth": 390,
+    "overflow": false,
+    "businessCardSearch": 2,
+    "iconCategory": 24,
+    "galleryDownloadLinks": 242,
+    "browserErrors": 0
+  }
+}

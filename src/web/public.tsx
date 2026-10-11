@@ -21,7 +21,7 @@ pub.get("/", async (c) => {
     <PublicShell p={p}>
       <section class="hero">
         <div class="wrap">
-          <img class="hero-logo" src="/brand/logo-silver.png" alt="LOAD|BY|TON.store" width="560" height="172" />
+          <img class="hero-logo" src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="560" height="112" />
           <div class="eyebrow">Business · Product · Architecture · Execution</div>
           <h1>Run the movement. Know the margin.</h1>
           <p class="lead">Your logistics company, connected. Start free, choose the tools your business needs, and run enquiries, jobs, documents, deliveries and collections from one branded workspace.</p>

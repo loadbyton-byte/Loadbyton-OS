@@ -1,0 +1,58 @@
+{
+  "version": "1.0.0",
+  "brand": "LOAD|BY|TON",
+  "commerceName": "LOAD|BY|TON.store",
+  "productName": "Loadbyton OS",
+  "tagline": "Run the movement. Know the margin.",
+  "promise": "Your logistics company, connected.",
+  "source": {
+    "repository": "https://github.com/loadbyton-byte/Project-Loadbyton",
+    "commit": "8c0e8e9f5239b1689f333ec21cdb9cdffc7e2fa4",
+    "guidelines": "docs/brand/BRAND_GUIDELINES.md",
+    "wordmark": "web/public/brand/logo-full.svg",
+    "license": "licenses/Project-Loadbyton-MIT.txt"
+  },
+  "approval": {
+    "status": "pending_owner_approval",
+    "approvedBy": null,
+    "approvedAt": null,
+    "vectorMasterCreated": true,
+    "trademarkClearance": "not_assessed",
+    "arabicCopy": "native_review_required",
+    "domainRegistrantProof": "not_verified"
+  },
+  "palette": {
+    "navy": "#0F2B3D",
+    "deep": "#0A1A24",
+    "red": "#E53935",
+    "redAccessible": "#C62828",
+    "cream": "#FFFDF7",
+    "paper": "#F5F6F4",
+    "white": "#FFFFFF",
+    "ink": "#0F2129",
+    "muted": "#586A72",
+    "line": "#E5E8E3",
+    "blue": "#2563EB",
+    "green": "#2E7D32",
+    "amber": "#8A5A00"
+  },
+  "fonts": {
+    "display": "Geist",
+    "body": "Inter",
+    "mono": "JetBrains Mono",
+    "arabic": "Noto Sans Arabic",
+    "packageVersion": "5.3.0",
+    "license": "SIL Open Font License 1.1"
+  },
+  "products": ["Freight", "Transport", "Warehouse", "Fulfilment", "Delivery", "Customs", "Finance", "Intelligence"],
+  "contact": {
+    "name": "[Your name]",
+    "role": "[Your role]",
+    "email": "[Verified email]",
+    "phone": "[Business phone]",
+    "legalEntity": "[Registered legal entity]",
+    "address": "[Registered address]",
+    "domain": "loadbyton.store",
+    "domainStatus": "proposed_identity_not_registrant_proof"
+  }
+}
