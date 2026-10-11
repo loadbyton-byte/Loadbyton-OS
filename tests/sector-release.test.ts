@@ -15,7 +15,7 @@ describe("sector release gates drive the public label", () => {
     expect(SECTORS).toHaveLength(18);
     expect(new Set(SECTORS.map((s) => sectorGateKey(s.slug))).size).toBe(18);
     expect((await releasedSectors(db)).size).toBe(0);
-    expect(withLiveAvailability(await releasedSectors(db)).filter((s) => s.availability === "available")).toHaveLength(0);
+    expect(SECTORS.every((s) => s.availability === "available")).toBe(true);   // owner decision: every sector pack is Available
 
     const eng = await staff("engineer", "e"), aud = await staff("auditor", "a");
     const key = sectorGateKey("cold-chain");
@@ -26,7 +26,6 @@ describe("sector release gates drive the public label", () => {
     await accept(db, aud, key, "Reviewed", plus(90));
     const live = withLiveAvailability(await releasedSectors(db));
     expect(live.find((s) => s.slug === "cold-chain")?.availability).toBe("available");
-    expect(live.find((s) => s.slug === "distribution")?.availability).toBe("planned");
-    expect(live.filter((s) => s.availability === "available")).toHaveLength(1);
+    expect(live.find((s) => s.slug === "distribution")?.availability).toBe("available");
   });
 });
