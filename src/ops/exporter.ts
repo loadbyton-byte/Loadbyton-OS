@@ -11,7 +11,7 @@ const TABLES = ["parties", "enquiries", "rates", "quotes", "quote_versions", "qu
   "maintenance_blocks", "trips", "transport_orders", "transport_order_charges", "trip_legs", "trip_events",
   "trip_expenses", "trip_expense_receipts", "wh_locations", "skus", "stock_levels", "stock_movements", "inbound_shipments",
   "inbound_lines", "inbound_receipts", "fulfil_orders", "fulfil_order_lines", "stock_allocations", "fulfil_shipments",
-  "fulfil_returns", "fulfil_return_lines", "fulfil_return_receipts", "stock_adjustments", "fulfil_rates", "fulfil_charges", "fulfil_storage_contracts", "fulfil_storage_days", "fulfil_storage_automation", "fulfil_lots", "stock_lot_levels", "fulfil_pack_serials", "fulfil_lot_decisions",
+  "fulfil_returns", "fulfil_return_lines", "fulfil_return_receipts", "stock_adjustments", "fulfil_rates", "fulfil_charges", "fulfil_storage_contracts", "fulfil_storage_days", "fulfil_storage_automation", "fulfil_lots", "stock_lot_levels", "fulfil_pack_serials", "fulfil_lot_decisions", "fulfil_sites", "fulfil_site_transfers", "fulfil_site_transfer_lines",
   "warehouses", "warehouse_locations", "wh_skus", "wh_stock", "wh_movements", "wh_inbound",
   "wh_inbound_lines", "wh_outbound", "wh_outbound_lines", "wh_allocations", "wh_counts", "wh_count_lines",
   "wh_rates", "wh_billing_runs", "wh_charges", "wh_count_schedules", "wh_count_schedule_runs", "dlv_runs", "dlv_shipments", "dlv_events", "dlv_settlements", "dlv_remittances", "dlv_collections", "dlv_rates", "dlv_billing_runs", "dlv_charges",

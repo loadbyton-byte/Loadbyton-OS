@@ -40,10 +40,10 @@ const oneOf = (v: unknown, allowed: string[], dflt: string, label: string) => {
   if (!allowed.includes(t)) throw badRequest(`${label} must be one of ${allowed.join(", ")}.`);
   return t;
 };
-const lockStock = (c: Conn, tenantId: string) => c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${tenantId}:stock`]);
+export const lockStock = (c: Conn, tenantId: string) => c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${tenantId}:stock`]);
 
 // ───────────────────────── locations
-export const SYSTEM_LOCATIONS = { receiving: "RECV", staging: "STAGE", quarantine: "QUAR" } as const;
+export const SYSTEM_LOCATIONS = { receiving: "RECV", staging: "STAGE", quarantine: "QUAR", transit: "TRANSIT" } as const;
 const RESERVED_CODES = new Set(Object.values(SYSTEM_LOCATIONS));
 
 export async function systemLocation(c: Conn, tenantId: string, kind: keyof typeof SYSTEM_LOCATIONS): Promise<string> {
@@ -59,7 +59,8 @@ export async function createLocation(c: Conn, ctx: Ctx, f: Record<string, any>) 
   const code = reqStr(f.code, "Location code", 30).toUpperCase().replace(/\s+/g, "-");
   if (RESERVED_CODES.has(code as any)) throw badRequest(`${code} is a system location (created automatically).`);
   try {
-    const r = await c.query<{ id: string }>(`INSERT INTO wh_locations(tenant_id,code,kind,note) VALUES ($1,$2,'bin',$3) RETURNING id`, [ctx.tenantId, code, optStr(f.note, 200)]);
+    const r = await c.query<{ id: string }>(`INSERT INTO wh_locations(tenant_id,code,kind,note,site_id) VALUES ($1,$2,'bin',$3,$4) RETURNING id`,
+      [ctx.tenantId, code, optStr(f.note, 200), f.site_id ? (await must(c.query<any>(`SELECT id FROM fulfil_sites WHERE id=$1 AND active`, [f.site_id]), "Site")).id : null]);
     await audit(c, ctx.tenantId, actorOf(ctx), "location.created", "location", r.rows[0].id, { code });
     return r.rows[0].id;
   } catch (e: any) {
@@ -186,7 +187,7 @@ async function resolveSkus(c: Conn, partyId: string, lines: { code: string; qty:
 interface Move { skuId: string; locationId: string; delta: number; kind: string; refType?: string; refId?: string; note?: string; fromReserved?: boolean; lotId?: string | null }
 
 /** The only code path that changes on_hand: guarded update + one immutable ledger row. */
-async function moveStock(c: Conn, ctx: Ctx, m: Move) {
+export async function moveStock(c: Conn, ctx: Ctx, m: Move) {
   if (!m.delta) return;
   const mode = await skuMode(c, m.skuId);
   if (mode.tracked && !m.lotId) throw badRequest("This SKU is lot, serial or expiry tracked: name the lot for every stock movement.");
@@ -268,11 +269,11 @@ async function allocateInternal(c: Conn, ctx: Ctx, orderId: string) {
     if (need <= 0) continue;
     const mode = await skuMode(c, l.sku_id);
     let p: { picks: { location_id: string; qty: number; lot_id?: string }[]; total: number };
-    if (mode.tracked) p = planLots(await allocatableLots(c, l.sku_id, mode), need);
+    if (mode.tracked) p = planLots(await allocatableLots(c, l.sku_id, mode, o.site_id), need);
     else {
       const bins = (await c.query<any>(
         `SELECT sl.location_id, (sl.on_hand - sl.reserved)::int AS avail FROM stock_levels sl JOIN wh_locations loc ON loc.id=sl.location_id
-         WHERE sl.sku_id=$1 AND loc.kind='bin' AND loc.active AND sl.on_hand - sl.reserved > 0 ORDER BY loc.code`, [l.sku_id])).rows;
+         WHERE sl.sku_id=$1 AND loc.kind='bin' AND loc.active AND sl.on_hand - sl.reserved > 0 AND ($2::uuid IS NULL OR loc.site_id=$2) ORDER BY loc.code`, [l.sku_id, o.site_id])).rows;
       p = planBins(bins, need);
     }
     plans.push({ l, need, ...p });
@@ -314,7 +315,7 @@ export async function allocateOrder(c: Conn, ctx: Ctx, orderId: string) {
 }
 
 /** Oldest orders first, so freshly received/returned/found stock goes to whoever has waited longest. */
-async function allocateWaitingInternal(c: Conn, ctx: Ctx) {
+export async function allocateWaitingInternal(c: Conn, ctx: Ctx) {
   const ids = (await c.query<any>(
     `SELECT o.id FROM fulfil_orders o WHERE o.status IN ('new','backordered','allocated','picking','picked','packed')
        AND EXISTS (SELECT 1 FROM fulfil_order_lines l WHERE l.order_id=o.id AND l.qty - l.closed_qty - l.allocated_qty > 0
@@ -338,7 +339,7 @@ export async function allocateWaiting(c: Conn, ctx: Ctx) {
 // ───────────────────────── orders
 export interface OrderInput {
   party_id: string; external_ref: string; channel?: string; ship_to_name: string; ship_to_phone?: string; ship_to_address: string;
-  ship_to_city?: string; ship_to_country?: string; ship_by?: string; allow_partial?: boolean | string; lines: { code: string; qty: number }[];
+  ship_to_city?: string; ship_to_country?: string; ship_by?: string; allow_partial?: boolean | string; site_id?: string; lines: { code: string; qty: number }[];
 }
 
 /** Idempotent on (merchant, external_ref): a retried API call or re-imported CSV row never creates a second order. */
@@ -355,11 +356,12 @@ async function placeOrder(c: Conn, ctx: Ctx, f: OrderInput): Promise<{ id: strin
     channel: optStr(f.channel, 40) ?? "manual", name: reqStr(f.ship_to_name, "Recipient name", 150), phone: optStr(f.ship_to_phone, 40),
     address: reqStr(f.ship_to_address, "Delivery address", 400), city: optStr(f.ship_to_city, 80), country: (optStr(f.ship_to_country, 2) ?? "AE").toUpperCase(),
   };
+  const siteId = f.site_id ? (await must(c.query<any>(`SELECT id FROM fulfil_sites WHERE id=$1 AND active`, [f.site_id]), "Site")).id as string : null;
   const no = await nextNumber(c, ctx.tenantId, "fulfil_order", "FUL");
   const o = await c.query<{ id: string }>(
-    `INSERT INTO fulfil_orders(tenant_id,no,party_id,channel,external_ref,ship_to_name,ship_to_phone,ship_to_address,ship_to_city,ship_to_country,ship_by,allow_partial,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
-    [ctx.tenantId, no, f.party_id, v.channel, ref, v.name, v.phone, v.address, v.city, v.country, shipBy, f.allow_partial === true || f.allow_partial === "1", ctx.userId]);
+    `INSERT INTO fulfil_orders(tenant_id,no,party_id,channel,external_ref,ship_to_name,ship_to_phone,ship_to_address,ship_to_city,ship_to_country,ship_by,allow_partial,created_by,site_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    [ctx.tenantId, no, f.party_id, v.channel, ref, v.name, v.phone, v.address, v.city, v.country, shipBy, f.allow_partial === true || f.allow_partial === "1", ctx.userId, siteId]);
   const id = o.rows[0].id;
   // billing unit for this sector is the fulfilment order; the reference makes a retried request idempotent
   await consumeQuota(c, ctx.tenantId, "fulfilment_orders_per_month", `fulorder:${id}`);
