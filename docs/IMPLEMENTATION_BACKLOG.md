@@ -40,6 +40,8 @@ Source: user-uploaded **LOAD_BY_TON.store — Master Blueprint (1).pdf**, extrac
 
 - Transport (migration 037): a driver-scope service worker (shell precached, last-seen pages kept for offline first-open, cleared on sign-out, writes never cached), per-driver scoped offline queues, driver-granted GPS sharing with offline buffering, a dispatcher live board and retention-managed positions, nearest-neighbour + 2-opt route planning that respects pickup-before-delivery on stops with coordinates, and fuel-card/Salik statement CSV import matched by plate and time into unapproved trip expenses with idempotent provider references. Provider *API* feeds, geocoding of addresses and traffic-aware routing are not built; coordinates are entered per stop and distances are straight-line.
 
+- Custody warehouse policy (migration 038): per-customer backorder policy (closed or carried child orders that reserve themselves when stock arrives), returns into quarantine with approver-only restock/disposal, immutable approved bonded and liability-cap terms backed by issued evidence, bonded-location segregation and declared-value cap enforced inside the single stock-posting path, bond release evidence required to dispatch bonded goods, exposure report, Code 128 label sheets and ZPL, scan resolution and an idempotent handheld move screen for keyboard-wedge scanners. Direct RF-gun protocols and printer drivers are not built (ZPL is a file; printing is by the site's print path); whether terms satisfy customs or insurer requirements is for the reviewer who signs them.
+
 ## External acceptance — code is present; deployment evidence remains
 
 `RELEASE_ACCEPTANCE.md` lists merchant/provider credentials, live payment and wallet eligibility, actual regions/private buckets/tunnel, SMTP delivery, provider failover/PITR/restore, alert delivery, legal/tax/retention review, controller acceptance, specialist reviews and real pilot customers. These are not obtainable by inventing credentials, certifications or customer evidence.
@@ -54,7 +56,7 @@ These remain real work, not items that merely need environment variables:
 | Transport | Provider API feeds for fuel cards/Salik, address geocoding and traffic-aware routing (CSV statements and entered coordinates today) |
 | Delivery/COD | Live bank/card-provider API feeds (statements import by CSV today) and posting write-offs into an accounting system |
 | Fulfilment | Scheduled personal-data minimisation (see Legal/data operations); everything else in the former row is implemented |
-| Custody warehouse | Backorder/return policy, approved bonded/liability boundary, richer scanner/printer/RF integrations; the new traceability controls require real quality/sector review |
+| Custody warehouse | Native RF-gun/printer-driver protocols; quality/sector review of the traceability and bonded controls |
 | Specialist profiles | Full sector-specific advanced interfaces/provider feeds, automated physical/device evidence and industry validation beyond the tested manual workflows |
 | Communications/AI | Approved inbound email/WhatsApp/telephony connectors, verified identity/consent policy, AI document extraction, report explanations and wider-sector retrieval, versioned automated templates and safe deterministic fallback |
 | Finance | Receipt/credit-note/correction bridge, vendor payables and formally reconciled multi-currency books; native ledger only after its roadmap justification and controller review |
