@@ -25,10 +25,10 @@ export async function ownerDashboard(c: Conn, tenantId: string) {
      WHERE j.status IN ('delivered','operationally_complete') AND EXISTS (SELECT 1 FROM job_charges g WHERE g.job_id=j.id AND g.approved AND g.invoice_id IS NULL)
      ORDER BY j.delivered_at`)).rows;
   const overdue = (await c.query<any>(
-    `SELECT i.id, i.no, p.name AS party, (i.total_minor-i.paid_minor) AS amount_minor, i.due_at FROM invoices i JOIN parties p ON p.id=i.party_id
+    `SELECT i.id, i.no, p.name AS party, i.balance_minor AS amount_minor, i.due_at FROM invoices i JOIN parties p ON p.id=i.party_id
      WHERE i.status IN ('issued','part_paid') AND i.due_at < now() ORDER BY i.due_at`)).rows;
   const due7 = (await c.query<any>(
-    `SELECT coalesce(sum(total_minor-paid_minor),0) n FROM invoices WHERE status IN ('issued','part_paid') AND due_at >= now() AND due_at < now() + interval '7 days'`)).rows[0].n;
+    `SELECT coalesce(sum(balance_minor),0) n FROM invoices WHERE status IN ('issued','part_paid') AND due_at >= now() AND due_at < now() + interval '7 days'`)).rows[0].n;
   const supplier = (await c.query<any>(
     `SELECT coalesce(sum(estimated_minor),0) n, count(*)::int c FROM job_costs WHERE actual_minor IS NULL`)).rows[0];
   const exceptions = (await c.query<any>(

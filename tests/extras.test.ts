@@ -33,7 +33,7 @@ describe("invariants", () => {
     expect(await verifyInvariants(db)).toEqual([]);
     await db.system((c) => c.query(`UPDATE invoices SET paid_minor = paid_minor + 5 WHERE tenant_id=$1`, [t.tenantId]));
     const v = await verifyInvariants(db);
-    expect(v.map((x) => x.check)).toContain("paid = sum of receipts");
+    expect(v.map((x) => x.check)).toContain("paid = sum of receipts that have not been reversed");
     await db.system((c) => c.query(`UPDATE invoices SET paid_minor = paid_minor - 5 WHERE tenant_id=$1`, [t.tenantId]));
     expect(await verifyInvariants(db)).toEqual([]);
   });

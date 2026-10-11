@@ -68,6 +68,7 @@ export function navFor(c: C): NavItem[] {
   n.push({ href: "/app/documents", label: "Documents", section: "Operate" });
   if (t && t.sectors.length) n.push({ href: "/app/tasks", label: "Tasks & exceptions", section: "Operate" },
     { href: "/app/invoices", label: "Invoices & collections", section: "Money" });
+  if (t && t.sectors.length && ctx.perms.has("finance.write")) n.push({ href: "/app/finance/credit-notes", label: "Credit notes", section: "Money" }, { href: "/app/finance/payables", label: "Supplier bills", section: "Money" }, { href: "/app/finance/fx", label: "Exchange rates", section: "Money" });
   if (fwd && ctx.perms.has("dashboard.owner")) n.push({ href: "/app/reports", label: "Owner dashboard", section: "Money" });   // job-margin view: freight only
   if (ctx.perms.has("team.manage")) n.push({ href: "/app/team", label: "Team", section: "Admin" });
   if (ctx.perms.has("billing.manage")) n.push({ href: "/app/billing", label: "Plan & billing", section: "Admin" });
