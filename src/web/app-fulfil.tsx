@@ -12,6 +12,7 @@ import {
 import { RATE_CODES, billingSummary, invoiceMerchant, listRates, runStorageCharges, setRate, unbilledForParty } from "../ops/fulfil-billing.js";
 import { listParties } from "../ops/crm.js";
 import { issuedEvidence } from "../ops/fulfil-lots.js";
+import { listSites } from "../ops/fulfil-sites.js";
 import { formBody, str, type Env } from "./mw.js";
 import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table } from "./ui.js";
@@ -37,7 +38,7 @@ fulfil.get(F, async (c) => {
   return appPage(c, "Fulfilment board", (<>
     <PageHead title="Fulfilment board" sub="What is waiting at each stage — and what is late.">
       {can(c, "wh.write") ? <><a class="btn red sm" href={`${F}/orders/new`}>New order</a><a class="btn sm" href={`${F}/inbound/new`}>Expect a delivery</a></> : null}
-      <a class="btn ghost sm" href={`${F}/lots`}>Lots &amp; expiry</a>
+      <a class="btn ghost sm" href={`${F}/lots`}>Lots &amp; expiry</a><a class="btn ghost sm" href={`${F}/sites`}>Sites</a>
     </PageHead>
     <div class="grid g4">
       <div class="card"><h3>Waiting for stock</h3><div class={`kpi ${n("backordered") ? "bad" : "good"}`}>{n("backordered")}</div></div>
@@ -91,7 +92,7 @@ fulfil.get(`${F}/orders`, async (c) => {
 
 fulfil.get(`${F}/orders/new`, async (c) => {
   need(c, "wh.write");
-  const merchants = await withT(c, (cn) => listParties(cn, "customer"));
+  const [merchants, sites] = await withT(c, async (cn) => [await listParties(cn, "customer"), (await listSites(cn)).filter((x: any) => x.active)] as const);
   const csrf = c.get("csrf");
   return appPage(c, "New fulfilment order", (<>
     <PageHead title="New order" sub="Marketplace and store connectors are planned; enter orders here or import a CSV." />
@@ -103,6 +104,7 @@ fulfil.get(`${F}/orders/new`, async (c) => {
       <div class="row"><div class="field"><label for="sn">Recipient name</label><input id="sn" name="ship_to_name" type="text" required /></div><div class="field"><label for="sp">Phone</label><input id="sp" name="ship_to_phone" type="text" /></div></div>
       <div class="field"><label for="sa">Delivery address</label><input id="sa" name="ship_to_address" type="text" required /></div>
       <div class="row"><div class="field"><label for="sc">City / emirate</label><input id="sc" name="ship_to_city" type="text" /></div><div class="field"><label for="sb">Ship by</label><input id="sb" name="ship_by" type="datetime-local" /></div></div>
+      {sites.length ? <div class="field" style="max-width:320px"><label for="osite">Fulfil from site</label><select id="osite" name="site_id"><option value="">Any site</option>{sites.map((x: any) => <option value={x.id}>{x.code} · {x.name}</option>)}</select></div> : null}
       <label class="check" style="max-width:520px"><input type="checkbox" name="allow_partial" value="1" /><span>Allow a partial shipment if only some items are in stock</span></label>
       <button class="btn red" style="margin-top:12px" type="submit">Save and reserve stock</button><p class="hint">Times are Gulf Standard Time (UTC+4). Recipient details are personal data: keep them to what delivery needs.</p>
     </form>
@@ -112,7 +114,7 @@ fulfil.post(`${F}/orders`, async (c) => {
   need(c, "wh.write");
   const b = await formBody(c);
   return act(c, `${F}/orders/new`, async () => {
-    const r = await withT(c, (cn, ctx) => createOrder(cn, ctx, { ...b, lines: str(b.lines), allow_partial: str(b.allow_partial) }));
+    const r = await withT(c, (cn, ctx) => createOrder(cn, ctx, { ...b, lines: str(b.lines), allow_partial: str(b.allow_partial), site_id: str(b.site_id) || undefined }));
     return { to: `${F}/orders/${r.id}`, ok: r.blocked ? `Order ${r.no} saved — waiting for stock; it will reserve automatically when stock arrives.` : `Order ${r.no} saved; ${r.allocated} unit(s) reserved.` };
   });
 });

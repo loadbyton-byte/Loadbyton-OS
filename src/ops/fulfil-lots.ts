@@ -87,13 +87,13 @@ export function planLots(bins: LotBin[], need: number) {
   }
   return { picks, total: need - left };
 }
-export async function allocatableLots(c: Conn, skuId: string, mode: SkuMode): Promise<LotBin[]> {
+export async function allocatableLots(c: Conn, skuId: string, mode: SkuMode, siteId: string | null = null): Promise<LotBin[]> {
   const order = mode.rotation === "fefo" ? "lot.expires_at NULLS LAST, lot.created_at, loc.code" : "lot.created_at, loc.code";
   return (await c.query<any>(
     `SELECT sl.location_id, sl.lot_id, (sl.on_hand - sl.reserved)::int AS avail FROM stock_lot_levels sl
        JOIN fulfil_lots lot ON lot.id=sl.lot_id JOIN wh_locations loc ON loc.id=sl.location_id
      WHERE sl.sku_id=$1 AND loc.kind='bin' AND loc.active AND sl.on_hand - sl.reserved > 0 AND NOT lot.hold
-       AND (lot.expires_at IS NULL OR lot.expires_at > ($2::date + $3::int)) ORDER BY ${order}`, [skuId, dubaiDay(), mode.min_shelf_days])).rows;
+       AND (lot.expires_at IS NULL OR lot.expires_at > ($2::date + $3::int)) AND ($4::uuid IS NULL OR loc.site_id=$4) ORDER BY ${order}`, [skuId, dubaiDay(), mode.min_shelf_days, siteId])).rows;
 }
 
 export async function lotWorkspace(c: Conn, partyId?: string | null) {
