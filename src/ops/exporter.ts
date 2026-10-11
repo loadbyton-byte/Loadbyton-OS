@@ -2,7 +2,7 @@ import type { Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
 import {canReadGeneratedDrafts} from './document-drafts.js';
-import {redactFulfilmentRecipient} from '../lib/data-policy.js';
+import {redactFulfilmentRecipient,redactFields} from '../lib/data-policy.js';
 
 const TABLES = ["parties", "enquiries", "rates", "quotes", "quote_versions", "quote_lines", "jobs", "job_charges", "job_costs",
   "job_milestones", "job_exceptions", "documents", "invoices", "invoice_lines", "receipts",
@@ -11,7 +11,7 @@ const TABLES = ["parties", "enquiries", "rates", "quotes", "quote_versions", "qu
   "maintenance_blocks", "trips", "transport_orders", "transport_order_charges", "trip_legs", "trip_events",
   "trip_expenses", "trip_expense_receipts", "wh_locations", "skus", "stock_levels", "stock_movements", "inbound_shipments",
   "inbound_lines", "inbound_receipts", "fulfil_orders", "fulfil_order_lines", "stock_allocations", "fulfil_shipments",
-  "fulfil_returns", "fulfil_return_lines", "fulfil_return_receipts", "stock_adjustments", "fulfil_rates", "fulfil_charges", "fulfil_storage_contracts", "fulfil_storage_days", "fulfil_storage_automation",
+  "fulfil_returns", "fulfil_return_lines", "fulfil_return_receipts", "stock_adjustments", "fulfil_rates", "fulfil_charges", "fulfil_storage_contracts", "fulfil_storage_days", "fulfil_storage_automation", "fulfil_storage_amendments", "privacy_retention_policies", "privacy_legal_holds", "privacy_minimisation_runs", "dlv_cash_policy", "driver_location_consent", "trip_positions", "transport_feed_imports", "transport_feed_lines", "dlv_bank_statements", "dlv_bank_lines", "dlv_writeoffs", "wh_owner_policy", "wh_owner_terms", "wh_returns", "wh_return_lines", "wh_return_receipts", "fulfil_lots", "stock_lot_levels", "fulfil_pack_serials", "fulfil_lot_decisions", "fulfil_sites", "fulfil_site_transfers", "fulfil_site_transfer_lines", "fulfil_carton_types", "fulfil_order_cartons", "fulfil_order_carton_lines", "fulfil_waves", "fulfil_wave_orders", "fulfil_pick_tasks", "fulfil_kits", "fulfil_kit_components", "fulfil_order_kit_lines", "fulfil_kit_builds", "fulfil_kit_build_lots", "stock_migrations", "opportunities", "opportunity_lanes", "opportunity_quotes", "opportunity_events", "rate_tiers", "supplier_contracts", "supplier_policy", "freight_masters", "freight_master_costs", "freight_master_allocations",
   "warehouses", "warehouse_locations", "wh_skus", "wh_stock", "wh_movements", "wh_inbound",
   "wh_inbound_lines", "wh_outbound", "wh_outbound_lines", "wh_allocations", "wh_counts", "wh_count_lines",
   "wh_rates", "wh_billing_runs", "wh_charges", "wh_count_schedules", "wh_count_schedule_runs", "dlv_runs", "dlv_shipments", "dlv_events", "dlv_settlements", "dlv_remittances", "dlv_collections", "dlv_rates", "dlv_billing_runs", "dlv_charges",
@@ -21,7 +21,7 @@ const TABLES = ["parties", "enquiries", "rates", "quotes", "quote_versions", "qu
 export async function exportTenantData(c: Conn, ctx: Ctx) {
   require(ctx, "export");
   const out: Record<string, unknown> = { exported_at: new Date().toISOString(), tenant_id: ctx.tenantId };
-  for (const t of TABLES) {const rows=(await c.query(`SELECT * FROM ${t}`)).rows;out[t]=['generated_documents','document_templates'].includes(t)&&!canReadGeneratedDrafts(ctx)?[]:t==='fulfil_orders'?rows.map(row=>redactFulfilmentRecipient(row,ctx)):rows;}
+  for (const t of TABLES) {const rows=(await c.query(`SELECT * FROM ${t}`)).rows;out[t]=['generated_documents','document_templates'].includes(t)&&!canReadGeneratedDrafts(ctx)?[]:t==='fulfil_orders'?rows.map(row=>redactFulfilmentRecipient(row,ctx)):rows.map(row=>redactFields(t,row,ctx));}
   await audit(c, ctx.tenantId, actorOf(ctx), "data.exported", "tenant", ctx.tenantId);
   return out;
 }

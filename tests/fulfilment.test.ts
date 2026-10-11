@@ -382,7 +382,7 @@ describe("billing activity", () => {
     expect(await t((c, x) => runStorageCharges(c, x, month))).toEqual({ created: 0, already: 1, noRate: 0, dailyContracts: 0 });
     await expect(t((c, x) => runStorageCharges(c, x, "2999-01"))).rejects.toThrow(/future month/);
     const storage = (await db.query<any>(`SELECT qty, unit_minor FROM fulfil_charges WHERE code='storage_location_month' AND tenant_id=$1`, [s.t.tenantId])).rows[0];
-    expect({ qty: storage.qty, unit: Number(storage.unit_minor) }).toEqual({ qty: 2, unit: 1000 });
+    expect({ qty: Number(storage.qty), unit: Number(storage.unit_minor) }).toEqual({ qty: 2, unit: 1000 });
 
     await t((c, x) => setRate(c, x, { party_id: s.merchant, code: "receive_unit", amount: "9.99", tax_code: "SR5" }));
     const old = (await db.query<any>(`SELECT unit_minor FROM fulfil_charges WHERE code='receive_unit' AND tenant_id=$1 LIMIT 1`, [s.t.tenantId])).rows[0];

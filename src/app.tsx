@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Db } from "./db/client.js";
@@ -18,6 +20,9 @@ import { customs } from "./web/app-customs.js";
 import { deliveryApi } from "./web/api-delivery.js";
 import { driver } from "./web/app-driver.js";
 import { admin } from "./web/admin.js";
+import { adminConsole } from "./web/admin-console.js";
+import { stockMigration } from "./web/stock-migration.js";
+import { freightCommercial } from "./web/freight-commercial.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
 import { connections } from "./web/connections.js";
@@ -30,6 +35,12 @@ import { weight } from "./web/chargeable-weight.js";
 import { schedule } from "./web/count-schedules.js";
 import { assistant } from "./web/assistant.js";
 import { fulfilStorage } from "./web/fulfil-storage.js";
+import { fulfilLots } from "./web/fulfil-lots.js";
+import { fulfilSites } from "./web/fulfil-sites.js";
+import { fulfilOps } from "./web/fulfil-ops.js";
+import { transportLive } from "./web/transport-live.js";
+import { warehousePolicy } from "./web/warehouse-policy.js";
+import { deliveryFinance } from "./web/delivery-finance.js";
 import { documentDrafts } from "./web/document-drafts.js";
 import { bodyLimit } from "hono/body-limit";
 import { routePath } from "hono/route";
@@ -42,6 +53,11 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.use('*',bodyLimit({maxSize:config.maxUploadBytes+262144,onError:c=>c.text('Request too large',413)}));
   const metrics = options.metrics ?? new RuntimeMetrics();
   app.use("*", metrics.middleware());
+  // Driver offline shell: served without a session so the service worker can install and update; contains no tenant data.
+  const staticFile = (file: string, type: string, extra: Record<string, string> = {}) => async (c: any) => c.body(await fs.readFile(path.resolve("public", file)), 200, { "content-type": type, "cache-control": "no-cache", ...extra });
+  app.get("/app/driver/sw.js", staticFile("driver-sw.js", "application/javascript; charset=utf-8", { "service-worker-allowed": "/app/driver" }));
+  app.get("/app/driver/offline", staticFile("driver-offline.html", "text/html; charset=utf-8"));
+  app.get("/app/driver/manifest.webmanifest", staticFile("driver-manifest.webmanifest", "application/manifest+json; charset=utf-8"));
   app.use("/assets/*", async (c, next) => { await next(); c.header("Cache-Control", "public, max-age=300"); });
   app.use("/assets/*", serveStatic({ root: "./public" }));
   app.use("/brand/*", serveStatic({ root: "./public" }));
@@ -68,7 +84,10 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", auth);
   app.route("/", security);
   app.route("/", admin);
+  app.route("/", adminConsole);
   app.route("/", core);
+  app.route("/", stockMigration);
+  app.route("/", freightCommercial);
   app.route("/", connections);
   app.route("/", privacy);
   app.route("/", service);
@@ -88,6 +107,12 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", schedule);
   app.route("/", assistant);
   app.route("/", fulfilStorage);
+  app.route("/", fulfilLots);
+  app.route("/", fulfilSites);
+  app.route("/", fulfilOps);
+  app.route("/", transportLive);
+  app.route("/", warehousePolicy);
+  app.route("/", deliveryFinance);
   app.route("/", documentDrafts);
   app.route("/", workspace);
 
@@ -106,7 +131,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
       const title = e.status === 403 ? "Not permitted" : e.status === 404 ? "Not found" : e.status === 402 ? "Plan limit reached" : "Something is not right";
       return errorPage(c, e.status, title, e.message);
     }
-    console.error("[error]", c.req.method, routePath(c)||'unmatched');
+    console.error("[error]", c.req.method, routePath(c)||"unmatched", process.env.LBT_DEBUG_ERRORS ? e : "");
     return errorPage(c, 500, "Something went wrong", "An unexpected error occurred. Refresh to check the record status before retrying. If it keeps happening, contact us with the time it happened.");
   });
   return app;

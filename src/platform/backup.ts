@@ -19,3 +19,16 @@ export async function decryptBackup(input:string,output:string,secret:string) {
  try{await pipeline(createReadStream(input,{start:36}),cipher,createWriteStream(output,{mode:0o600,flags:'wx'}));}
  catch{await fs.unlink(output).catch(()=>{});throw new Error('Backup authentication failed; use the correct key and an intact backup');}
 }
+/** Re-encrypt a backup under a new key. The result is authenticated by decrypting it again and comparing digests before it is kept. */
+export async function reencryptBackup(input:string,output:string,oldSecret:string,newSecret:string) {
+ if(oldSecret===newSecret)throw new Error('The new backup key must differ from the old key');
+ const tmp=`${output}.plain.${crypto.randomBytes(6).toString('hex')}`,check=`${output}.check.${crypto.randomBytes(6).toString('hex')}`;
+ const digest=async(file:string)=>{const h=crypto.createHash('sha256');await pipeline(createReadStream(file),h);return h.digest('hex');};
+ try{
+  await decryptBackup(input,tmp,oldSecret);await encryptBackup(tmp,output,newSecret);
+  await decryptBackup(output,check,newSecret);
+  if((await digest(tmp))!==(await digest(check)))throw new Error('Re-encrypted backup failed verification');
+  return {sha256:await digest(tmp)};
+ }catch(e){await fs.unlink(output).catch(()=>{});throw e;}
+ finally{await fs.unlink(tmp).catch(()=>{});await fs.unlink(check).catch(()=>{});}
+}

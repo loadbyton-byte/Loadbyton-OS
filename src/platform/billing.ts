@@ -5,6 +5,7 @@ import { HttpError, badRequest, hmac, randomToken, safeEqual } from "../lib/util
 import { ProviderError, enabledProviders, getAdapter, type PaymentEvent } from "./payments/index.js";
 import { applyPlanEntitlements, previewPlanChange } from "./entitlements.js";
 import { currentPlans, type PlanVersion } from "./catalog.js";
+import { accrueCommission, reverseCommission } from "./partners.js";
 
 export interface OrderLine { label: string; amount_minor: number; kind: "setup" | "subscription" }
 export function paymentQuote(total:number,currency:string,provider:string) {
@@ -158,6 +159,7 @@ export async function processPaymentEvent(db: Db, provider: string, ev: PaymentE
       await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'staff.review',$2,$3) ON CONFLICT (key) DO NOTHING`,
         [o.tenant_id, `refund:${o.id}`, JSON.stringify({ orderId: o.id, note: "Refund received — decide entitlement treatment." })]);
       await audit(c, o.tenant_id, { kind: "system" }, "order.refunded", "order", o.id);
+      await reverseCommission(c, o.id);
       return finish("applied", undefined, o.id);
     }
 
@@ -189,6 +191,7 @@ export async function processPaymentEvent(db: Db, provider: string, ev: PaymentE
     await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'email',$2,$3) ON CONFLICT (key) DO NOTHING`,
       [o.tenant_id, `payment-received:${o.id}`, JSON.stringify({ template: "payment_received", orderId: o.id, reference: o.reference })]);
     await audit(c, o.tenant_id, { kind: "system" }, "order.paid", "order", o.id, { plan: plan.plan_code, event: ev.event_id });
+    await accrueCommission(c, o);
     return finish("applied", undefined, o.id);
   });
 }

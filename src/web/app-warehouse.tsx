@@ -220,8 +220,8 @@ warehouse.get(`${W}/outbound/:id`, async (c) => {
       </form>) : null}
     {o.status === "picked" && w ? (
       <form method="post" action={`${W}/outbound/${id}/dispatch`} class="inline-form" style="margin-top:20px"><Csrf t={csrf} />
-        <input name="carrier_ref" type="text" placeholder="Carrier / vehicle / delivery note ref" /><button class="btn red" type="submit">Dispatch</button></form>) : null}
-    {o.status === "dispatched" ? <p class="small mute" style="margin-top:14px">Dispatched {dt(o.dispatched_at)}{o.carrier_ref ? ` · ${o.carrier_ref}` : ""}. Any unshipped remainder is closed; backorders are not tracked.</p> : null}
+        <input name="carrier_ref" type="text" placeholder="Carrier / vehicle / delivery note ref" /><input name="release_document_id" type="text" placeholder="Bond release document ID (bonded goods)" aria-label="Bond release document ID" /><button class="btn red" type="submit">Dispatch</button></form>) : null}
+    {o.status === "dispatched" ? <p class="small mute" style="margin-top:14px">Dispatched {dt(o.dispatched_at)}{o.carrier_ref ? ` · ${o.carrier_ref}` : ""}. The unshipped remainder follows the customer's backorder policy (Custody policy).</p> : null}
     {d.allocations.length ? <><h3 style="margin-top:24px">Allocations</h3>
       <Table head={["SKU", "Location", "Lot", ["Units", "num"], "Status"]}>{d.allocations.map((a: any) => <tr><td>{a.sku_code}</td><td>{a.loc_code}</td><td>{a.lot || "—"}</td><td class="num">{q(a.qty)}</td><td><Badge s={a.status === "shipped" ? "delivered" : a.status === "released" ? "cancelled" : a.status} /></td></tr>)}</Table></> : null}
   </>));
@@ -242,7 +242,7 @@ warehouse.post(`${W}/outbound/:id/pick`, async (c) => {
     return { to: `${W}/outbound/${id}`, ok: r.short ? "Pick confirmed with shortages released. Consider counting the affected locations." : "Pick confirmed." };
   });
 });
-warehouse.post(`${W}/outbound/:id/dispatch`, async (c) => { const id = c.req.param("id"), b = await formBody(c); return act(c, `${W}/outbound/${id}`, async () => { await withT(c, (cn, ctx) => dispatchOutbound(cn, ctx, id, { carrier_ref: str(b.carrier_ref) })); return { to: `${W}/outbound/${id}`, ok: "Dispatched. Stock has left your custody." }; }); });
+warehouse.post(`${W}/outbound/:id/dispatch`, async (c) => { const id = c.req.param("id"), b = await formBody(c); return act(c, `${W}/outbound/${id}`, async () => { await withT(c, (cn, ctx) => dispatchOutbound(cn, ctx, id, { carrier_ref: str(b.carrier_ref), release_document_id: str(b.release_document_id) || undefined })); return { to: `${W}/outbound/${id}`, ok: "Dispatched. Stock has left your custody." }; }); });
 warehouse.post(`${W}/outbound/:id/cancel`, async (c) => { const id = c.req.param("id"); return act(c, `${W}/outbound/${id}`, async () => { await withT(c, (cn, ctx) => cancelOutbound(cn, ctx, id)); return { to: `${W}/outbound`, ok: "Order cancelled; reservations released." }; }); });
 
 // ───────── stock + ledger

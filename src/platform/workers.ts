@@ -9,6 +9,7 @@ import {deliveryNotifyHandlers} from '../adapters/delivery-notify.js';
 import {markWorker} from './metrics.js';
 import {processAutomaticStorage} from '../ops/fulfil-storage.js';
 import {applyDueSubscriptionChanges} from './billing.js';
+import {processDataMinimisation} from '../ops/privacy-retention.js';
 
 export function startWorkers(db:Db,metrics:RuntimeMetrics) {
  const handlers={...defaultHandlers,...accountingHandlers(db),...mailHandlers(db),...inboxHandlers(db),...deliveryNotifyHandlers(db)};
@@ -17,6 +18,7 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   ['provisioning',5000,()=>processProvisioningQueue(db)],['outbox',5000,()=>drainOutbox(db,handlers)],
   ['storage',60000,async()=>{const result=await processAutomaticStorage(db);if(result.failed)throw new Error('Storage accrual review needed');}],
   ['subscriptions',60000,()=>applyDueSubscriptionChanges(db)],
+  ['privacy',3600000,async()=>{const r=await processDataMinimisation(db);if(r.failed)throw new Error('Data minimisation review needed');}],
  ] as const) {
   const run=()=>{
    if(active.has(name))return;active.add(name);

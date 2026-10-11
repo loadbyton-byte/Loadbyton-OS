@@ -2,10 +2,11 @@ import {validateTrackedStock} from './traceability.js';
 import type { Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
-import { TAX_CODES, badRequest, forbidden, toMinor } from "../lib/util.js";
+import { HttpError, TAX_CODES, badRequest, forbidden, toMinor } from "../lib/util.js";
 import { assertWritable, consumeQuota } from "../platform/entitlements.js";
 import { must, nextNumber, optStr, reqStr } from "./common.js";
 import { issueInvoice } from "./finance.js";
+import { assertStorageTerms, getOwnerPolicy } from "./wh-terms.js";
 
 /**
  * Contract warehouse / 3PL (blueprint §15). The unit of truth is the immutable movement ledger; `wh_stock` is a
@@ -17,10 +18,10 @@ import { issueInvoice } from "./finance.js";
 /** Company calendar day (UAE is UTC+4 all year, no DST). */
 export const dubaiDay = (d = new Date()) => new Date(d.getTime() + 4 * 3600_000).toISOString().slice(0, 10);
 const addDays = (day: string, n: number) => new Date(Date.parse(day + "T00:00:00Z") + n * 86400_000).toISOString().slice(0, 10);
-const r3 = (n: number) => Math.round(n * 1000) / 1000;
+export const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const MAX_QTY = 1_000_000_000;
 
-function qtyOf(v: unknown, label: string, allowZero = false): number {
+export function qtyOf(v: unknown, label: string, allowZero = false): number {
   const s = String(v ?? "").trim();
   const n = Number(s);
   if (s === "" || !Number.isFinite(n) || n < 0 || (!allowZero && n === 0)) throw badRequest(`${label} must be ${allowZero ? "zero or more" : "above zero"}.`);
@@ -28,9 +29,9 @@ function qtyOf(v: unknown, label: string, allowZero = false): number {
   if (r3(n) !== n) throw badRequest(`${label} can have at most 3 decimal places.`);
   return n;
 }
-const stockLock=(c:Conn,ctx:Ctx)=>c.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${ctx.tenantId}:wh-stock`]);
-const lotOf = (v: unknown) => (optStr(v, 60) ?? "").toUpperCase();
-const refOf = (v: unknown) => {
+export const stockLock=(c:Conn,ctx:Ctx)=>c.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${ctx.tenantId}:wh-stock`]);
+export const lotOf = (v: unknown) => (optStr(v, 60) ?? "").toUpperCase();
+export const refOf = (v: unknown) => {
   const s = optStr(v, 80);
   if (s && !/^[A-Za-z0-9_.:-]{6,80}$/.test(s)) throw badRequest("Scan/retry reference must be 6–80 letters, digits or . _ : -");
   return s;
@@ -79,12 +80,13 @@ export async function createSku(c: Conn, ctx: Ctx, f: Record<string, any>) {
   const owner = await must(c.query<any>(`SELECT kind FROM parties WHERE id=$1`, [f.owner_id]), "Owner");
   if (owner.kind !== "customer") throw badRequest("Stock is held for a customer; choose a customer as the owner.");
   try {
-    const r = await c.query<{ id: string }>(`INSERT INTO wh_skus(tenant_id,owner_id,code,description,uom,rotation,tracking) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [ctx.tenantId, f.owner_id, reqStr(f.code, "SKU code", 60).toUpperCase(), reqStr(f.description, "Description", 200), optStr(f.uom, 20) ?? "unit", f.rotation==='fefo'?'fefo':'fifo', ['lot','serial'].includes(f.tracking)?f.tracking:'none']);
+    const r = await c.query<{ id: string }>(`INSERT INTO wh_skus(tenant_id,owner_id,code,description,uom,rotation,tracking,barcode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [ctx.tenantId, f.owner_id, reqStr(f.code, "SKU code", 60).toUpperCase(), reqStr(f.description, "Description", 200), optStr(f.uom, 20) ?? "unit", f.rotation==='fefo'?'fefo':'fifo', ['lot','serial'].includes(f.tracking)?f.tracking:'none', optStr(f.barcode, 60)]);
     await audit(c, ctx.tenantId, actorOf(ctx), "wh_sku.created", "wh_sku", r.rows[0].id);
     return r.rows[0].id;
   } catch (e: any) {
     if (String(e.message).includes("wh_skus_tenant_id_owner_id_code_key")) throw badRequest("That owner already has a SKU with this code.");
+    if (String(e.message).includes("wh_skus_barcode_unique")) throw badRequest("That owner already has a SKU with this barcode.");
     throw e;
   }
 }
@@ -100,8 +102,8 @@ export const listSkus = (c: Conn, ownerId?: string | null) => c.query<any>(
   [ownerId ?? null]).then((r) => r.rows);
 
 // ───────────────────────── the one place stock changes
-type MoveKind = "receipt" | "dispatch" | "transfer_out" | "transfer_in" | "adjust";
-interface Post {
+export type MoveKind = "receipt" | "dispatch" | "transfer_out" | "transfer_in" | "adjust";
+export interface Post {
   ownerId: string; skuId: string; locationId: string; lot: string; delta: number; kind: MoveKind;
   groupId?: string | null; refType?: string; refId?: string; reason?: string | null; clientRef?: string | null; ageFrom?: string | null;
 }
@@ -123,7 +125,7 @@ async function alreadyPosted(c: Conn, ctx: Ctx, clientRef: string | null): Promi
  *  - a location with a capacity cannot be overfilled;
  *  - the movement row is immutable, so every balance can be explained from the ledger.
  */
-async function post(c: Conn, ctx: Ctx, p: Post): Promise<{ id: string; duplicate: boolean }> {
+export async function post(c: Conn, ctx: Ctx, p: Post): Promise<{ id: string; duplicate: boolean }> {
   if (p.clientRef) {
     await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${ctx.tenantId}:wh:${p.clientRef}`]);
     const dup = await c.query<any>(`SELECT id FROM wh_movements WHERE client_ref=$1`, [p.clientRef]);
@@ -131,6 +133,7 @@ async function post(c: Conn, ctx: Ctx, p: Post): Promise<{ id: string; duplicate
   }
   await stockLock(c,ctx);
   await validateTrackedStock(c,p.skuId,p.lot,p.delta,p.kind);
+  await assertStorageTerms(c,{ownerId:p.ownerId,skuId:p.skuId,locationId:p.locationId,delta:p.delta,kind:p.kind});
   await c.query(
     `INSERT INTO wh_stock(tenant_id,owner_id,sku_id,location_id,lot,qty_on_hand,first_received_at)
      VALUES ($1,$2,$3,$4,$5,0,coalesce($6::timestamptz, now())) ON CONFLICT (tenant_id,owner_id,sku_id,location_id,lot) DO NOTHING`,
@@ -161,7 +164,7 @@ const rateFor = async (c: Conn, ownerId: string, type: string, onDay: string) =>
   (await c.query<any>(`SELECT unit_minor, tax_code FROM wh_rates WHERE owner_id=$1 AND charge_type=$2 AND effective_from <= $3 ORDER BY effective_from DESC LIMIT 1`, [ownerId, type, onDay])).rows[0] ?? null;
 
 /** One charge per source event. No rate card yet → kept as *unrated* (priced when a rate arrives), never dropped. */
-async function accrue(c: Conn, tenantId: string, a: { ownerId: string; type: string; qty: number; onDay: string; ref: string; description: string }) {
+export async function accrue(c: Conn, tenantId: string, a: { ownerId: string; type: string; qty: number; onDay: string; ref: string; description: string }) {
   if (!(a.qty > 0)) return;
   const rate = await rateFor(c, a.ownerId, a.type, a.onDay);
   await c.query(
@@ -233,7 +236,8 @@ export async function receiveLine(c: Conn, ctx: Ctx, lineId: string, f: Record<s
   await c.query(`UPDATE wh_inbound SET status='receiving' WHERE id=$1 AND status='expected'`, [line.inbound_id]);
   await accrue(c, ctx.tenantId, { ownerId: line.owner_id, type: "handling_in_unit", qty, onDay: dubaiDay(), ref: `mv:${m.id}`, description: `Handling in ${line.inbound_no}` });
   await audit(c, ctx.tenantId, actorOf(ctx), "wh_inbound.received", "wh_inbound", line.inbound_id, { lineId, qty, damaged, over });
-  return { duplicate: false as const, movementId: m.id };
+  const backordersAllocated = damaged ? 0 : await allocateBackorders(c, ctx);
+  return { duplicate: false as const, movementId: m.id, backordersAllocated };
 }
 
 export async function closeInbound(c: Conn, ctx: Ctx, id: string) {
@@ -323,6 +327,9 @@ export async function allocateOutbound(c: Conn, ctx: Ctx, id: string, opts: { al
   require(ctx, "wh.write");
   await stockLock(c,ctx);
   await assertWritable(c, ctx.tenantId);
+  return allocateOutboundCore(c, ctx, id, opts);
+}
+async function allocateOutboundCore(c: Conn, ctx: Ctx, id: string, opts: { allowPartial?: boolean } = {}) {
   const o = await must(c.query<any>(`SELECT * FROM wh_outbound WHERE id=$1 FOR UPDATE`, [id]), "Order");
   if (o.status !== "new") throw badRequest(`Order is ${o.status}.`);
   const lines = (await c.query<any>(`SELECT l.*, s.code FROM wh_outbound_lines l JOIN wh_skus s ON s.id=l.sku_id WHERE l.outbound_id=$1 ORDER BY s.code`, [id])).rows;
@@ -380,8 +387,8 @@ export async function confirmPick(c: Conn, ctx: Ctx, id: string, picked: Record<
   return { short: shortAny };
 }
 
-/** Dispatch ships exactly what was picked and posts the ledger movements; the unshipped remainder is closed (no backorders yet). */
-export async function dispatchOutbound(c: Conn, ctx: Ctx, id: string, f: { carrier_ref?: string } = {}) {
+/** Dispatch ships exactly what was picked and posts the ledger movements; the unshipped remainder follows the customer's backorder policy (closed, or carried on a child order). */
+export async function dispatchOutbound(c: Conn, ctx: Ctx, id: string, f: { carrier_ref?: string; release_document_id?: string } = {}) {
   require(ctx, "wh.write");
   await stockLock(c,ctx);
   await assertWritable(c, ctx.tenantId);
@@ -391,6 +398,13 @@ export async function dispatchOutbound(c: Conn, ctx: Ctx, id: string, f: { carri
     `SELECT a.*, s.owner_id, s.sku_id, s.location_id, s.lot, l.id AS line_id FROM wh_allocations a
      JOIN wh_stock s ON s.id=a.stock_id JOIN wh_outbound_lines l ON l.id=a.line_id
      WHERE l.outbound_id=$1 AND a.status='picked' ORDER BY a.id`, [id])).rows;
+  // goods leaving a bonded location need issued release evidence (e.g. the customs release for this consignment)
+  const bondedOut = (await c.query<any>(`SELECT 1 FROM wh_allocations a JOIN wh_stock s ON s.id=a.stock_id JOIN warehouse_locations l ON l.id=s.location_id WHERE a.id = ANY($1::uuid[]) AND l.bonded LIMIT 1`, [allocs.map((a) => a.id)])).rows.length > 0;
+  if (bondedOut) {
+    if (!f.release_document_id) throw badRequest("This dispatch includes bonded goods. Attach the issued customs/bond release document first.");
+    await must(c.query(`SELECT id FROM documents WHERE id=$1 AND status='issued' AND NOT hold`, [f.release_document_id]), "Issued release document");
+    await c.query(`UPDATE wh_outbound SET release_document_id=$2 WHERE id=$1`, [id, f.release_document_id]);
+  }
   const shipped = new Map<string, number>();
   for (const a of allocs) {
     const qty = Number(a.qty);
@@ -407,6 +421,26 @@ export async function dispatchOutbound(c: Conn, ctx: Ctx, id: string, f: { carri
   await accrue(c, ctx.tenantId, { ownerId: o.owner_id, type: "outbound_order", qty: 1, onDay: day, ref: `out-order:${id}`, description: `Outbound order ${o.no}` });
   await c.query(`UPDATE wh_outbound SET status='dispatched', dispatched_at=now(), carrier_ref=$2 WHERE id=$1`, [id, optStr(f.carrier_ref, 80)]);
   await audit(c, ctx.tenantId, actorOf(ctx), "wh_outbound.dispatched", "wh_outbound", id);
+  // the customer's backorder policy decides what happens to the unshipped remainder
+  const rest = (await c.query<any>(`SELECT sku_id, (qty_ordered - qty_dispatched)::float8 AS qty FROM wh_outbound_lines WHERE outbound_id=$1 AND qty_ordered > qty_dispatched`, [id])).rows;
+  let backorder: { id: string; no: string } | null = null;
+  if (rest.length && (await getOwnerPolicy(c, o.owner_id)).backorder_policy === "backorder") {
+    const no = await nextNumber(c, ctx.tenantId, "wh_outbound", "OUT");
+    const bo = (await c.query<{ id: string }>(`INSERT INTO wh_outbound(tenant_id,no,owner_id,warehouse_id,ship_to,customer_ref,required_by,created_by,parent_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [ctx.tenantId, no, o.owner_id, o.warehouse_id, o.ship_to, o.customer_ref, o.required_by, ctx.userId, id])).rows[0].id;
+    for (const r of rest) await c.query(`INSERT INTO wh_outbound_lines(tenant_id,outbound_id,owner_id,sku_id,qty_ordered) VALUES ($1,$2,$3,$4,$5)`, [ctx.tenantId, bo, o.owner_id, r.sku_id, r.qty]);
+    await audit(c, ctx.tenantId, actorOf(ctx), "wh_outbound.backordered", "wh_outbound", bo, { parent: o.no, lines: rest.length });
+    backorder = { id: bo, no };
+  }
+  return { backorder };
+}
+
+/** Oldest backorders first: reserve whatever now completes, without partial reservations. Called after stock arrives. */
+export async function allocateBackorders(c: Conn, ctx: Ctx) {
+  const ids = (await c.query<any>(`SELECT id FROM wh_outbound WHERE status='new' AND parent_id IS NOT NULL ORDER BY created_at, id LIMIT 50`)).rows;
+  let allocated = 0;
+  for (const b of ids) { try { await allocateOutboundCore(c, ctx, b.id); allocated++; } catch (e) { if (!(e instanceof HttpError)) throw e; } }
+  return allocated;
 }
 
 export async function cancelOutbound(c: Conn, ctx: Ctx, id: string) {

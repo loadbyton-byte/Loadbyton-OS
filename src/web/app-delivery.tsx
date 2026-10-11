@@ -256,6 +256,7 @@ delivery.get(`${D}/runs/:id`, async (c) => {
     {w ? (
       <div class="inline-form no-print" style="margin:12px 0">
         {r.status === "planned" ? <PostBtn action={`${D}/runs/${id}/start`} csrf={csrf} label="Send rider out" cls="red sm" /> : null}
+        {r.status === "planned" && can(c, "dlv.approve") ? <form method="post" action={`${D}/runs/${id}/start`} class="inline-form"><Csrf t={csrf} /><input name="override" type="text" placeholder="Cash-hold override reason" aria-label="Cash-hold override reason" required /><button class="btn ghost sm" type="submit">Send out with override</button></form> : null}
         {r.status === "planned" ? <Confirm action={`${D}/runs/${id}/cancel`} csrf={csrf} label="Cancel run" confirm="Cancel this run and free its parcels?" /> : null}
         {r.status === "out" ? <PostBtn action={`${D}/runs/${id}/close`} csrf={csrf} label="Close run" cls="sm" /> : null}
       </div>) : null}
@@ -279,7 +280,7 @@ const runPost = (path: string, ok: string, to: (id: string) => string, fn: (cn: 
   });
 runPost("add", "Parcels added.", (id) => `${D}/runs/${id}`, (cn, ctx, id, b) => addToRun(cn, ctx, id, arr(b.shipment_ids)));
 runPost("remove", "Parcel taken off the run.", (id) => `${D}/runs/${id}`, (cn, ctx, id, b) => removeFromRun(cn, ctx, id, str(b.shipment_id)));
-runPost("start", "The rider can now see the run on their phone.", (id) => `${D}/runs/${id}`, (cn, ctx, id) => startRun(cn, ctx, id));
+runPost("start", "The rider can now see the run on their phone.", (id) => `${D}/runs/${id}`, (cn, ctx, id, b) => startRun(cn, ctx, id, str(b.override) || undefined));
 runPost("close", "Run closed.", (id) => `${D}/runs/${id}`, (cn, ctx, id) => closeRun(cn, ctx, id));
 runPost("cancel", "Run cancelled.", () => `${D}/runs`, (cn, ctx, id) => cancelRun(cn, ctx, id));
 
@@ -318,7 +319,7 @@ delivery.get(`${D}/cash`, async (c) => {
   const csrf = c.get("csrf"), cashier = can(c, "dlv.cash"), approver = can(c, "dlv.approve"), remit = can(c, "dlv.remit");
   const pending = d.settlements.filter((s: any) => s.status === "pending_approval");
   return appPage(c, "Cash desk", (<>
-    <PageHead title="Cash desk" sub="Count each rider's cash against what the app says they collected. Merchants are paid what was collected; any difference stays on the record." />
+    <PageHead title="Cash desk" sub="Count each rider's cash against what the app says they collected. Merchants are paid what was collected; any difference stays on the record."><a class="btn ghost sm" href="/app/delivery/finance">Bank matching &amp; write-offs</a></PageHead>
     <Table caption="1 · Cash with riders (count it in)" head={["Rider", "Parcels", ["Expected", "num"], "Oldest", cashier ? "Count" : ""]} empty={d.cash.length ? undefined : "All cash is counted in."}>
       {d.cash.map((x: any) => <tr><td>{x.name}</td><td>{x.parcels}</td><td class="num"><Money v={x.amount_minor} /></td><td>{ageDays(x.oldest) >= 1 ? <Badge s="bad" label={`${ageDays(x.oldest)} day(s)`} /> : "today"}</td>
         <td>{cashier ? <form method="post" action={`${D}/cash/settle`} class="inline-form"><Csrf t={csrf} /><input type="hidden" name="driver_id" value={x.driver_id} />

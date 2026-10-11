@@ -46,6 +46,7 @@ function Head({ p }: { p: Page }) {
       <link rel="apple-touch-icon" href="/brand/by-mark-192.png" />
       <link rel="stylesheet" href="/assets/app.css" />
       <script src="/assets/app.js" defer></script>
+      {p.path.startsWith("/app/driver") ? <link rel="manifest" href="/app/driver/manifest.webmanifest" /> : null}
       {p.path.startsWith("/app/driver") ? <script src="/assets/driver.js" defer></script> : null}
       {p.head ?? null}
     </head>
@@ -138,7 +139,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
 
 export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
   const nav: [string, string][] = [["/admin", "Overview"], ["/admin/tenants", "Tenants"], ["/admin/orders", "Orders & payments"], ["/admin/provisioning", "Provisioning"],
-    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/service", "Setup & privacy"], ["/admin/leads", "Leads"]];
+    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/service", "Setup & privacy"], ["/admin/partners", "Partners"], ["/admin/rollout", "Rollout"], ["/admin/reports", "Reports"], ["/admin/leads", "Leads"]];
   return (
     <html lang="en">
       <Head p={p} />
