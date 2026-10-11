@@ -8,13 +8,14 @@ import { permsFor, type Ctx } from "../src/lib/perms.js";
 import { createParty } from "../src/ops/crm.js";
 import { invite, acceptInvite } from "../src/ops/team.js";
 import { addToRun, applyRiderEvent, cancelShipment, closeRun, confirmReturned, createRemittance, createRider, createRun, createShipment, payRemittance, returnToSender, settleRider, startRun } from "../src/ops/delivery.js";
-import { authenticateApiKey, createApiKey, normalizeUaeMobile, revokeApiKey, setNotifySms, setWebhook } from "../src/ops/delivery-notify.js";
-import { deliveryNotifyHandlers, signWebhook, twilioSms, type SmsSender } from "../src/adapters/delivery-notify.js";
+import { authenticateApiKey, createApiKey, normalizeUaeMobile, revokeApiKey, setNotifySms, setNotifyWhatsApp, setWebhook } from "../src/ops/delivery-notify.js";
+import { cloudWhatsApp, deliveryNotifyHandlers, signWebhook, twilioSms, type SmsSender, type WhatsAppSender } from "../src/adapters/delivery-notify.js";
 import { drainOutbox } from "../src/platform/outbox.js";
 import { isPrivateAddress, postJson, validateWebhookUrl } from "../src/lib/safe-http.js";
 import { seal, unseal } from "../src/lib/seal.js";
 import { resetThrottle } from "../src/platform/auth.js";
 import { resetRateLimits } from "../src/lib/ratelimit.js";
+import { config } from "../src/config.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 
 let db: Db, app: ReturnType<typeof buildApp>;
@@ -344,6 +345,49 @@ describe("SMS to consignees", () => {
     expect(rows.every((r) => r.status === "sent")).toBe(true);
     expect(JSON.stringify(rows.map((r) => r.payload))).not.toMatch(/\+971|Delivery code|Track:/);      // number, code and link are gone once sent
     void runId;
+  });
+
+  it("WhatsApp notices go only to opted-in merchants' UAE consignees, as approved templates, and the number and code are erased once sent", async () => {
+    const co = await company();
+    const sent: { to: string; template: string; language: string; params: string[] }[] = [];
+    const whatsapp: WhatsAppSender = { async sendTemplate(to, template, language, params) { sent.push({ to, template, language, params }); return { id: `wamid.${sent.length}` }; } };
+    const go = async () => { await db.query(`UPDATE outbox SET next_at=now() WHERE status='pending'`); await drainOutbox(db, deliveryNotifyHandlers(db, { whatsapp, sms: { async send() { return {}; } } })); };
+    const saved = { ...config.whatsapp };
+    try {
+      await expect(co.run((c) => setNotifyWhatsApp(c, co.t.ctx, co.shop, true))).rejects.toThrow(/not connected/);      // refused while no provider is configured
+      Object.assign(config.whatsapp, { provider: "cloud", accessToken: "t", phoneNumberId: "123456789", templateOutForDelivery: "lbt_out_for_delivery", templateAttemptFailed: "lbt_attempt_failed", templateLanguage: "en" });
+      await co.run((c) => setNotifyWhatsApp(c, co.t.ctx, co.shop, true));
+      const mk = (c: Conn, f: any) => createShipment(c, co.t.ctx, { merchant_id: co.shop, consignee_name: "x", address: "y", emirate: "Dubai", ...f });
+      const ids = await co.run(async (c) => {
+        const a = await mk(c, { consignee_phone: "050 111 2222", cod: "75", require_code: "1", external_ref: "W1" });
+        const b = await mk(c, { consignee_phone: "+44 7700 900123", external_ref: "W2" });
+        const d = await mk(c, { consignee_phone: "0503334444", external_ref: "W3" });
+        const n = await createShipment(c, co.t.ctx, { merchant_id: co.other, consignee_name: "x", address: "y", emirate: "Dubai", consignee_phone: "0509998888" });
+        return { a, b, d, n };
+      });
+      await co.run(async (c) => { const r = await createRun(c, co.t.ctx, { driver_id: co.rider, shipment_ids: [ids.a.id, ids.b.id, ids.d.id, ids.n.id] }); await startRun(c, co.t.ctx, r.id); });
+      await go();
+      expect(sent.map((s) => s.to).sort()).toEqual(["+971501112222", "+971503334444"]);
+      const code = (await db.query<any>(`SELECT delivery_code FROM dlv_shipments WHERE id=$1`, [ids.a.id])).rows[0].delivery_code;
+      const first = sent.find((s) => s.to === "+971501112222")!;
+      expect(first.template).toBe("lbt_out_for_delivery"); expect(first.language).toBe("en");
+      expect(first.params).toHaveLength(6); expect(first.params[3]).toBe("AED 75.00"); expect(first.params[4]).toBe(code); expect(first.params[5]).toMatch(/\/t\/[A-Za-z0-9_-]+$/);
+      expect(sent.find((s) => s.to === "+971503334444")!.params[4]).toBe("not required");
+      const rows = (await db.query<any>(`SELECT payload, status FROM outbox WHERE topic='whatsapp' AND tenant_id=$1`, [co.t.tenantId])).rows;
+      expect(rows).toHaveLength(2); expect(rows.every((r) => r.status === "sent")).toBe(true);
+      expect(JSON.stringify(rows.map((r) => r.payload))).not.toMatch(/\+971|\/t\//);
+    } finally { Object.assign(config.whatsapp, saved); }
+  });
+
+  it("the WhatsApp Cloud adapter posts a template message with bearer auth and classifies failures", async () => {
+    const calls: any[] = [];
+    const mk = (status: number, body: unknown) => cloudWhatsApp({ provider: "cloud", accessToken: "tok", phoneNumberId: "555", apiBase: "https://graph.test", apiVersion: "v21.0", templateLanguage: "en", templateOutForDelivery: "a", templateAttemptFailed: "b" }, (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify(body), { status }); }) as any);
+    expect(await mk(200, { messages: [{ id: "wamid.X" }] }).sendTemplate("+971501234567", "lbt_out", "en", ["Acme\nLtd", "W-1"])).toEqual({ id: "wamid.X" });
+    expect(calls[0].url).toBe("https://graph.test/v21.0/555/messages"); expect(calls[0].init.headers.authorization).toBe("Bearer tok");
+    const sentBody = JSON.parse(calls[0].init.body);
+    expect(sentBody.to).toBe("971501234567"); expect(sentBody.template.name).toBe("lbt_out"); expect(sentBody.template.components[0].parameters[0].text).toBe("Acme Ltd");   // no line breaks in a template variable
+    await expect(mk(503, {}).sendTemplate("+971501234567", "t", "en", [])).rejects.not.toMatchObject({ permanent: true });
+    await expect(mk(400, { error: { code: 132000 } }).sendTemplate("+971501234567", "t", "en", [])).rejects.toMatchObject({ permanent: true, message: expect.stringContaining("132000") });
   });
 
   it("the Twilio adapter posts a form with basic auth and classifies failures (5xx/429 retry; other 4xx permanent)", async () => {
