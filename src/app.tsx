@@ -33,6 +33,7 @@ import { fulfilStorage } from "./web/fulfil-storage.js";
 import { fulfilLots } from "./web/fulfil-lots.js";
 import { fulfilSites } from "./web/fulfil-sites.js";
 import { fulfilOps } from "./web/fulfil-ops.js";
+import { deliveryFinance } from "./web/delivery-finance.js";
 import { documentDrafts } from "./web/document-drafts.js";
 import { bodyLimit } from "hono/body-limit";
 import { routePath } from "hono/route";
@@ -94,6 +95,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", fulfilLots);
   app.route("/", fulfilSites);
   app.route("/", fulfilOps);
+  app.route("/", deliveryFinance);
   app.route("/", documentDrafts);
   app.route("/", workspace);
 
