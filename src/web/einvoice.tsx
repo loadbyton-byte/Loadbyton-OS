@@ -81,7 +81,7 @@ einvoice.get("/app/parties/:id/details", async (c) => {
     <form class="card" method="post" action={`/app/parties/${id}/details`}><Csrf t={csrf} />
       {field("tax_id", "Tax registration number (TRN)", { value: p.tax_id ?? "", inputmode: "numeric" })}{field("name_ar", "Name in Arabic", { value: p.name_ar ?? "", dir: "rtl" })}{field("address_line", "Street address", { value: p.address_line ?? "" })}
       {field("city", "City", { value: p.city ?? "" })}{field("emirate", "Emirate", { value: p.emirate ?? "" })}{field("country", "Country (2 letters)", { value: p.country ?? "AE", maxlength: "2" })}
-      {field("einvoice_scheme", "Endpoint scheme", { value: p.einvoice_scheme ?? "" })}{field("einvoice_endpoint", "Endpoint ID", { value: p.einvoice_endpoint ?? "" })}<button class="btn">Save</button></form></>);
+      {field("billing_currency", "Billing currency (blank = company currency; needs an approved exchange rate)", { value: p.billing_currency ?? "", maxlength: "3", style: "text-transform:uppercase" })}{field("einvoice_scheme", "Endpoint scheme", { value: p.einvoice_scheme ?? "" })}{field("einvoice_endpoint", "Endpoint ID", { value: p.einvoice_endpoint ?? "" })}<button class="btn">Save</button></form></>);
 });
 einvoice.post("/app/parties/:id/details", async (c) => {
   const id = c.req.param("id"), b = await formBody(c);
