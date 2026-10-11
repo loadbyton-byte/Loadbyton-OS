@@ -75,6 +75,13 @@ export const config = {
   // ── SMS to consignees (opt-in per merchant): "log" (default) or "twilio"
   sms: { provider: (text("SMS_PROVIDER").toLowerCase() || "log"), accountSid: text("TWILIO_ACCOUNT_SID"), authToken: text("TWILIO_AUTH_TOKEN"), from: text("TWILIO_FROM"), apiBase: env.TWILIO_API_BASE ?? "https://api.twilio.com" },
 
+  // ── WhatsApp Business (Meta Cloud API) for delivery notices: "log" (default) or "cloud". Notices go out only as templates Meta has approved.
+  whatsapp: {
+    provider: (text("WHATSAPP_PROVIDER").toLowerCase() || "log"), accessToken: text("WHATSAPP_ACCESS_TOKEN"), phoneNumberId: text("WHATSAPP_PHONE_NUMBER_ID"),
+    apiBase: env.WHATSAPP_API_BASE ?? "https://graph.facebook.com", apiVersion: text("WHATSAPP_API_VERSION") || "v21.0",
+    templateLanguage: text("WHATSAPP_TEMPLATE_LANGUAGE") || "en", templateOutForDelivery: text("WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY"), templateAttemptFailed: text("WHATSAPP_TEMPLATE_ATTEMPT_FAILED"),
+  },
+
   // ── tax and seller identity shown at checkout (set from your own registrations; have an accountant confirm the treatment)
   vatBps: Number(env.CHECKOUT_VAT_BPS ?? 500),
   checkoutTaxNote: text("CHECKOUT_TAX_NOTE"),
@@ -143,6 +150,14 @@ export function validateConfig(c = config, production = isProd) {
     if (!/^AC[0-9a-f]{32}$/i.test(c.sms.accountSid)) problems.push("TWILIO_ACCOUNT_SID must look like AC…(32 hex)");
     if (!c.sms.authToken) problems.push("TWILIO_AUTH_TOKEN is required");
     if (!c.sms.from) problems.push("TWILIO_FROM is required (a number in E.164 format, or an approved alphanumeric sender ID)");
+  }
+  if (!["log", "cloud"].includes(c.whatsapp.provider)) problems.push(`WHATSAPP_PROVIDER must be "log" or "cloud" (got "${c.whatsapp.provider}")`);
+  if (c.whatsapp.provider === "cloud") {
+    if (!c.whatsapp.accessToken) problems.push("WHATSAPP_ACCESS_TOKEN is required when WHATSAPP_PROVIDER=cloud");
+    if (!/^\d{5,20}$/.test(c.whatsapp.phoneNumberId)) problems.push("WHATSAPP_PHONE_NUMBER_ID must be the numeric phone number ID from Meta");
+    for (const [k, v] of [["WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY", c.whatsapp.templateOutForDelivery], ["WHATSAPP_TEMPLATE_ATTEMPT_FAILED", c.whatsapp.templateAttemptFailed]] as const)
+      if (!/^[a-z0-9_]{1,512}$/.test(v)) problems.push(`${k} must be the name of a template Meta has approved (lower-case letters, digits, underscores)`);
+    if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(c.whatsapp.templateLanguage)) problems.push("WHATSAPP_TEMPLATE_LANGUAGE must be a language code such as en or ar");
   }
   if (!["log", "resend"].includes(c.mail.provider)) problems.push(`MAIL_PROVIDER must be "log" or "resend" (got "${c.mail.provider}")`);
   if (c.mail.provider === "resend") {

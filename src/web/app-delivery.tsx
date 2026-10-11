@@ -11,7 +11,7 @@ import { formBody, str, arr, clientIp, type Env } from "./mw.js";
 import { rateLimit } from "../lib/ratelimit.js";
 import { raw } from "hono/html";
 import { barcodeSvg } from "../lib/code128.js";
-import { createApiKey, listApiKeys, listMerchantSettings, revokeApiKey, sendTestWebhook, setNotifySms, setWebhook } from "../ops/delivery-notify.js";
+import { createApiKey, listApiKeys, listMerchantSettings, revokeApiKey, sendTestWebhook, setNotifySms, setNotifyWhatsApp, setWebhook } from "../ops/delivery-notify.js";
 import { act, appPage, can, Confirm, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, PublicShell, Table } from "./ui.js";
 import { config } from "../config.js";
@@ -477,14 +477,15 @@ const Integrations = (p: { csrf: string; keys: any[]; merchants: any[]; settings
   <form method="post" action={`${D}/integrations/keys`} class="inline-form" style="margin:10px 0 24px"><Csrf t={p.csrf} />
     <select name="merchant_id" required aria-label="Merchant"><option value="">— merchant —</option>{p.merchants.map((m: any) => <option value={m.id}>{m.name}</option>)}</select>
     <input name="name" type="text" placeholder="Key name (e.g. Shopify sync)" required /><button class="btn sm" type="submit">Create key</button></form>
-  <Table caption="Webhooks and SMS per merchant" head={["Merchant", "Webhook address (https)", "Active", "SMS to consignees", ""]}>
+  <Table caption="Webhooks and SMS per merchant" head={["Merchant", "Webhook address (https)", "Active", "SMS to consignees", "WhatsApp notices", ""]}>
     {p.settings.map((m: any) => <tr><td>{m.name}</td>
       <td><form method="post" action={`${D}/integrations/webhook`} class="inline-form"><Csrf t={p.csrf} /><input type="hidden" name="merchant_id" value={m.merchant_id} /><input name="url" type="url" value={m.webhook_url} placeholder="https://merchant.example/hooks/loadbyton" style="min-width:280px" />
         <label class="check"><input type="checkbox" name="active" value="1" checked={m.webhook_active} /><span>on</span></label><label class="check"><input type="checkbox" name="rotate" value="1" /><span>new secret</span></label><button class="btn ghost sm" type="submit">Save</button></form></td>
       <td>{m.webhook_active ? <Badge s="active" label="on" /> : "off"}</td>
       <td><form method="post" action={`${D}/integrations/sms`} class="inline-form"><Csrf t={p.csrf} /><input type="hidden" name="merchant_id" value={m.merchant_id} /><label class="check"><input type="checkbox" name="on" value="1" checked={m.notify_sms} /><span>send</span></label><button class="btn ghost sm" type="submit">Save</button></form></td>
+      <td><form method="post" action={`${D}/integrations/whatsapp`} class="inline-form"><Csrf t={p.csrf} /><input type="hidden" name="merchant_id" value={m.merchant_id} /><label class="check"><input type="checkbox" name="on" value="1" checked={m.notify_whatsapp} /><span>send</span></label><button class="btn ghost sm" type="submit">Save</button></form></td>
       <td>{m.webhook_active ? <PostBtn action={`${D}/integrations/webhook-test`} csrf={p.csrf} label="Send test" cls="ghost sm" fields={{ merchant_id: m.merchant_id }} /> : null}</td></tr>)}</Table>
-  <p class="small mute">SMS goes to UAE mobile numbers only, for “out for delivery” and “could not deliver”. Turn it on only for merchants who have their customers' consent to be contacted; sender-ID registration with your SMS provider and UAE regulations are your responsibility.</p>
+  <p class="small mute">SMS and WhatsApp go to UAE mobile numbers only, for “out for delivery” and “could not deliver”; WhatsApp is sent only as Meta-approved templates. Turn it on only for merchants who have their customers' consent to be contacted; sender-ID registration with your SMS provider and UAE regulations are your responsibility.</p>
   <section class="card" style="margin-top:20px"><h3>API quick start</h3>
     <pre style="overflow:auto;font-size:.8rem;white-space:pre-wrap">{`curl -X POST ${p.base}/api/v1/parcels \
   -H "Authorization: Bearer lbtk_…" -H "Content-Type: application/json" \
@@ -520,6 +521,11 @@ delivery.post(`${D}/integrations/webhook`, async (c) => {
     const name = d.merchants.find((m: any) => m.id === str(b.merchant_id))?.name ?? "merchant";
     return appPage(c, "Integrations", <Integrations csrf={c.get("csrf")} base={config.baseUrl.replace(/\/$/, "")} {...d} newSecret={{ secret: r.secret, merchant: name }} />);
   } catch (e) { if (e instanceof HttpError && e.status < 500) return c.redirect(`${D}/integrations?err=${encodeURIComponent(e.message)}`); throw e; }
+});
+delivery.post(`${D}/integrations/whatsapp`, async (c) => {
+  need(c, "settings.manage");
+  const b = await formBody(c);
+  return act(c, `${D}/integrations`, async () => { await withT(c, (cn, ctx) => setNotifyWhatsApp(cn, ctx, str(b.merchant_id), str(b.on) === "1")); return { to: `${D}/integrations`, ok: "WhatsApp setting saved." }; });
 });
 delivery.post(`${D}/integrations/sms`, async (c) => {
   need(c, "settings.manage");
