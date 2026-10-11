@@ -4,6 +4,7 @@ import { HttpError, formatDate, fmtMoney } from "../lib/util.js";
 import { FAIL_REASONS, applyRiderEvent, getRun, riderHome, syncRiderEvents, type RiderEvent } from "../ops/delivery.js";
 import { applyDriverEvent, getTrip, listTrips, syncDriverEvents, type DriverEvent } from "../ops/transport.js";
 import { storeDocument } from "../ops/documents.js";
+import {uploadExpenseReceipt} from '../ops/expense-receipts.js';
 import { formBody, str, type Env } from "./mw.js";
 import { appPage, ctxOf, need, withT, back, PageHead } from "./appkit.js";
 import { Badge, Csrf } from "./ui.js";
@@ -170,6 +171,7 @@ driver.get(`${D}/trips/:id`, async (c) => {
       <section class="card"><h2>Report a problem</h2>
         {form("exception", null, "Send to dispatcher", "danger", (<div class="field"><label for="xt">What happened?</label><input id="xt" name="p_text" type="text" required /></div>))}</section>
     </>) : null}
+    {d.expenses.filter(x=>x.recorded_by===ctx.userId).length?<section class="card"><h2>Expense receipts</h2><p>Upload the actual supplier receipt when connected. The office must independently approve it before the expense counts as trip cost.</p>{d.expenses.filter(x=>x.recorded_by===ctx.userId).map(x=><div><p>{x.kind} · AED {(Number(x.amount_minor)/100).toFixed(2)} · {x.status}</p>{x.receipt_document_id?<a href={`/app/documents/${x.receipt_document_id}/download`}>Receipt evidence</a>:null}{x.status==='recorded'?<form method="post" action={`${D}/expenses/${x.id}/receipt`} enctype="multipart/form-data"><Csrf t={csrf}/><input type="hidden" name="reference" value={newId()}/><label>Actual supplier name printed on receipt<input name="issuer" required maxlength={200}/></label><label>Receipt photo or PDF (needs signal)<input name="file" type="file" accept="image/*,.pdf" required/></label><button class="btn big ghost">Upload expense receipt</button></form>:null}</div>)}</section>:null}
     <p class="small mute">Actions are timestamped on your phone and saved there if you lose signal, then synced automatically. Open this page once while online before going into a low-signal area.</p>
   </>));
 });
@@ -206,6 +208,11 @@ driver.post(`${D}/sync`, async (c) => {
     ...(parcelEvents.length ? await syncRiderEvents(cn, ctx, parcelEvents) : []),
   ]);
   return c.json({ results });
+});
+driver.post(`${D}/expenses/:id/receipt`,async c=>{
+ need(c,'driver.act');const b=await formBody(c);try{const file=b.file;if(!(file instanceof File))throw new HttpError(400,'Choose the actual receipt.');const data=Buffer.from(await file.arrayBuffer());
+ const trip=await withT(c,async(cn,ctx)=>{await uploadExpenseReceipt(cn,ctx,c.req.param('id'),{filename:file.name,data,issuer:str(b.issuer)},str(b.reference));return (await cn.query<any>(`SELECT trip_id FROM trip_expenses WHERE id=$1`,[c.req.param('id')])).rows[0].trip_id;});return back(c,`${D}/trips/${trip}`,'Receipt stored for independent office review.');
+ }catch(e){if(e instanceof HttpError&&e.status<500)return back(c,D,undefined,e.message);throw e;}
 });
 
 // POD / delivery-note photo (multipart, online only)

@@ -1,3 +1,6 @@
+import crypto from "node:crypto";
+import pg from "pg";
+import { afterAll } from "vitest";
 import { openDb, type Db } from "../src/db/client.js";
 import { permsFor, type Ctx } from "../src/lib/perms.js";
 import { registerCompany } from "../src/platform/tenants.js";
@@ -7,7 +10,33 @@ import { createQuote, submitQuote, sendQuote, acceptQuote } from "../src/ops/quo
 import { buildMockEvent, createOrder, processPaymentEvent } from "../src/platform/billing.js";
 import { processProvisioningQueue } from "../src/platform/provisioning.js";
 
-export async function freshDb(): Promise<Db> { return openDb({ dir: null }); }
+/** TEST_POSTGRES_URL must point to a disposable test cluster with database-creation permission.
+ * Each freshDb gets its own database, so the same acceptance suites can exercise real pooled connections.
+ */
+const databaseCleanups: (() => Promise<void>)[] = [];
+afterAll(async () => { for (const cleanup of databaseCleanups.reverse()) await cleanup(); });
+
+export async function freshDb(): Promise<Db> {
+  const testUrl = process.env.TEST_POSTGRES_URL;
+  if (!testUrl) {
+    const db = await openDb({ dir: null });
+    databaseCleanups.push(() => db.close());
+    return db;
+  }
+  const name = `lbt_test_${crypto.randomUUID().replaceAll("-", "")}`;
+  const admin = new pg.Client({ connectionString: testUrl });
+  await admin.connect();
+  try { await admin.query(`CREATE DATABASE "${name}"`); } finally { await admin.end(); }
+  const url = new URL(testUrl); url.pathname = `/${name}`;
+  const db = await openDb({ url: url.toString() });
+  databaseCleanups.push(async () => {
+    await db.close();
+    const cleanup = new pg.Client({ connectionString: testUrl });
+    await cleanup.connect();
+    try { await cleanup.query(`DROP DATABASE "${name}" WITH (FORCE)`); } finally { await cleanup.end(); }
+  });
+  return db;
+}
 
 export const ctxFor = (userId: string, tenantId: string, roles = ["owner"]): Ctx => ({
   userId, tenantId, roles, perms: permsFor(roles), partyId: null, driverId: null, readOnly: false, supportStaffId: null,

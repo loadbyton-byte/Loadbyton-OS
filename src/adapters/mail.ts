@@ -2,6 +2,7 @@ import type { Db } from "../db/client.js";
 import { config } from "../config.js";
 import { baseUrl } from "../lib/util.js";
 import type { OutboxHandlers } from "../platform/outbox.js";
+import { decryptSecret } from "../lib/encryption.js";
 
 export interface MailMessage { to: string; subject: string; text: string; html: string }
 export interface Mailer { send(m: MailMessage): Promise<{ id?: string }> }
@@ -59,7 +60,12 @@ export function mailHandlers(db: Db, mailer: Mailer = defaultMailer()): OutboxHa
       const p = row.payload ?? {}, tpl = templates[p.template];
       if (!tpl) throw new PermanentMailError(`no email template "${p.template}"`);
       let to: string[] = [], d: Record<string, any> = { ...p };
-      if (p.template === "invitation") to = [String(p.email ?? "")];
+      if (p.template === "invitation") {
+        to = [String(p.email ?? "")];
+        // The raw invitation token is stored encrypted in the queue; the link is built only at send time.
+        if (p.tokenEncrypted) d = { ...p, link: `${baseUrl()}/invite/${decryptSecret(p.tokenEncrypted)}` };
+        else if (!p.link) throw new PermanentMailError("Legacy invitation requires an owner to revoke and reissue a secure link");
+      }
       else if (p.template === "payment_received") {
         const o = (await db.query<any>(`SELECT o.reference, u.email FROM orders o LEFT JOIN users u ON u.id=o.created_by WHERE o.id=$1`, [p.orderId])).rows[0];
         if (!o) throw new PermanentMailError("order not found");

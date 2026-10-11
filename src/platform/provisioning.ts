@@ -4,6 +4,8 @@ import { applyPlanEntitlements } from "./entitlements.js";
 import { standardHostname } from "./tenants.js";
 import { randomToken } from "../lib/util.js";
 import type { PlanVersion } from "./catalog.js";
+import {config} from '../config.js';
+import {cloudflareAdapters} from '../adapters/cloudflare.js';
 
 /**
  * Infrastructure adapters. The defaults are SIMULATED (wildcard routing + TLS assumed): production must
@@ -95,6 +97,7 @@ async function doStep(db: Db, adapters: ProvisionAdapters, job: any, step: Step)
       break;
     case "create_onboarding_work":
       await db.system(async (c) => {
+        await c.query(`INSERT INTO setup_orders(tenant_id,order_id,scope) VALUES($1,$2,'Remote setup: entity and branding, staff invitation, initial customer import, one remote training session and end-to-end acceptance. Migration and site visits separately scoped.') ON CONFLICT(order_id) DO NOTHING`,[t,job.order_id]);
         const have = await c.query(`SELECT 1 FROM job_exceptions WHERE tenant_id=$1 AND title='Complete onboarding checklist' AND job_id IS NULL`, [t]);
         if (!have.rows.length) {
           await c.query(
@@ -107,13 +110,14 @@ async function doStep(db: Db, adapters: ProvisionAdapters, job: any, step: Step)
 }
 
 /** Run (or resume) one provisioning job. Completed steps are skipped; every step is idempotent. */
-export async function runProvisioningJob(db: Db, jobId: string, adapters: ProvisionAdapters = simulatedAdapters) {
+export async function runProvisioningJob(db: Db, jobId: string, adapters: ProvisionAdapters = config.isProd?cloudflareAdapters():simulatedAdapters) {
   const job = (await db.query<any>(`SELECT * FROM provision_jobs WHERE id=$1`, [jobId])).rows[0];
   if (!job || ["information_pending", "failed", "cancelled", "onboarding"].includes(job.state)) return job?.state;
-  await db.system(async (c) => {
-    await c.query(`UPDATE provision_jobs SET state=CASE WHEN state='queued' THEN 'provisioning' ELSE state END,
-      started_at=coalesce(started_at,now()), attempts=attempts+1, updated_at=now() WHERE id=$1`, [jobId]);
-  });
+  const lease=randomToken(16);
+  const claim=await db.query(`UPDATE provision_jobs SET state=CASE WHEN state='queued' THEN 'provisioning' ELSE state END,
+    started_at=coalesce(started_at,now()), attempts=attempts+1, updated_at=now(),lease_token=$2,lease_until=now()+interval '2 minutes'
+    WHERE id=$1 AND state IN ('queued','provisioning','validation','ready') AND (lease_until IS NULL OR lease_until<now()) RETURNING id`,[jobId,lease]);
+  if(!claim.rows.length)return 'busy';
   try {
     for (const step of STEPS) {
       const key = `${jobId}:${step}`;
@@ -121,6 +125,7 @@ export async function runProvisioningJob(db: Db, jobId: string, adapters: Provis
       if (done.rows.length) continue;
       await doStep(db, adapters, job, step);
       await db.system(async (c) => {
+        await c.query(`UPDATE provision_jobs SET lease_until=now()+interval '2 minutes' WHERE id=$1 AND lease_token=$2`,[jobId,lease]);
         await c.query(`INSERT INTO provision_steps(job_id,step,idempotency_key,status) VALUES ($1,$2,$3,'done') ON CONFLICT (idempotency_key) DO NOTHING`, [jobId, step, key]);
         const st = STATE_AFTER[step];
         if (st) {
@@ -144,10 +149,12 @@ export async function runProvisioningJob(db: Db, jobId: string, adapters: Provis
       }
     });
     return "retry";
+  } finally {
+    await db.query(`UPDATE provision_jobs SET lease_until=NULL,lease_token=NULL WHERE id=$1 AND lease_token=$2`,[jobId,lease]);
   }
 }
 
-export async function processProvisioningQueue(db: Db, adapters: ProvisionAdapters = simulatedAdapters) {
+export async function processProvisioningQueue(db: Db, adapters: ProvisionAdapters = config.isProd?cloudflareAdapters():simulatedAdapters) {
   const jobs = await db.query<{ id: string }>(
     `SELECT id FROM provision_jobs WHERE state IN ('queued','provisioning','validation','ready') ORDER BY queued_at LIMIT 20`);
   for (const j of jobs.rows) await runProvisioningJob(db, j.id, adapters);

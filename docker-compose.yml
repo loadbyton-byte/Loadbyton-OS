@@ -24,5 +24,6 @@ services:
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost:3000}
       ROOT_DOMAIN: ${ROOT_DOMAIN:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
     volumes: [files:/app/data/files]
 volumes: { pgdata: {}, files: {} }

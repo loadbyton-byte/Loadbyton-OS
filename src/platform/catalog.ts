@@ -62,36 +62,37 @@ export const PRODUCTS = [
 ];
 
 export const INTEGRATIONS = [
-  { name: "Accounting bridge (CSV export + external ID reconciliation)", status: "pilot" as Availability, note: "Outbox with idempotent retry. Provider selection pending (decision §32)." },
+  { name: "Zoho Books accounting bridge", status: "pilot" as Availability, note: "Encrypted tenant connection; currency/tax mappings; draft invoices and retry reconciliation. Real controller acceptance pending. CSV export is also available." },
+  { name: "Stripe and Razorpay hosted checkout",status:'pilot' as Availability,note:'Server-verified webhooks and payment reconciliation. Card and eligible Google Pay methods are presented by the provider. Merchant authorization and live acceptance are deployment gates.' },
+  { name: "Oracle / Cloudflare / Neon / Supabase / Upstash",status:'pilot' as Availability,note:'Deployment templates and server adapters implemented. Production region, provider connectivity, monitoring and recovery evidence are required before availability claims.' },
   { name: "Accredited e-invoicing service provider (UAE)", status: "planned" as Availability, note: "Adapter to be built against a verified accredited provider. LOAD|BY|TON is not an accredited provider." },
   { name: "Dubai Trade / Mirsal 2", status: "planned" as Availability, note: "Controlled document/export handover only until official access is confirmed." },
   { name: "WhatsApp Business messaging", status: "planned" as Availability, note: "Requires approved provider access and policy compliance." },
-  { name: "Payment checkout", status: "pilot" as Availability, note: "Server-verified webhooks. Payment merchant pending (decision §32)." },
 ];
 
 export interface PlanSeed {
   code: string; name: string; monthly: number; setup: number; contact?: boolean;
-  limits: { max_users: number; max_branches: number; jobs_per_month: number; storage_mb: number; max_sectors: number; max_entities: number; trips_per_month?: number; fulfilment_orders_per_month?: number; wh_orders_per_month?: number; parcels_per_month?: number; cus_cases_per_month?: number };
+  limits: { max_users: number; max_branches: number; jobs_per_month: number; storage_mb: number; max_sectors: number; max_entities: number; trips_per_month?: number; fulfilment_orders_per_month?: number; wh_orders_per_month?: number; parcels_per_month?: number; cus_cases_per_month?: number; specialist_cases_per_month?: number; messages_per_month?: number; ai_drafts_per_month?: number };
 }
 // Pricing is a hypothesis (blueprint §06), not an approved tariff. Published versions are immutable; change = new version.
 export const PLAN_SEEDS: PlanSeed[] = [
-  { code: "free", name: "Free Forever", monthly: 0, setup: 0, limits: { max_users: 2, max_branches: 1, jobs_per_month: 25, storage_mb: 250, max_sectors: 1, max_entities: 1, trips_per_month: 25, fulfilment_orders_per_month: 50, wh_orders_per_month: 25, parcels_per_month: 100, cus_cases_per_month: 5 } },
-  { code: "starter", name: "Starter", monthly: 14900, setup: 19900, limits: { max_users: 3, max_branches: 1, jobs_per_month: 150, storage_mb: 2048, max_sectors: 1, max_entities: 1, trips_per_month: 150, fulfilment_orders_per_month: 500, wh_orders_per_month: 150, parcels_per_month: 1500, cus_cases_per_month: 50 } },
-  { code: "business", name: "Business", monthly: 34900, setup: 39900, limits: { max_users: 8, max_branches: 2, jobs_per_month: 500, storage_mb: 10240, max_sectors: 1, max_entities: 1, trips_per_month: 500, fulfilment_orders_per_month: 2000, wh_orders_per_month: 500, parcels_per_month: 6000, cus_cases_per_month: 200 } },
-  { code: "operations", name: "Operations", monthly: 74900, setup: 79900, limits: { max_users: 15, max_branches: 3, jobs_per_month: 1500, storage_mb: 25600, max_sectors: 2, max_entities: 1, trips_per_month: 1500, fulfilment_orders_per_month: 8000, wh_orders_per_month: 1500, parcels_per_month: 25000, cus_cases_per_month: 600 } },
-  { code: "enterprise", name: "Enterprise", monthly: 149900, setup: 0, contact: true, limits: { max_users: 100, max_branches: 20, jobs_per_month: 20000, storage_mb: 204800, max_sectors: 18, max_entities: 5, trips_per_month: 20000, fulfilment_orders_per_month: 100000, wh_orders_per_month: 20000, parcels_per_month: 500000, cus_cases_per_month: 6000 } },
+  { code: "free", name: "Free Forever", monthly: 0, setup: 0, limits: { max_users: 2, max_branches: 1, jobs_per_month: 25, storage_mb: 250, max_sectors: 1, max_entities: 1, trips_per_month: 25, fulfilment_orders_per_month: 50, wh_orders_per_month: 25, parcels_per_month: 100, cus_cases_per_month: 5, specialist_cases_per_month: 2, messages_per_month: 20, ai_drafts_per_month: 10 } },
+  { code: "starter", name: "Starter", monthly: 14900, setup: 19900, limits: { max_users: 3, max_branches: 1, jobs_per_month: 150, storage_mb: 2048, max_sectors: 1, max_entities: 1, trips_per_month: 150, fulfilment_orders_per_month: 500, wh_orders_per_month: 150, parcels_per_month: 1500, cus_cases_per_month: 50, specialist_cases_per_month: 10, messages_per_month: 100, ai_drafts_per_month: 50 } },
+  { code: "business", name: "Business", monthly: 34900, setup: 39900, limits: { max_users: 8, max_branches: 2, jobs_per_month: 500, storage_mb: 10240, max_sectors: 1, max_entities: 1, trips_per_month: 500, fulfilment_orders_per_month: 2000, wh_orders_per_month: 500, parcels_per_month: 6000, cus_cases_per_month: 200, specialist_cases_per_month: 25, messages_per_month: 500, ai_drafts_per_month: 150 } },
+  { code: "operations", name: "Operations", monthly: 74900, setup: 79900, limits: { max_users: 15, max_branches: 3, jobs_per_month: 1500, storage_mb: 25600, max_sectors: 2, max_entities: 1, trips_per_month: 1500, fulfilment_orders_per_month: 8000, wh_orders_per_month: 1500, parcels_per_month: 25000, cus_cases_per_month: 600, specialist_cases_per_month: 50, messages_per_month: 2000, ai_drafts_per_month: 500 } },
+  { code: "enterprise", name: "Enterprise", monthly: 149900, setup: 0, contact: true, limits: { max_users: 100, max_branches: 20, jobs_per_month: 20000, storage_mb: 204800, max_sectors: 18, max_entities: 5, trips_per_month: 20000, fulfilment_orders_per_month: 100000, wh_orders_per_month: 20000, parcels_per_month: 500000, cus_cases_per_month: 6000, specialist_cases_per_month: 500, messages_per_month: 10000, ai_drafts_per_month: 2000 } },
 ];
 
 /**
  * Plan versions only ever ADD a billing unit: v1 = forwarding-era allowances; v2 adds Transport (trips/month);
- * v3 adds E-commerce fulfilment (fulfilment orders/month); v4 adds Contract warehouse (warehouse orders/month); v5 adds Delivery/COD (parcels/month); v6 adds Customs (cases/month).
+ * v3 adds E-commerce fulfilment (fulfilment orders/month); v4 adds Contract warehouse (warehouse orders/month); v5 adds Delivery/COD (parcels/month); v6 adds Customs (cases/month); v7 adds specialist cases, v8 reviewed outbound messages and v9 assistant drafts (these never inherit forwarding allowances).
  * Published versions are immutable, so older subscriptions keep what they bought; for them a missing unit falls back
  * to the jobs allowance (see getLimit). New purchases use the latest version.
  */
-const ADDED_BY_VERSION: Record<number, (keyof PlanSeed["limits"])[]> = { 2: ["trips_per_month"], 3: ["fulfilment_orders_per_month"], 4: ["wh_orders_per_month"], 5: ["parcels_per_month"], 6: ["cus_cases_per_month"] };
+const ADDED_BY_VERSION: Record<number, (keyof PlanSeed["limits"])[]> = { 2: ["trips_per_month"], 3: ["fulfilment_orders_per_month"], 4: ["wh_orders_per_month"], 5: ["parcels_per_month"], 6: ["cus_cases_per_month"], 7: ["specialist_cases_per_month"], 8: ["messages_per_month"], 9: ["ai_drafts_per_month"] };
 export async function ensureCatalog(c: Conn) {
   for (const p of PLAN_SEEDS) {
-    for (const version of [1, 2, 3, 4, 5, 6]) {
+    for (const version of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
       const later = Object.entries(ADDED_BY_VERSION).filter(([v]) => Number(v) > version).flatMap(([, keys]) => keys);
       const limits = Object.fromEntries(Object.entries(p.limits).filter(([k]) => !later.includes(k as any)));
       await c.query(

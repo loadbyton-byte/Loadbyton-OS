@@ -3,10 +3,12 @@ import { quotaExceeded, HttpError } from "../lib/util.js";
 import type { PlanVersion } from "./catalog.js";
 
 /** Per-month billing units, one per sector. Each is consumed transactionally (see consumeQuota). */
-export type MeteredKey = "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month" | "parcels_per_month" | "cus_cases_per_month";
-const METERED: MeteredKey[] = ["jobs_per_month", "trips_per_month", "fulfilment_orders_per_month", "wh_orders_per_month", "parcels_per_month", "cus_cases_per_month"];
+export type MeteredKey = "jobs_per_month" | "trips_per_month" | "fulfilment_orders_per_month" | "wh_orders_per_month" | "parcels_per_month" | "cus_cases_per_month" | "specialist_cases_per_month" | "messages_per_month" | "ai_drafts_per_month";
+const METERED: MeteredKey[] = ["jobs_per_month", "trips_per_month", "fulfilment_orders_per_month", "wh_orders_per_month", "parcels_per_month", "cus_cases_per_month", "specialist_cases_per_month", "messages_per_month", "ai_drafts_per_month"];
 export type LimitKey = MeteredKey | "max_users" | "max_branches" | "storage_mb" | "max_sectors" | "max_entities";
 const KEYS: LimitKey[] = ["max_users", "max_branches", ...METERED, "storage_mb", "max_sectors", "max_entities"];
+/** Specialist, messaging and assistant units never inherit the forwarding (jobs) allowance: a plan version that lacks them grants none. */
+const NO_INHERIT: LimitKey[] = ["specialist_cases_per_month", "messages_per_month", "ai_drafts_per_month"];
 
 /** Append entitlement rows for a plan version. Idempotent per (tenant, plan version, source). */
 export async function applyPlanEntitlements(c: Conn, tenantId: string, plan: PlanVersion, source: string) {
@@ -27,7 +29,7 @@ export async function getLimit(c: Conn, tenantId: string, key: LimitKey): Promis
      ORDER BY effective_from DESC, id DESC LIMIT 1`, [tenantId, key]);
   if (r.rows[0]) return Number(r.rows[0].int_limit);
   // legacy plan versions predate the per-sector units (trips, fulfilment/warehouse orders, parcels): they get the same number as jobs
-  return key !== "jobs_per_month" && (METERED as string[]).includes(key) ? getLimit(c, tenantId, "jobs_per_month") : 0;
+  return key !== "jobs_per_month" && (METERED as string[]).includes(key) && !NO_INHERIT.includes(key) ? getLimit(c, tenantId, "jobs_per_month") : 0;
 }
 
 export async function getLimits(c: Conn, tenantId: string): Promise<Record<LimitKey, number>> {
@@ -56,6 +58,7 @@ const monthKey = (d = new Date()) => d.toISOString().slice(0, 7);
  * and usage_events(tenant,key,ref) makes a retried request idempotent (one immutable usage event per ref).
  */
 export async function consumeQuota(c: Conn, tenantId: string, key: MeteredKey, ref: string, qty = 1) {
+  if (!Number.isSafeInteger(qty) || qty <= 0) throw new HttpError(400, "Quota usage must be a positive integer");
   await assertWritable(c, tenantId);
   const limit = await getLimit(c, tenantId, key);
   const ev = await c.query(
@@ -92,7 +95,7 @@ export async function currentUsage(c: Conn, tenantId: string, key: LimitKey): Pr
     max_branches: `SELECT count(*) n FROM branches WHERE tenant_id=$1`,
     max_sectors: `SELECT count(*) n FROM tenant_sectors WHERE tenant_id=$1`,
     max_entities: `SELECT count(*) n FROM entities WHERE tenant_id=$1`,
-    storage_mb: `SELECT coalesce(sum(size_bytes),0)/1048576.0 n FROM documents WHERE tenant_id=$1`,
+    storage_mb: `SELECT ((SELECT coalesce(sum(size_bytes),0) FROM documents WHERE tenant_id=$1)+(SELECT coalesce(sum(size_bytes),0) FROM generated_documents WHERE tenant_id=$1))/1048576.0 n`,
   };
   if ((METERED as string[]).includes(key)) return usedThisMonth(c, tenantId, key);
   const r = await c.query<{ n: string | number }>(q[key], [tenantId]);

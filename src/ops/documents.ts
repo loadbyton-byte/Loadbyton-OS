@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import type { Conn } from "../db/client.js";
 import { config } from "../config.js";
 import { storage } from "../lib/storage.js";
+import { scanWithClamav } from "../adapters/clamav.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
 import { HttpError, badRequest, hmac, safeEqual, sha256 } from "../lib/util.js";
@@ -26,6 +27,7 @@ export const basicScan: Scanner = async (buf) => {
   const head = buf.subarray(0, 512).toString("latin1");
   const bad = [/^MZ/, /^\x7fELF/, /^#!/, /^\s*<\s*(!doctype|html|script|svg|\?xml)/i];
   if (bad.some((r) => r.test(head))) throw badRequest("This file type is not allowed.");
+  await scanWithClamav(buf);   // fails closed in production when no scanner is configured
 };
 const MAGIC: Record<string, (b: Buffer) => boolean> = {
   pdf: (b) => b.subarray(0, 4).toString() === "%PDF",
@@ -50,7 +52,8 @@ export async function storeDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scanne
   if (MAGIC[ext] && !MAGIC[ext](f.data)) throw badRequest("File content does not match its extension.");
   await scan(f.data, f.filename);
   await assertWritable(c, ctx.tenantId);
-  const limitCheck = await c.query<{ n: string | number }>(`SELECT coalesce(sum(size_bytes),0) n FROM documents`);
+  await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`document-storage:${ctx.tenantId}`]);   // concurrent uploads cannot both pass the quota check
+  const limitCheck = await c.query<{ n: string | number }>(`SELECT (SELECT coalesce(sum(size_bytes),0) FROM documents)+(SELECT coalesce(sum(size_bytes),0) FROM generated_documents) n`);
   const limitBytes = (await getLimit(c, ctx.tenantId, "storage_mb")) * 1048576;
   if (Number(limitCheck.rows[0].n) + f.data.length > limitBytes) throw new HttpError(402, "Storage allowance reached. Existing documents stay readable; upgrade to add more.", "quota_exceeded");
 
@@ -63,7 +66,7 @@ export async function storeDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scanne
   const r = await c.query<{ id: string }>(
     `INSERT INTO documents(tenant_id,job_id,trip_id,transport_order_id,dlv_shipment_id,cus_case_id,kind,title,version,status,issuer,customer_visible,storage_key,filename,mime,size_bytes,sha256,created_by)
      VALUES ($1,$2,$15,$16,$17,$18,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
-    [ctx.tenantId, f.job_id || null, kind, reqStr(f.title, "Title", 200), version, f.issuer ? "issued" : "draft", optStr(f.issuer, 200),
+    [ctx.tenantId, f.job_id || null, kind, reqStr(f.title, "Title", 200), version, optStr(f.issuer, 200) ? "issued" : "draft", optStr(f.issuer, 200),
       !!f.customer_visible, key, path.basename(f.filename).slice(0, 200), ALLOWED[ext], f.data.length, sha256(f.data), ctx.userId,
       f.trip_id || null, f.transport_order_id || null, f.dlv_shipment_id || null, f.cus_case_id || null]);
   await audit(c, ctx.tenantId, actorOf(ctx), "document.uploaded", "document", r.rows[0].id, { kind, sha256: sha256(f.data) });
@@ -81,6 +84,13 @@ export function verifyDownload(tenantId: string, docId: string, exp: number, sig
 export async function readDocumentFile(storageKey: string, tenantId: string): Promise<Buffer> {
   if (!storageKey.startsWith(`${tenantId}/`)) throw new HttpError(403, "Not permitted", "forbidden");
   return storage.get(storageKey);
+}
+
+/** Tenant-scoped read that also proves the stored bytes still match the recorded hash. */
+export async function fetchDocumentFile(storageKey: string, tenantId: string, expectedHash: string): Promise<Buffer> {
+  const buf = await readDocumentFile(storageKey, tenantId);
+  if (sha256(buf) !== expectedHash) throw new Error("Stored document integrity check failed");
+  return buf;
 }
 
 export const listDocuments = (c: Conn, opts: { jobId?: string; portalPartyId?: string | null } = {}) =>

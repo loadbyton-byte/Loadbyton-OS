@@ -1,0 +1,52 @@
+groups:
+  - name: loadbyton
+    rules:
+      - alert: LoadbytonUnavailable
+        expr: up{job="loadbyton"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: 'Application metrics scrape is unavailable' }
+      - alert: LoadbytonHttpErrors
+        expr: sum(rate(lbt_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(lbt_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'More than 5% of application requests are failing' }
+      - alert: LoadbytonWorkerErrors
+        expr: increase(lbt_worker_errors_total[10m]) > 0
+        labels: { severity: warning }
+        annotations: { summary: 'A background worker has failed; inspect its queue and logs' }
+      - alert: LoadbytonDeadLetters
+        expr: max(lbt_outbox_dead) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'Outbound work requires manual review in the control console' }
+      - alert: LoadbytonQueueAge
+        expr: max(lbt_outbox_oldest_age_seconds) > 900
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'Outbound work has waited more than fifteen minutes' }
+      - alert: LoadbytonActivationDelay
+        expr: max(lbt_provisioning_oldest_age_seconds) > 14400 or max(lbt_provisioning_failed) > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: 'Activation needs intervention before the pilot target is missed' }
+      - alert: LoadbytonAccountingSync
+        expr: max(lbt_invoice_sync_failed) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'Accounting invoice synchronization failed; controller review needed' }
+      - alert: LoadbytonWarehouseCountsDue
+        expr: max(lbt_warehouse_counts_due) > 0
+        for: 1h
+        labels: { severity: warning }
+        annotations: { summary: 'Warehouse physical counts are due; inspect policies and operator assignments' }
+      - alert: LoadbytonAssistantReview
+        expr: max(lbt_assistant_pending) > 0 or max(lbt_assistant_uncertain) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'Assistant generation or provider cost needs review; do not retry a billable request' }
+      - alert: LoadbytonFulfilmentStorageDue
+        expr: max(lbt_fulfilment_storage_due) > 0
+        for: 1h
+        labels: { severity: warning }
+        annotations: { summary: 'Agreed daily storage contracts have missing closed-day accruals; inspect source evidence before billing' }

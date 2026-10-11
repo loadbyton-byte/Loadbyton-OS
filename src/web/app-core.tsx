@@ -1,3 +1,4 @@
+import {SPECIALIST_PROFILES} from '../ops/specialist-profiles.js';
 import { Hono } from "hono";
 import dns from "node:dns/promises";
 import { config } from "../config.js";
@@ -7,7 +8,7 @@ import { audit } from "../lib/audit.js";
 import { actorOf } from "../lib/perms.js";
 import { currentPlans, PRODUCTS, SECTORS } from "../platform/catalog.js";
 import { currentUsage, getLimits, previewPlanChange } from "../platform/entitlements.js";
-import { cancelAtPeriodEnd, createOrder, priceCheckout, scheduleDowngrade, signPayload, buildMockEvent, startCheckout } from "../platform/billing.js";
+import { cancelAtPeriodEnd, createOrder, priceCheckout, scheduleDowngrade, signPayload, buildMockEvent, startCheckout, paymentQuote } from "../platform/billing.js";
 import { enabledProviders, getAdapter } from "../platform/payments/index.js";
 import { processProvisioningQueue, releaseInformationPending } from "../platform/provisioning.js";
 import { switchTenant, membershipsFor, resolveCtx } from "../platform/auth.js";
@@ -46,7 +47,16 @@ core.use("/app/*", async (c, next) => {
   const driverOnly = ctx.roles.length === 1 && ctx.roles[0] === "driver";
   const p = c.req.path;
   if (portalOnly && !p.startsWith("/app/portal") && !p.startsWith("/app/documents/") && !p.startsWith("/app/invoices/") && p !== "/app/switch") return c.redirect("/app/portal");
-  if (driverOnly && !p.startsWith("/app/driver") && p !== "/app/switch") return c.redirect("/app/driver");
+  const driverDocument=c.req.method==='GET'&&/^\/app\/documents\/[0-9a-f-]{36}\/download$/i.test(p);
+  if (driverOnly && !p.startsWith("/app/driver") && !driverDocument && p !== "/app/switch") return c.redirect("/app/driver");
+  if (!portalOnly && p.startsWith("/app/customs") && !t.sectors.includes("customs-brokerage")) {
+    if (c.req.method !== "GET") throw new HttpError(403,"Customs brokerage is not selected.");
+    return appPage(c,"Customs sector",<div class="card"><h1>Customs brokerage is not selected</h1><p>Ask an owner to enable it in Settings.</p></div>);
+  }
+  if (!portalOnly && (p.startsWith("/app/delivery") || p.startsWith("/app/driver/deliveries")) && !t.sectors.includes("courier-last-mile")) {
+    if (c.req.method !== "GET") throw new HttpError(403,"Courier / last mile is not selected.");
+    return appPage(c,"Delivery sector",<div class="card"><h1>Courier / last mile is not selected</h1><p>Ask an owner to enable it in Settings.</p></div>);
+  }
   if (!driverOnly && !portalOnly && p.startsWith("/app/transport") && !t.sectors.includes("road-transport")) {
     return appPage(c, "Sector not enabled", (
       <div class="card" style="max-width:640px">
@@ -95,7 +105,7 @@ core.use("/app/*", async (c, next) => {
       <div class="card" style="max-width:640px">
         <h1>Freight forwarding is not selected</h1>
         <p>The first complete workflow (enquiry → quote → job → costs → invoice → collection) belongs to the <strong>Freight forwarding</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
-        <p class="mute small">Other sector packs are planned and not yet released.</p>
+        <p class="mute small">Your selected workflows appear in the workspace navigation. Specialist workflows require reviewed readiness evidence.</p>
         {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
       </div>));
   }
@@ -150,7 +160,13 @@ core.get("/app", async (c) => {
       { done: (await n(`SELECT count(*) n FROM cus_cases WHERE approved_by IS NOT NULL`)) > 0, label: "Get a case approved, then open its handover pack", href: "/app/customs/cases" },
       { done: (await n(`SELECT count(*) n FROM cus_cases WHERE declaration_no IS NOT NULL`)) > 0, label: "Record the declaration number after lodging it", href: "/app/customs/cases" },
     ];
-    const checklist = [...(fwd || (!ful && !dlv && !cus) ? freight : [customer]), ...(ful ? fulfilment : []), ...(dlv ? delivery : []), ...(cus ? customsList : []), colleague];
+    const scoped: { done: boolean; label: string; href: string }[] = [];
+    for (const [slug, table, href, label] of [
+      ["road-transport", "trips", "/app/transport", "Plan and dispatch a transport trip"],
+      ["contract-warehouse-3pl", "wh_inbound", "/app/warehouse", "Receive and dispatch customer-owned stock"],
+    ]) if (t.sectors.includes(slug)) scoped.push({ done: (await n(`SELECT count(*) n FROM ${table}`)) > 0, label, href });
+    for (const slug of t.sectors.filter((x) => SPECIALIST_PROFILES[x])) scoped.push({ done: Number((await cn.query<any>(`SELECT count(*) n FROM specialist_cases WHERE sector=$1`, [slug])).rows[0].n) > 0, label: `Record a reviewed ${sectorName(slug)} case`, href: `/app/specialists/${slug}` });
+    const checklist = [...(fwd || (!ful && !dlv && !cus) ? freight : [customer]), ...(ful ? fulfilment : []), ...(dlv ? delivery : []), ...(cus ? customsList : []), ...scoped, colleague];
     const mine = (await cn.query<any>(`SELECT id,no,status,origin,destination FROM jobs WHERE assigned_to=$1 AND status IN ('planned','in_transit') ORDER BY created_at DESC LIMIT 8`, [ctx.userId])).rows;
     const tasks = (await cn.query<any>(`SELECT id,title,due_at FROM job_exceptions WHERE status='open' AND (owner_id=$1 OR owner_id IS NULL) ORDER BY due_at LIMIT 8`, [ctx.userId])).rows;
     return { checklist, mine, tasks };
@@ -235,7 +251,7 @@ core.get("/app/portal", async (c) => {
     parcels: dlv ? (await listShipments(cn, { merchantId: ctx.partyId, limit: 100 })) : [], payouts: dlv ? await listRemittances(cn, ctx.partyId) : [],
     jobs: await listJobs(cn, ctx.partyId), invoices: await listInvoices(cn, ctx.partyId),
     docs: await listDocuments(cn, { portalPartyId: ctx.partyId }),
-    orders: ful ? (await listFulfilOrders(cn, { partyId: ctx.partyId })).slice(0, 50) : [],
+    orders: ful ? (await listFulfilOrders(cn, { partyId: ctx.partyId,ctx })).slice(0, 50) : [],
     stock: ful ? await stockOverview(cn, ctx.partyId) : [],
     whStock: ctx.partyId ? await portalStock(cn, ctx.partyId) : [],
   }));
@@ -259,6 +275,7 @@ core.get("/app/portal", async (c) => {
     </>) : null}
     {d.jobs.length || !ful ? <Table caption="Shipments" head={["Job", "Route", "Status"]} empty={d.jobs.length ? undefined : "No shipments yet."}>
       {d.jobs.map((j: any) => <tr><td>{j.no}</td><td>{j.origin} → {j.destination}</td><td><Badge s={j.status} /></td></tr>)}</Table> : null}
+    {d.parcels.length ? <Table caption="Your parcels (latest 50)" head={["Parcel","Your reference","Status",["Expected COD","num"],["Remitted","num"]]}>{d.parcels.slice(0,50).map(p=><tr><td>{p.no}</td><td>{p.external_ref}</td><td><Badge s={p.status}/></td><td class="num"><Money v={p.cod_expected_minor}/></td><td class="num"><Money v={p.remitted_minor}/></td></tr>)}</Table> : null}
     {d.whStock.length ? <><div style="height:18px" /><Table caption="Stock held for you" head={["SKU", "Description", ["On hand", "num"], ["Reserved", "num"], ["On hold", "num"]]}>
       {d.whStock.map((s: any) => <tr><td>{s.sku_code}</td><td>{s.sku_desc}</td><td class="num">{Number(s.on_hand)} {s.uom}</td><td class="num">{Number(s.reserved)}</td><td class="num">{Number(s.quarantined)}</td></tr>)}</Table></> : null}
     <div style="height:18px" />
@@ -289,7 +306,7 @@ core.get("/app/team", async (c) => {
         <tr><td>{m.name}{!m.active ? <> <Badge s="void" label="inactive" /></> : null}</td><td>{m.email}</td>
           <td>
             <form method="post" action="/app/team/roles" class="inline-form"><Csrf t={csrf} /><input type="hidden" name="user_id" value={m.user_id} />
-              {m.roles.includes("driver") ? <span class="small mute">driver seat (managed under Transport → Fleet &amp; drivers)</span> : (<>
+              {m.roles.includes("driver") ? <span class="small mute">driver seat (managed under Transport → Fleet &amp; drivers or Delivery → Couriers)</span> : (<>
                 {ROLES.filter((r) => r !== "driver").map((r) => <label class="small" style="display:inline-flex;gap:4px;font-weight:500;margin:0 6px 0 0"><input type="checkbox" name="roles" value={r} checked={m.roles.includes(r)} /> {r}</label>)}
                 <button class="btn ghost sm" type="submit">Save</button></>)}</form>
           </td>
@@ -344,7 +361,7 @@ core.get("/app/billing", async (c) => {
     db.query<any>(`SELECT j.*, (SELECT count(*) FROM provision_steps s WHERE s.job_id=j.id)::int AS done FROM provision_jobs j WHERE tenant_id=$1 ORDER BY queued_at DESC LIMIT 3`, [ctx.tenantId]).then((r) => r.rows),
   ]);
   const usage = await withT(c, async (cn) => ({ limits: await getLimits(cn, ctx.tenantId),
-    used: { max_users: await currentUsage(cn, ctx.tenantId, "max_users"), jobs_per_month: await currentUsage(cn, ctx.tenantId, "jobs_per_month"),
+    used: { ai_drafts_per_month: await currentUsage(cn, ctx.tenantId, "ai_drafts_per_month"), max_users: await currentUsage(cn, ctx.tenantId, "max_users"), jobs_per_month: await currentUsage(cn, ctx.tenantId, "jobs_per_month"),
       storage_mb: await currentUsage(cn, ctx.tenantId, "storage_mb"), max_branches: await currentUsage(cn, ctx.tenantId, "max_branches"),
       trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month"), fulfilment_orders_per_month: await currentUsage(cn, ctx.tenantId, "fulfilment_orders_per_month"), wh_orders_per_month: await currentUsage(cn, ctx.tenantId, "wh_orders_per_month"), parcels_per_month: await currentUsage(cn, ctx.tenantId, "parcels_per_month") } }));
   const quotes: Record<string, Awaited<ReturnType<typeof priceCheckout>> | null> = {};
@@ -367,8 +384,10 @@ core.get("/app/billing", async (c) => {
       {c.get("tenant")!.sectors.includes("courier-last-mile") ? <div class="card"><h3>Parcels this month</h3><div class="kpi">{usage.used.parcels_per_month} / {usage.limits.parcels_per_month}</div></div> : null}
       {c.get("tenant")!.sectors.includes("contract-warehouse-3pl") ? <div class="card"><h3>Warehouse orders this month</h3><div class="kpi">{usage.used.wh_orders_per_month} / {usage.limits.wh_orders_per_month}</div><p class="small mute">Inbound notices + dispatch orders</p></div> : null}
     </div>
+    {c.get("tenant")!.sectors.includes("freight-forwarding") ? <div class="card"><h3>Assistant drafts this month</h3><div class="kpi">{usage.used.ai_drafts_per_month} / {usage.limits.ai_drafts_per_month}</div><p>Existing drafts remain readable. Provider generation also requires a reviewed cost budget.</p></div> : null}
     <h2 style="margin-top:28px">Change plan</h2>
     <p class="mute small">Net incremental price shown: setup already paid at a lower tier is credited. No proration in the pilot. Tax is shown at checkout.</p>
+    {enabledProviders().includes('razorpay')&&config.razorpayPresentment.currency==='INR'?<p class="alert info">Razorpay is charged in INR at the merchant's quoted rate of {config.razorpayPresentment.aedToInr} INR per AED. {config.razorpayPresentment.note} The payment amount is fixed on your order; your card provider may apply its own charges.</p>:null}
     <div class="grid g4">
       {plans.filter((p) => p.plan_code !== "free").map((pl) => {
         const q = quotes[pl.plan_code]; const cur = pl.plan_code === sub.plan_code;
@@ -376,11 +395,11 @@ core.get("/app/billing", async (c) => {
           <div class={`card plan ${want === pl.plan_code ? "hot" : ""}`}>
             <h3>{pl.name} {cur ? <Badge s="active" label="current" /> : null}</h3>
             <div class="price">{pl.contact_sales ? "From " : ""}{fmtMoney(pl.monthly_minor)}<span class="small mute"> / mo</span></div>
-            {pl.contact_sales ? <p class="small mute">Scoped with our team.</p> : cur ? <p class="small mute">Your current plan.</p> : q ? <p class="small">Due now: <strong>{fmtMoney(q.subtotal)}</strong> + VAT {fmtMoney(q.tax)} = <strong>{fmtMoney(q.total)}</strong>{q.setupCredit ? <><br />Setup credit applied: {fmtMoney(q.setupCredit)}</> : null}</p> : null}
+            {pl.contact_sales ? <p class="small mute">Scoped with our team.</p> : cur ? <p class="small mute">Your current plan.</p> : q ? <p class="small">Due now: <strong>{fmtMoney(q.subtotal)}</strong> + {"VAT"} {fmtMoney(q.tax)} = <strong>{fmtMoney(q.total)}</strong>{q.setupCredit ? <><br />Setup credit applied: {fmtMoney(q.setupCredit)}</> : null}</p> : null}
             <div style="flex:1" />
-            {pl.contact_sales ? <a class="btn ghost" href="/contact">Contact sales</a> : cur ? null : (
+            {pl.contact_sales ? <a class="btn ghost" href="/contact">Contact sales</a> : cur ? <PostBtn action="/app/billing/checkout" csrf={csrf} label="Renew paid period" fields={{plan:pl.plan_code}} /> : (
               <>
-                {providers.map((pv, i) => <PostBtn action="/app/billing/checkout" csrf={csrf} label={providerLabel(pv)} cls={i === 0 ? "red" : "ghost"} fields={{ plan: pl.plan_code, provider: pv }} />)}
+                {providers.map((pv, i) => <PostBtn action="/app/billing/checkout" csrf={csrf} label={`${providerLabel(pv)}${q && pv === "razorpay" && config.razorpayPresentment.currency !== q.currency ? ` · ${fmtMoney(paymentQuote(q.total, q.currency, pv).total, config.razorpayPresentment.currency)}` : ""}`} cls={i === 0 ? "red" : "ghost"} fields={{ plan: pl.plan_code, provider: pv }} />)}
                 {pl.monthly_minor < (plans.find((x) => x.plan_code === sub.plan_code)?.monthly_minor ?? 0) ? <PostBtn action="/app/billing/downgrade" csrf={csrf} label="Preview & schedule at renewal" cls="ghost sm" fields={{ plan: pl.plan_code }} /> : null}
               </>)}
           </div>);
@@ -394,7 +413,7 @@ core.get("/app/billing", async (c) => {
       {jobs.map((j: any) => <tr><td class="small">{formatDate(j.queued_at)}</td><td><Badge s={j.state} /></td><td>{j.done}/9</td><td class="small">{j.owner_action ?? j.failure_reason ?? (j.ready_at ? `Ready ${formatDate(j.ready_at)}` : "")}</td></tr>)}</Table>
     <h2 style="margin-top:28px">Orders</h2>
     <Table head={["Reference", "Date", ["Total", "num"], "Status", ""]} empty={orders.length ? undefined : "No orders."}>
-      {orders.map((o: any) => <tr><td>{o.reference}</td><td>{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} cur={o.currency} /></td><td><Badge s={o.status} /></td>
+      {orders.map((o: any) => <tr><td>{o.reference}</td><td>{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} cur={o.currency} />{o.payment_currency && o.payment_currency !== o.currency ? <div class="small">Payment: <Money v={o.payment_total_minor} cur={o.payment_currency} /> · {o.fx_rate} {o.payment_currency}/{o.currency}<br />{o.fx_note}</div> : null}</td><td><Badge s={o.status} /></td>
         <td>{o.status === "paid" ? <a class="btn ghost sm" href={`/app/billing/orders/${o.id}/receipt`}>Receipt</a> : null}{o.status === "pending" && (o.provider === "mock" ? config.paymentProviders.includes("mock") : !!o.checkout_url) ? <a class="btn sm" href={`/app/billing/pay/${o.id}`}>{o.provider === "mock" ? "Pay" : "Continue to payment"}</a> : null}</td></tr>)}</Table>
     <Seller />
   </>));
@@ -489,7 +508,7 @@ core.get("/app/billing/pay/:id", async (c) => {
       <h1>Checkout · {o.plan}</h1>
       <Table head={["Item", ["Amount", "num"]]}>
         {o.lines.map((l: any) => <tr><td>{l.label}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
-        <tr><td>VAT</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr>
+        <tr><td>{"VAT"}</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr>
         <tr><th>Total payable</th><th class="num"><Money v={o.total_minor} cur={o.currency} /></th></tr>
       </Table>
       <p class="small mute">{o.tax_note}</p>

@@ -1,3 +1,5 @@
+import {config} from '../config.js';
+import {verifyCloudflareCustomDomain} from '../adapters/cloudflare.js';
 import type { Db } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { HttpError, badRequest, hashPassword, newTotpSecret, randomToken, sha256 } from "../lib/util.js";
@@ -132,7 +134,12 @@ export async function verifyCustomDomain(db: Db, tenantId: string, id: string, l
   if (!d) throw new HttpError(404, "Pending domain not found");
   const txt = await lookup(`_loadbyton.${d.hostname}`);
   if (!txt.includes(d.verify_token)) throw badRequest("Verification record not found yet. DNS changes can take time.");
-  await db.query(`UPDATE domain_mappings SET status='verified', verified_at=now() WHERE id=$1`, [id]);
+  if(config.isProd)await verifyCloudflareCustomDomain(d.hostname);
+  await db.system(async c=>{
+    const updated=await c.query(`UPDATE domain_mappings SET status='verified', verified_at=now() WHERE id=$1 AND tenant_id=$2 AND status='pending_verification' AND verify_token=$3 RETURNING id`,[id,tenantId,d.verify_token]);
+    if(!updated.rows.length)throw badRequest('Domain verification changed; retry ownership verification');
+    await audit(c,tenantId,{kind:'system'},'domain.verified','domain',id);
+  });
 }
 export async function removeDomain(db: Db, tenantId: string, userId: string, id: string) {
   await db.system(async (c) => {

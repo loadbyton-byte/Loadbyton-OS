@@ -31,9 +31,24 @@ export const config = {
   databaseSsl: text("DATABASE_SSL").toLowerCase(),
   databaseCa: text("DATABASE_CA"),
   databasePoolMax: Number(env.DATABASE_POOL_MAX ?? 10),
+  migrateOnStart: (env.MIGRATE_ON_START ?? (isProd ? "false" : "true")) === "true",
   pgliteDir: env.PGLITE_DIR ?? path.resolve("data/pg"),
 
   sessionSecret: secret("SESSION_SECRET", "dev-session-secret-dev-session-secret-0000"),
+  /** Encrypts company-user MFA seeds, accounting connection secrets and queued invitation tokens. MFA_ENCRYPTION_PREVIOUS_KEY enables dual-key reads during rotation. */
+  encryptionSecret: secret("MFA_ENCRYPTION_KEY", "dev-mfa-encryption-dev-mfa-encryption-0000"),
+  previousEncryptionSecret: env.MFA_ENCRYPTION_PREVIOUS_KEY ?? "",
+  companyMfaRequired: (env.REQUIRE_COMPANY_MFA ?? (isProd ? "true" : "false")) === "true",
+  legalReviewed: env.LEGAL_REVIEWED === "true",
+  retentionDays: Number(env.DATA_RETENTION_DAYS ?? 90),
+  retentionExplicit: !!env.DATA_RETENTION_DAYS,
+  regionExplicit: !!env.DEPLOYMENT_REGION,
+  deploymentRegion: env.DEPLOYMENT_REGION ?? "Development environment",
+  clamav: { host: env.CLAMAV_HOST ?? "", port: Number(env.CLAMAV_PORT ?? 3310) },
+  cloudflare: { token: env.CLOUDFLARE_API_TOKEN ?? "", zoneId: env.CLOUDFLARE_ZONE_ID ?? "", origin: env.CLOUDFLARE_ORIGIN_HOSTNAME ?? "" },
+  razorpayPresentment: { currency: env.RAZORPAY_PRESENTMENT_CURRENCY ?? "AED", aedToInr: Number(env.RAZORPAY_AED_TO_INR ?? 0), note: env.RAZORPAY_FX_NOTE ?? "" },
+  assistant: { enabled: env.AI_PROVIDER === "openai", key: env.OPENAI_API_KEY ?? "", model: env.AI_MODEL ?? "gpt-4.1-mini", reviewed: env.AI_DATA_PROCESSING_REVIEWED === "true", inputMicroUsd: Number(env.AI_INPUT_MICRO_USD_PER_TOKEN ?? 0), outputMicroUsd: Number(env.AI_OUTPUT_MICRO_USD_PER_TOKEN ?? 0), monthlyBudget: Number(env.AI_MONTHLY_BUDGET_MICRO_USD ?? 0), pricingNote: env.AI_PRICING_NOTE ?? "" },
+
   /** Signs the simulated-provider webhook (mock only). Real providers use their own signing secrets below. */
   webhookSecret: isProd && !(env.PAYMENT_WEBHOOK_SECRET && env.PAYMENT_WEBHOOK_SECRET.length >= 32)
     ? crypto.randomBytes(32).toString("hex") : secret("PAYMENT_WEBHOOK_SECRET", "dev-webhook-secret-dev-webhook-secret-0000"),
@@ -125,6 +140,20 @@ export function validateConfig(c = config, production = isProd) {
   if (production && c.databaseSsl === "no-verify") problems.push("DATABASE_SSL=no-verify is not permitted in production (use require)");
   if (!!c.upstash.url !== !!c.upstash.token) problems.push("set both UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, or neither");
   if (c.vatBps < 0 || c.vatBps > 2500 || !Number.isInteger(c.vatBps)) problems.push("CHECKOUT_VAT_BPS must be a whole number of basis points between 0 and 2500");
+  if (env.AI_PROVIDER && !["none", "openai"].includes(env.AI_PROVIDER)) problems.push("AI_PROVIDER must be none or openai");
+  const a = c.assistant;
+  if (a.enabled && (!a.key || !a.reviewed || !a.pricingNote || ![a.inputMicroUsd, a.outputMicroUsd].every((x) => Number.isFinite(x) && x > 0 && x <= 10000) || !Number.isSafeInteger(a.monthlyBudget) || a.monthlyBudget < 1 || a.monthlyBudget > 1_000_000_000 || !/^[a-zA-Z0-9._-]{1,100}$/.test(a.model)))
+    problems.push("AI requires reviewed data processing, credentials, model, explicit token pricing and a bounded monthly budget");
+  if (!Number.isInteger(c.retentionDays) || c.retentionDays < 1) problems.push("DATA_RETENTION_DAYS must be a positive integer");
+  if (c.previousEncryptionSecret && (c.previousEncryptionSecret.length < 32 || c.previousEncryptionSecret === c.encryptionSecret)) problems.push("MFA_ENCRYPTION_PREVIOUS_KEY must be a distinct key of at least 32 characters");
+  const rp = c.razorpayPresentment;
+  if (!["AED", "INR"].includes(rp.currency) || (rp.currency === "INR" && (!Number.isFinite(rp.aedToInr) || rp.aedToInr <= 0 || rp.aedToInr > 10000 || !rp.note))) problems.push("INR checkout requires a reviewed positive AED/INR rate and RAZORPAY_FX_NOTE");
+  if (production) {
+    if (!c.companyMfaRequired) problems.push("Sensitive company roles must require MFA in production (REQUIRE_COMPANY_MFA)");
+    if (!c.legalReviewed || !c.retentionExplicit || !c.regionExplicit) problems.push("Set LEGAL_REVIEWED, DATA_RETENTION_DAYS and DEPLOYMENT_REGION before production release");
+    if (!c.rootDomain || !c.cloudflare.token || !c.cloudflare.zoneId || !c.cloudflare.origin) problems.push("Cloudflare routing credentials and ROOT_DOMAIN are required in production");
+    if (!c.clamav.host) problems.push("CLAMAV_HOST is required for production upload scanning");
+  }
   if (problems.length) throw new Error(`Invalid configuration:\n - ${problems.join("\n - ")}`);
 }
 validateConfig();

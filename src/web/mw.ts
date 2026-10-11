@@ -14,6 +14,8 @@ export type Env = {
     tenant: { name: string; slug: string; sectors: string[]; plan: string; planCode: string; subStatus: string } | null;
     memberships: { tenant_id: string; name: string }[];
     apiKey?: ApiPrincipal;
+    apiAuth?: Awaited<ReturnType<typeof import('../platform/api.js').apiContext>>;
+    traceId?: string;
   };
 };
 export type C = Context<Env>;
@@ -99,6 +101,9 @@ export const requireCtx: MiddlewareHandler<Env> = async (c, next) => {
     throw new HttpError(403, "You do not have access to a workspace. Ask an owner to invite you.", "forbidden");
   }
   c.set("ctx", ctx);
+  const mfa=(await c.get('db').query<any>(`SELECT enabled FROM user_mfa WHERE user_id=$1`,[s.userId])).rows[0]?.enabled;
+  const sensitive=ctx.roles.some(r=>['owner','finance','hr','customs','specialist','pricing','coordinator'].includes(r));
+  if(!s.companyMfaOk && !ctx.supportStaffId && (mfa||(config.companyMfaRequired&&sensitive)))return c.redirect('/account/security');
   await next();
 };
 

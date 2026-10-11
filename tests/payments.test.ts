@@ -27,7 +27,9 @@ const fakeFetch = (status: number, body: unknown) => {
 const hdr = (h: Record<string, string>) => (n: string) => h[n.toLowerCase()];
 
 describe("configuration", () => {
-  const base = { ...config, paymentProviders: ["stripe"], stripe: { ...STRIPE }, razorpay: { keyId: "", keySecret: "", webhookSecret: "", apiBase: "" }, baseUrl: "https://app.example.com", databaseSsl: "require", upstash: { url: "", token: "" } };
+  const base = { ...config, paymentProviders: ["stripe"], stripe: { ...STRIPE }, razorpay: { keyId: "", keySecret: "", webhookSecret: "", apiBase: "" }, baseUrl: "https://app.example.com", databaseSsl: "require", upstash: { url: "", token: "" },
+    // reviewed-release controls added alongside the shared production checks
+    companyMfaRequired: true, legalReviewed: true, retentionExplicit: true, regionExplicit: true, rootDomain: "example.com", cloudflare: { token: "t", zoneId: "z", origin: "o" }, clamav: { host: "scanner", port: 3310 } };
   it("accepts a complete production setup and refuses every half-configured one", () => {
     expect(() => validateConfig({ ...base, stripe: { ...STRIPE, secretKey: "sk_live_xyz" } } as any, true)).not.toThrow();
     expect(() => validateConfig({ ...base } as any, true)).toThrow(/test key but NODE_ENV=production/);

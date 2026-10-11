@@ -6,9 +6,10 @@ import { SECTORS } from "../platform/catalog.js";
 export interface Page {
   title: string; csrf: string; path: string; description?: string;
   ok?: string; err?: string; user?: { name: string } | null; head?: Child;
+  offlineScope?: string;
 }
 
-export const Money = ({ v, cur = "AED" }: { v: number | string; cur?: string }) => <span class="nowrap">{fmtMoney(v, cur)}</span>;
+export const Money = ({ v, cur = "AED" }: { v: number | string; cur?: string }) => <bdi class="nowrap" dir="ltr">{fmtMoney(v, cur)}</bdi>;
 
 const BADGE: Record<string, string> = {
   pilot: "warn", planned: "info", available: "ok", live: "ok", paid: "ok", active: "ok", approved: "ok", converted: "ok", accepted: "ok", delivered: "ok",
@@ -40,6 +41,7 @@ function Head({ p }: { p: Page }) {
       <meta name="description" content={p.description ?? "Your logistics company, connected. Start free, choose the tools your business needs, and run enquiries, jobs, documents, deliveries and collections from one branded workspace."} />
       <meta name="theme-color" content="#071D35" />
       <meta name="csrf-token" content={p.csrf} />
+      {p.offlineScope?<meta name="driver-scope" content={p.offlineScope}/>:null}
       <link rel="icon" href="/brand/favicon.ico" sizes="any" />
       <link rel="apple-touch-icon" href="/brand/by-mark-192.png" />
       <link rel="stylesheet" href="/assets/app.css" />
@@ -136,7 +138,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
 
 export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
   const nav: [string, string][] = [["/admin", "Overview"], ["/admin/tenants", "Tenants"], ["/admin/orders", "Orders & payments"], ["/admin/provisioning", "Provisioning"],
-    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/leads", "Leads"]];
+    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/service", "Setup & privacy"], ["/admin/leads", "Leads"]];
   return (
     <html lang="en">
       <Head p={p} />

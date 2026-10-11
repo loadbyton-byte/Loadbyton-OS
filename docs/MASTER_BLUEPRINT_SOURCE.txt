@@ -1,0 +1,928 @@
+BUSINESS • PRODUCT • ARCHITECTURE • EXECUTION
+
+
+
+
+Run the movement.
+Know the margin.
+A detailed UAE-first logistics SaaS blueprint • 10 October 2026
+
+
+
+
+LOAD|BY|TON.store
+
+Business, product and architecture master blueprint
+Version 1.0 • 10 October 2026 • UAE-first logistics SaaS
+
+
+Brand promise: Run the movement. Know the margin.
+
+
+Prepared from the supplied operating-model brief and both supplied logos. This is a proposed business and
+implementation specification, not a certification of existing software. No repository was supplied for this task or audited.
+Prices, staffing, service levels and performance thresholds below are planning hypotheses until commercially approved
+and tested. Research covers selected official competitor sources, not every vendor or a hands-on competitive audit.
+01 — What LOAD|BY|TON.store is
+LOAD|BY|TON.store is the commercial entry point to a modular logistics operating platform. A logistics company
+registers once, selects its sectors, starts in a useful permanent free workspace, and purchases connected operational
+bundles as its needs grow. The same company account becomes its branded operating environment; it does not
+restart in a separate application when it upgrades.
+
+
+The store sells software subscriptions, setup and support services. Its customers use the software to sell and deliver
+freight, transport, clearance, storage or delivery services. These are separate commercial relationships and separate
+accounting books. The store is not inherently a freight brokerage, cargo marketplace or carrier. Those activities would
+need separate operating models if introduced later.
+
+
+The principal buyer is the owner of a small or growing logistics business who wants affordable operational control
+without commissioning bespoke software. The daily users are salespeople, coordinators, dispatchers, warehouse staff,
+accountants, drivers and managers. Their customers, suppliers and agents interact through limited portals.
+
+
+Public explanation: “Your logistics company, connected. Start free, choose the tools your business needs, and run
+enquiries, jobs, documents, deliveries and collections from one branded workspace.”
+
+
+The strategic objective is an accessible logistics company OS with sector-specific workflows, shared records and
+evidence-backed owner visibility. “World-class” should mean reliable delivery of those outcomes, not a maximum
+number of menus.
+
+
+
+
+02 — Brand identity and positioning
+Use the navy-and-red supplied wordmark on light surfaces and the premium silver-and-red version on dark cover,
+campaign and presentation surfaces. Preserve the original typography and stacked BY construction. Neither uploaded
+raster logo should be described as a production vector master. Before small-scale deployment, produce an approved
+vector reconstruction and check the BY mark at favicon size.
+
+
+The vertical separators can become a restrained visual motif for stages and handovers. Navy expresses operational
+control; red marks the next action and exceptions. Red must not be the only indication of an error. Use text and icons
+as well. Proposed interface tokens: navy #071D35, action red #D81724, paper #F5F7FA, ink #172536, success
+#18745C. These are suggested UI values, not exact color measurements from the supplied logos.
+
+
+All public products remain LOAD|BY|TON branded: LOAD|BY|TON Freight, Transport, Warehouse, Delivery, Customs,
+Finance and Intelligence. The .store suffix identifies the purchase destination; the software should still be described
+plainly as logistics software. Do not expose founder information in public sales materials.
+
+
+Voice: practical, precise, confident. Prefer “See unbilled jobs” to “Unlock transformational synergy.” Premium
+presentation comes from clear hierarchy, consistent tables, legible documents and strong photography. Operational
+screens need speed and clarity; cinematic treatments belong in selected marketing surfaces.
+
+
+
+
+03 — Market focus and initial customer
+Begin with UAE small freight forwarders that coordinate transport through suppliers and use email, WhatsApp and
+spreadsheets. This is a proposed beachhead, to validate in interviews. It keeps the first paid workflow focused while
+opening expansion into transport, customs and storage.
+
+
+Interview 15–20 owners and operators. Ask them to demonstrate a real quotation, supplier purchase, job file, cost
+update, invoice and collection. Measure duplicate entry, missing costs, time-to-invoice and reconciliation effort. Do not
+rely only on “Would you use this?” answers. Obtain anonymized sample documents with permission.
+
+
+An appropriate first design partner has one entity, a small operations team, repeat jobs and an owner willing to review
+outcomes weekly. A poor first fit requires global customs coverage, airport-certified systems, complex bonded
+warehouse automation or enterprise-wide migration before any value can be delivered.
+
+
+Target expansion cohorts: transport SMEs; warehouse/3PL businesses; last-mile operators; fulfilment providers;
+integrated logistics firms. Each requires its own completed workflow and acceptance pack. Market sizing must be built
+from verified company counts and actual willingness-to-pay research; no market-share or revenue forecast is asserted
+here.
+
+
+
+
+04 — Competitor benchmark and how to compete
+Official-source review accessed 10 October 2026. Product descriptions establish documented capabilities; they do not
+prove comparative implementation speed, service quality or missing features.
+
+
+
+  Benchmark        Officially documented scope           LOAD                                      BY      TON design
+                                                                                                           response
+
+
+  CargoWise        International forwarding, customs     Keep one connected job record; target
+                   and compliance; value packs           SME usability and fast standard
+                   include warehouse and land            activation; do not claim equal global
+                   transport                             network coverage
+
+
+  Fresa Gold       Freight-focused web ERP covering      Treat freight operations, commercial
+                   forwarders, NVOCC, cargo agents,      work and financial closure as baseline
+                   transporters, courier and logistics   expectations
+  Benchmark         Officially documented scope            LOAD                                        BY      TON design
+                                                                                                               response
+
+
+  Odoo              Inventory operations and fleet         Connect configurable business apps
+                    functions including service, vehicle   with logistics-specific job and custody
+                    and cost records                       logic
+
+
+  Zoho              Orders, warehouses, barcode            Deliver easy stock/order operations
+  Inventory         scanning, workflows and                while explicitly supporting 3PL
+                    integrations with accounting, CRM      ownership and logistics job costing
+                    and commerce
+
+
+
+Sources: CargoWise, CargoWise value packs, Fresa Gold, Fresa feature list, Odoo inventory, Odoo fleet, Zoho
+features.
+
+
+Competitive thesis, not a proven superiority claim: win a defined SME segment through understandable bundles,
+real free tools, low-friction adoption, local onboarding, job-to-cash visibility and continuity with existing accounting.
+Features alone will not constitute a defensible advantage; dependable service and embedded workflows can.
+
+
+Run the same six tasks with representative users in LOAD|BY|TON and shortlisted competitors: create a quote,
+convert it to a job, record supplier costs, resolve a missing document, invoice the job, identify margin leakage.
+Compare median task time, error rate, training time, implementation hours and full 12-month cost, including paid
+integrations and migration. Only publish a superiority claim supported by that evidence.
+
+
+
+
+05 — Commercial model
+Revenue sources: recurring sector subscriptions; additional full users, branches and volume; scoped setup; historical
+migration; training; connector configuration; dedicated hosting; premium support. Avoid relying on one-off custom
+development to fund a low-price SaaS model.
+
+
+Keep the free tier useful enough to establish a real operational habit. Charge for depth, capacity and service—not
+access to basic security or the ability to retrieve customer data. Add-ons must have a visible total price and their
+dependencies included before checkout.
+
+
+Subscription revenue and setup revenue are reported separately. Annual prepayment may improve cash flow but
+creates a delivery obligation; it is not immediately earned profit. Do not provide unlimited messaging, AI, storage or
+visits in a low-price bundle.
+
+
+No escrow, proprietary tokens or payments held for customers are assumed. Customers can record logistics
+collections in their own finance workflow; moving third-party funds through LOAD|BY|TON would require a separate
+approved design.
+06 — Pricing hypothesis and plan allowances
+The following extends the attached brief with concrete pilot packaging. It is not an approved tariff. Prices exclude any
+applicable tax and third-party pass-through charges; checkout must clearly show the actual tax treatment and payable
+total.
+
+
+
+   Plan            Monthly                 Setup                 Suggested allowance
+                   hypothesis              hypothesis
+
+
+   Free            AED 0                   AED 0                 1 entity, 2 users, 25 new operational jobs/month, 250 MB
+   Forever                                                       documents
+
+
+   Starter         AED 149                 AED 199               1 sector, 3 full users, 1 branch, 150 jobs/month, 2 GB
+
+
+   Business        AED 349                 AED 399               1 advanced sector, 8 full users, 2 branches, 500 jobs/month,
+                                                                 10 GB
+
+
+   Operations      AED 749                 AED 799               2 compatible sectors, 15 full users, 3 branches, 1,500
+                                                                 jobs/month, 25 GB
+
+
+   Enterprise      From AED 1,499          Scoped                Named allowances, support and infrastructure schedule
+
+
+
+A job is an operational case with a unique job ID; child milestones are not separately metered. Define billing units per
+sector: a forwarding job, transport trip, parcel, fulfilment order or warehouse activity may have radically different
+processing costs. Do not automatically reuse forwarding limits for high-volume parcels or warehouse scans. Inventory
+scans should not be counted as freight jobs.
+
+
+Limited portal and driver seats have separate usage rules. Published plan versions are immutable commercial records;
+a later price update must not silently rewrite an existing contract. Bundle previews must calculate the net incremental
+price instead of charging twice for shared Finance or CRM features.
+
+
+
+
+07 — Unit economics and sustainability
+Measure contribution per tenant: net subscription revenue minus payment fees, allocated compute/storage,
+messaging/AI subsidies, support labor, connector variable cost and refunds. Track onboarding contribution separately
+after technician labor, travel and migration work. Founder labor is still a cost even when unpaid.
+
+
+Illustrative Starter scenario: AED 149 revenue minus AED 5 payment cost, AED 15 infrastructure allocation, AED 10
+automated-processing allowance and AED 30 support allocation leaves AED 89 monthly contribution, approximately
+60%, before fixed engineering, administration, tax and acquisition. These are invented scenario inputs, not supplier
+quotes. A rise to AED 80 support cost leaves only AED 39 contribution. This sensitivity makes standardized onboarding
+essential.
+
+
+At AED 89 contribution, a hypothetical AED 350 acquisition cost takes about 3.9 months to recover, excluding
+onboarding losses. At AED 39 it takes about 9 months. Use actual retained-cohort contribution before approving
+discounts. Simple LTV approximations are unreliable with small samples or changing churn.
+
+
+For the portfolio, break-even paid tenants = monthly fixed costs divided by weighted average contribution per paid
+tenant, after including the free-tier subsidy. Model free accounts explicitly: 1,000 free tenants at a hypothetical AED
+3/month cost AED 3,000/month. “Start with zero dollars” can mean founder-led validation and manual concierge work;
+a reliable commercial platform still has operating costs.
+
+
+
+
+08 — Sector catalogue: 18 configurable profiles
+These are proposed commercial profiles, not an official UAE sector classification. A customer can combine them while
+retaining one entity and shared master records.
+
+
+
+  Profile                       Specialist workflow and required controls
+
+
+  Freight forwarding            Air/ocean/road jobs; import/export/cross-trade; route legs, bookings, charges and documents
+
+
+  Customs brokerage             Declaration cases, evidence, deposits, inspections and controlled submission handover
+
+
+  Road transport                Dispatch, trips, capacity, vehicles, drivers, subcontractors and POD
+
+
+  Contract warehouse /          Customer-owned custody stock, locations, movements and activity billing
+  3PL
+
+
+  Courier / last mile           Parcel events, attempts, route assignment, POD and COD reconciliation
+
+
+  E-commerce fulfilment         Merchant orders, reservation, pick/pack, carrier labels and returns
+
+
+  Consolidation / NVOCC         Master/house relationships, container planning, allocations and destination-agent settlement
+
+
+  Cold chain                    Temperature events, excursions, calibration evidence and hold/release approvals
+
+
+  Project / heavy cargo         Project budgets, equipment, permits, surveys and stage approvals
+
+
+  Automotive logistics          VIN-level stock, condition inspection, yard locations and release authority
+  Profile                       Specialist workflow and required controls
+
+
+  Marine agency                 Port-call cases, service requests, disbursement estimates and final accounts
+
+
+  Aviation logistics            Air documents, milestones and customer/agent coordination; regulated specialist procedures
+                                require validation
+
+
+  Moving / relocation           Survey, inventory, crew scheduling, packing, storage and damage claims
+
+
+  Import / export trading       Purchase/sales orders, landed cost, stock and trade documentation
+
+
+  Distribution                  Customer orders, allocations, dispatch routes, returns and collections
+
+
+  Container depot / yard        Gate events, equipment condition, dwell, repairs and release checks
+
+
+  Dangerous / regulated         Classification evidence, trained-person approvals, restrictions and incident records
+  cargo
+
+
+  Cross-border / transit        Border legs, permits, guarantee tracking and reconciliation of transit closure
+
+
+
+Specialist profiles require subject-matter review. A generic workflow checklist is not certification to handle dangerous
+goods, pharmaceutical cold chain or bonded inventory.
+
+
+
+
+09 — Product and organization structure
+The shared platform core comprises identity, organizations, permissions, master records, documents, tasks,
+communications, audit, integration management and reporting. Operational domains are Freight, Transport,
+Warehouse, Delivery, Customs and specialist extensions. Commercial domains are CRM, rates/contracts and
+quotations. Financial domains are job costing, invoicing, collections, payables and either accounting integration or a
+subsequently validated native ledger.
+
+
+Treat a tenant, legal entity and branch as different objects. A tenant is the subscription/customer boundary. Legal
+entities have independent financial and tax identities. Branches belong to entities. A customer’s warehouse, carrier and
+supplier accounts are parties, not additional platform tenants unless those businesses independently subscribe.
+
+
+Staff roles: owner, platform commercial administrator, sales, pricing, coordinator, dispatcher, warehouse
+supervisor/operator, finance clerk/controller, HR administrator, auditor and portal user. One person may hold multiple
+roles. Purchasing an entitlement does not grant every staff member access to it.
+10 — Customer and staff experience
+The public site offers Start free and Find my bundle. Registration asks company, contact, country/emirate and sectors;
+the diagnostic adds vehicle/warehouse ownership, users, branches and current software. Do not demand every trade
+document before basic account exploration. Request additional evidence when the service or integration needs it.
+
+
+Create an empty real workspace with guided setup. Keep examples in a separate demo environment. The first
+meaningful action is importing customers or creating a genuine enquiry/quotation. Record the customer’s chosen goal
+and show a short next-action checklist.
+
+
+The paid upgrade displays modules, allowances, term, recurring and setup amounts, exclusions and activation
+conditions. Server-verified payment triggers entitlement activation and branded provisioning. Existing free records
+remain intact. Owner invitations use individual accounts; no shared passwords.
+
+
+Navigation adapts by role and selected sectors. Owners see Money, Operations, Customers, Team and Decisions.
+Operators see their assigned queue and exceptions. Financial figures indicate currency, period, freshness and whether
+costs remain estimated. A one-click “Why this number?” opens source records.
+
+
+
+
+11 — Website and application information architecture
+Public pages: Home; Sector pages; Products; Bundle builder; Pricing; Compare plans; How activation works;
+Integrations and their live status; Security; Customer stories with permission; Resources; Help; Contact; Service
+coverage; Terms; Privacy; Data processing; Subprocessors; Accessibility; Service status.
+
+
+Company application: Overview; Enquiries; Quotations; Jobs; Dispatch; Warehouse; Deliveries; Clearance;
+Customers/suppliers; Documents; Finance; Tasks; Inbox; Reports; Team; Settings. Display only relevant purchased
+modules, while explaining discoverable upgrades without overwhelming users.
+
+
+Platform control console: tenants; catalog/price versions; subscriptions; payments and reconciliation; entitlements;
+usage; provisioning; domain mappings; setup orders; technician appointments; support grants; incidents; rollout
+cohorts; restore operations; partner commissions. It is a separate privileged surface with stronger authentication.
+
+
+Hostnames: www.loadbyton.store for commerce, app.loadbyton.store for common access, company.loadbyton.store
+for branded tenants, admin.loadbyton.store for platform staff and help.loadbyton.store for guidance. Reserve
+operational and security-sensitive slugs. A hostname selects tenant context; authenticated membership authorizes
+access.
+12 — Core workflow: enquiry to collection
+    1. Capture enquiry from form, email or approved messaging channel; preserve source and deduplicate.
+
+    2. Validate route, cargo, timing, parties and missing information; assign a responsible salesperson.
+
+    3. Obtain rates; track supplier validity, currency, charge basis and exclusions.
+
+    4. Prepare versioned quote; approval required below margin threshold or above credit exposure limit.
+
+    5. Record acceptance and agreed scope; convert to one job without duplicate customer entry.
+
+    6. Plan route legs and suppliers; issue authorized bookings and purchase orders.
+
+    7. Record milestones and evidence; create exceptions with owner, deadline and escalation.
+
+    8. Collect delivery/release proof; check billable events and outstanding supplier costs.
+
+    9. Generate invoice from approved charges; reconcile external accounting identifiers if connected.
+
+   10. Track collection and match receipts; close financially after costs and adjustments are reconciled.
+
+
+Operational completion and financial closure are separate statuses. A delivered job may still have unreceived supplier
+invoices, an open claim or overdue receivables. Owners must see those distinctions.
+
+
+
+
+13 — Freight and commercial specification
+CRM: organizations/contacts, source, relationship owner, activities, opportunities, tenders, lost reasons, consent
+preferences and credit review. Rates: origin/destination, mode, service, supplier, validity, currency, units, minimums,
+surcharges, tier breaks and equipment/cargo restrictions. Quotations: revisions, charge lines, exclusions, validity,
+approval, acceptance and conversion lineage.
+
+
+Freight jobs: parties, incoterm, mode, cargo pieces/dimensions/weight, equipment, routing, planned/actual milestones,
+booking references, master/house links, carrier/agent, attachments, release conditions and charge allocations. Keep
+weight and volume units explicit. Chargeable-weight calculations use validated mode/provider rules rather than a
+single universal formula.
+
+
+Documents: commercial invoice, packing list, booking confirmation, transport documents, delivery order and shipment
+instructions as applicable. Version templates and distinguish a generated draft from an externally issued authoritative
+document. Record who approved or issued it; avoid implying the platform itself has authority to issue every regulated
+document.
+
+
+Consolidation allocations require an explicit basis such as volume, weight or agreed allocation; totals must reconcile to
+the master cost. Margin should show quotation estimate, updated expected cost and actual reconciled outcome.
+14 — Transport, delivery and COD specification
+Transport: customer orders, trip legs, load/capacity assignment, equipment, vehicle/driver availability, compliance
+expiries, maintenance blocks, supplier transport, route estimates, actual events, fuel/tolls, POD, detention and
+profitability. Driver workflows must be usable with large touch targets and poor connectivity.
+
+
+Delivery: parcel/barcode IDs, merchant order references, addresses, geocoding confidence, assignment, attempt
+events, customer instructions, reason codes, returns and proof. Delivery proof captures authorized
+signature/photo/time; optional location requires policy and permission. A notification failure does not reverse a
+successful delivery.
+
+
+COD: collection expected, collected, handed over, reconciled, merchant payable and settled are separate events.
+Require evidence and dual approval for cash adjustments. Example: three AED 100 collections and AED 250 handover
+create a visible AED 50 shortage, not a silently reduced merchant settlement. LOAD|BY|TON records this workflow;
+handling funds itself is outside this blueprint.
+
+
+Route optimization and live GPS need providers, validated constraints and actual telemetry. A map animation is not live
+tracking. Offline events retain local IDs and device time; the server resolves duplicates and conflicts without overwriting
+financial or approval records.
+
+
+
+
+15 — Warehouse and fulfilment specification
+WMS: sites/zones/bins, owner-specific SKUs, units and conversions, receipts/ASN, inspection, quarantine, putaway,
+reservation, picking, packing, dispatch, transfers, counts, adjustments, lot/serial/expiry and returns. FEFO/FIFO are
+configured policies; allocation changes need traceability.
+
+
+3PL custody stock is separated by owner even if the same SKU exists in the same building. Custody quantities are not
+automatically the warehouse company’s balance-sheet inventory. Movement records are immutable; corrections are
+compensating movements. Prevent negative available stock unless an explicitly authorized workflow supports it.
+
+
+Activity billing uses contract versions: pallet/day storage, receipt, pick, packing, labor or special handling. Define daily
+storage snapshot, unit conversion, minimum fees and partial-day treatment. A billing preview links every line to events
+and flags missing tariff matches; duplicate runs cannot duplicate charges.
+
+
+Fulfilment: merchant order import, external ID deduplication, reservation, pick/pack, label, shipment, tracking,
+cancellation and return inspection. If a channel cancels an already dispatched order, create a return/intercept
+exception; do not simply restore stock. Validate webhook ordering and reconcile channel totals.
+16 — Customs and UAE readiness
+Customs workspace: case reference, shipment link, importer/exporter identifiers, commodity lines, supporting
+evidence, permit checklist, declaration draft, inspection, deposit/guarantee tracking, duty/service charges and
+approved release evidence. Staff record authority responses and their timestamps.
+
+
+Dubai Trade supplies a Mirsal 2 environment for Dubai Customs processes; registration and enabled services are
+prerequisites. This blueprint does not establish that a public integration API is available to LOAD|BY|TON. Begin with
+controlled document/export handover; implement direct connectivity only through confirmed official access and
+customer authority. Dubai Trade and registration guidance.
+
+
+UAE eInvoicing is structured invoice exchange, not simply a PDF. Build an adapter to a verified accredited service
+provider, using the current mandatory-field and format requirements. Capture submission, acknowledgment, rejection,
+correction and reconciliation states. Provider selection and applicable implementation obligations need current
+customer-specific review. Do not call LOAD|BY|TON an accredited provider without accreditation. MoF programme and
+ASP register.
+
+
+Country configuration includes AED and multicurrency, English/Arabic documents and RTL layouts, tax identifiers, legal
+entity fields, tax-code mappings, audit records and configurable work calendars. Logistics tax treatment depends on
+the transaction and supporting facts; do not apply one generic VAT rule to all freight lines. Payroll/WPS, customs,
+dangerous-goods and other statutory capabilities remain separately reviewed projects.
+
+
+
+
+17 — Finance and accounting integrity
+Initial paid release should support robust job costing, operational invoices and collections plus one validated
+accounting integration. Native full accounting is a later release unless it can meet a finance-controller acceptance
+pack. This keeps a clear difference between “finance visibility” and a complete statutory accounting system.
+
+
+Native ledger requirements: balanced double-entry journals; chart of accounts; AP/AR; bank/cash reconciliation;
+currency and FX handling; credit notes; allocations; period locks; authorized reversals; tax reports; trial balance;
+balance sheet; profit/loss; opening balances; intercompany controls if sold. Posted entries are immutable and
+corrected by approved reversal/adjustment.
+
+
+Expected job margin = agreed revenue minus known and estimated attributable costs. Actual margin = reconciled
+recognized revenue minus posted attributable costs. Display remaining accruals and FX effects. Customer deposits,
+pass-through charges and revenue recognition require accountant-approved policies; they are not all sales income.
+
+
+With external accounting, define system of record for customers, invoices, tax, payment and ledger. Use an integration
+outbox and external IDs. A retry must never post a second invoice. Owner reports must flag unsynchronized invoices
+and never label partial operational data as reconciled books.
+18 — Work, communication and AI
+Every queue item needs an owner, priority, due time, business-calendar SLA, linked records and evidence.
+Department handovers require acceptance or a visible unassigned queue. Escalation should identify who can resolve
+the problem, not send repeated alerts to everyone.
+
+
+Shared inbox: conversation identity, company/record links, assignment, collision warnings, consent preferences,
+template versions, delivery status and failed-message handling. WhatsApp automation requires approved provider
+access and current policy compliance; it is not guaranteed by connecting a personal number. Call intake initially uses
+staff capture; recording/transcription needs explicit policy, permissions and an appropriate telephony provider.
+
+
+AI can extract draft fields from documents, suggest enquiry classification, draft replies, summarize job exceptions and
+explain reports with linked source evidence. Confidence and source provenance are visible. The AI reads only records
+the acting user can access. Apply prompt-injection defenses to uploaded documents; extracted text cannot authorize
+system actions.
+
+
+Human approval is required for prices sent to customers, supplier commitments, payments, posted journals, customs
+submissions, payroll, inventory adjustments and data deletion. Automation can execute low-risk reminders within
+approved templates and limits. Meter AI cost by tenant, use quotas, redact unnecessary personal data and maintain a
+deterministic fallback.
+
+
+
+
+19 — Three architectural planes
+Commerce plane: website, sector diagnosis, catalog, checkout and account acquisition. Control plane: tenant
+lifecycle, subscriptions, entitlements, payment reconciliation, provisioning, domains, staff support grants and rollout.
+Operating plane: the customer’s business records and workflows.
+
+
+The control plane grants commercial entitlements; the operating plane enforces them with membership, permissions
+and business rules. Separate service credentials and privileged administrative access. Operational tenant staff cannot
+edit platform subscription facts through an ordinary company API.
+
+
+Start with a modular monolith for transactional business logic, plus separate background workers. This is an
+architecture recommendation for affordability and manageable operations, not a claim that every scale requires it.
+Keep clean domain interfaces so high-volume tracking or integration workers can be separated when actual load
+justifies it.
+
+
+Proposed stack: TypeScript web/PWA interface and API, PostgreSQL transactional database, private object storage,
+durable queue workers, identity service, email/messaging/payment adapters and centralized monitoring.
+Hosting/managed-service choices require a current cost, security, region and recovery assessment before
+procurement. Do not depend on free hosting allowances as a production capacity guarantee.
+20 — Data model and invariants
+
+  Group                 Principal records
+
+
+  Identity              User, tenant, membership, role, scoped grant, entity, branch
+
+
+  Commercial            Party, contact, enquiry, opportunity, tariff, quote/version, contract
+
+
+  Operations            Job, leg, cargo item, equipment, milestone, exception, document/version
+
+
+  Transport             Vehicle, driver, trip, stop, POD, expense, maintenance block
+
+
+  Warehouse             Stock owner, SKU, location, lot, movement, reservation, count, activity
+
+
+  Finance               Charge, cost estimate, accrual, invoice/line, receipt, allocation, journal
+
+
+  Platform              Product, bundle, price version, subscription, entitlement, usage event
+
+
+  Service               Setup order, provision job/step, domain mapping, appointment, support grant
+
+
+  Integration           Connection, external mapping, webhook event, outbox, reconciliation run
+
+
+
+Each tenant-scoped record carries tenant_id and entity scope where applicable. Foreign keys must prevent a child in
+one tenant from referencing another tenant’s parent. Record money with fixed precision and currency; store events in
+UTC and render in the company timezone. Track original and converted units. Financial and stock documents need
+controlled numbering and immutable posting history.
+
+
+Useful invariants: journal debits equal credits; reserved stock cannot exceed allocatable stock; master charge
+allocations equal their source amount; one provider event causes at most one applied business transition; a tenant
+domain belongs to one verified mapping; an approved quote’s historical version never changes after conversion.
+
+
+
+
+21 — Tenant isolation and security
+Use database-enforced row policies or equivalently strong tenant enforcement backed by restricted runtime roles.
+Tenant identity comes from authenticated membership, not a browser-supplied tenant_id. Privileged workers must
+explicitly establish tenant scope. Include isolation tests for database queries, exports, files, search, caches, queues
+and AI retrieval.
+Private file storage uses tenant-scoped paths, access checks and short-lived signed access. Scan uploads, restrict
+types/size and prevent executable content from rendering as trusted application content. Encrypt transport and stored
+data through the selected infrastructure. Manage secrets outside code and logs.
+
+
+Require MFA for platform administrators and sensitive company roles. Support customer-controlled role grants,
+session revocation, audit trails and separation of payment preparation from approval. Field staff receive time-limited
+access with the customer’s permission and an audit record of operator identity.
+
+
+Establish privacy notices, customer/provider responsibilities, retention schedules, subprocessor disclosures, breach
+procedures and data access/export/deletion workflows. UAE data protection requirements and cross-border
+processing need deployment-specific review. Federal and special-jurisdiction requirements may differ; this is a design
+obligation, not legal certification. UAE official data protection overview.
+
+
+
+
+22 — Payments, entitlements and lifecycle
+Separate subscription state from payment attempt state. Maintain catalog versions, billing customer IDs, order lines,
+setup charges, subscription periods, discounts and effective entitlement dates. Never grant access solely from a
+browser success redirect.
+
+
+Payment processing sequence: create immutable order; request provider session; validate signature and
+amount/currency/reference on server event; persist event; apply idempotent subscription transition; queue
+provisioning; reconcile against provider records. Handle duplicate events, out-of-order delivery, delayed success,
+refunds, chargebacks and changed payment methods.
+
+
+Entitlement evaluation checks identity, membership, role/record scope, product right, quota and business-state
+preconditions. Quota increments are transactional to stop concurrent requests exceeding limits. Meter billable usage
+through immutable usage events and reconcile counters.
+
+
+Downgrade at renewal after previewing limits and workflow consequences. Paid-period cancellation retains agreed
+access. A published payment grace period precedes restriction. Exceeding storage or record limits blocks new excess
+usage, not reading existing records. Open cargo and posted finance records need a controlled transition path. Define
+export access and retention duration in the contract; do not invent unlimited perpetual hosting.
+
+
+
+
+23 — Provisioning and 24-hour activation
+State progression: payment pending → verified → information pending if required → queued → provisioning →
+validation → ready → onboarding. Failed and cancelled are explicit branches with reasons, owner and recovery
+actions. The free tenant is reused.
+Each provisioning step has a unique idempotency key: reserve slug; apply entitlement version; load configuration;
+attach routing; verify TLS; validate owner access; run health/isolation checks; send readiness notice; create
+onboarding work. Retrying resumes completed steps safely. Send notifications through an outbox after durable state
+changes.
+
+
+Advertise standard branded activation within 24 hours only after the platform can actually support it. The clock begins
+after verified payment and minimum setup information. Track p50/p95 duration, aged queue, failure rate and manual
+intervention. Custom domains, migration, field visits and external-provider approvals have separate milestones and
+conditions.
+
+
+Keep the standard subdomain working during custom-domain setup. Domain ownership, host routing and certificates
+must be verified; remove mappings safely on disconnection and prevent takeover. Do not use hostnames alone for
+access control. Set the compensation policy for provider-caused activation delay before making the promise public.
+
+
+
+
+24 — Reliability, APIs and recovery
+Use transactional outbox events for business changes that must trigger external work. Consumers deduplicate event
+IDs, retry with limits and route permanent failures to a staff-visible queue. Webhooks must be authenticated and
+replay-resistant. APIs support scoped credentials, pagination, versioning, limits, idempotent mutation and trace IDs.
+
+
+Connector states: requested, available, connected, validating, live, degraded and disconnected. Marketing says “live”
+only after a tested tenant flow is available. Connector acceptance includes retry, duplicate, expired authorization,
+provider outage, partial failure and reconciliation.
+
+
+Proposed general availability targets: 99.9% monthly application availability; p95 ordinary interactive reads under 1.5
+seconds at published pilot load; shared-platform RPO at most 1 hour and RTO at most 8 hours. These are engineering
+objectives to validate before contractual adoption, not present guarantees. More demanding recovery is separately
+priced.
+
+
+Restore tests must verify a tenant’s database records, object files, audit history and accounting/stock invariants. A
+backup job showing green is insufficient. Track queue age, provider errors, certificate expiry, latency, worker backlog,
+database saturation and tenant cost. Roll out schema/application changes through staging, canaries and reversible
+flags, preserving old event compatibility.
+
+
+
+
+25 — Onboarding and migration operations
+Basic setup is a bounded service: entity/branding, purchased templates, owner/staff invitation, initial customer import,
+one remote training session and acceptance checklist. Publish duration and record allowance. On-site visits, travel,
+printer/barcode setup and historical migration are scoped additions.
+Migration sequence: source inventory; permission and export; field mapping; quality review; dry-run import; customer
+validation; opening-balance/stock reconciliation; change freeze; final delta; cutover; monitored first transactions. Keep
+source files and import reports securely for the agreed period. Do not import unverified opening balances into posted
+finance.
+
+
+Preserve current workflows through staged adoption. Begin new jobs in LOAD|BY|TON while older jobs close in the
+existing system, or use a controlled cutoff. Avoid indefinite dual entry. Agree the system of record per function and
+publish the fallback if cutover fails.
+
+
+Technician work orders contain scope, prerequisites, appointment, access expiry, evidence, acceptance and
+unresolved issues. A visit completed is not the same as customer activation; activation means staff can complete the
+purchased end-to-end workflow.
+
+
+
+
+26 — Internal team and service governance
+Five staff could initially cover: product/operations owner; engineering lead; QA/security/release owner;
+onboarding/customer success; sales/support coordination. This is a responsibility map, not proof that five people can
+build and support the whole portfolio. Deep accounting and sector compliance need specialist review. Provide backup
+coverage for every critical role.
+
+
+Weekly operating review: paid activation, unresolved critical defects, customer exceptions, overdue provisioning,
+support hours per tenant, connector incidents, contribution and churn causes. Assign an incident commander and
+customer communications owner during outages.
+
+
+Proposed support tiers: urgent data/security or core-workflow failure; major partial disruption; normal assistance;
+service request. Publish response commitments and supported hours after staffing capacity is established. Response
+time does not equal resolution time. Low-cost plans cannot implicitly carry unlimited 24/7 human support.
+
+
+Partner onboarding/referral services may become a distribution channel. Partner compensation should follow verified
+collected revenue and account for refunds and cancellations. Disclose commercial relationships and prohibit
+exaggerated compliance or product promises.
+
+
+
+
+27 — Owner dashboard and management reports
+Owner view: estimated vs actual margin; unbilled completed jobs; overdue receivables; cash collection due; supplier
+exposure; exceptions approaching deadline; delayed milestones; document holds; team capacity; customer
+concentration; subscription usage. Every card links to actionable records and a responsible person.
+Sales reports: enquiry conversion, quote win/loss and rate validity. Freight: jobs by stage, margin variance, accrual
+completeness, detention exposure. Transport: utilization, on-time service, cost/trip and vehicle downtime. Warehouse:
+stock accuracy, occupied space, expiry risk and unbilled activity. Delivery: first-attempt completion, return reasons and
+COD differences. Finance: aging, collection cycle, reconciled balances and FX variance.
+
+
+Platform SaaS reports: activated tenants, free-to-paid conversion by cohort, MRR excluding setup, logo/revenue churn,
+payment recovery, onboarding hours, support cost, infrastructure cost and contribution. Define an activated forwarding
+customer as a genuine quote converted to a job with recorded cost and invoice workflow, not merely a login.
+
+
+
+
+28 — Go-to-market and growth
+Start with founder-led and partner-assisted selling to a single sector. Offer a short discovery using the customer’s
+actual workflow, then a free workspace and scoped paid pilot. Show one concrete result: jobs delivered but not yet
+invoiced, or costs missed before invoicing. Avoid claiming cost savings before measuring a baseline.
+
+
+Acquire through UAE business relationships, sector associations, practical workshops, referrals and accurate sector
+search pages. Public content should answer operational problems with real examples. Case studies require customer
+consent and verified results. Automated outreach must respect permissions and provider rules.
+
+
+The free product can create growth through customer invitations, useful quotation outputs and portal visibility, but
+default customer documents should not become advertising billboards. Owner-approved attribution and referral
+prompts are more credible. Do not spend on broad campaigns until retained usage and contribution support acquisition
+costs.
+
+
+Before a paid sale, send: scope, plan schedule, setup statement, integration status, support hours, data agreement,
+cancellation/export policy and acceptance criteria. Sales promises must match the released capability catalog.
+
+
+
+
+29 — Roadmap with release gates
+
+  Phase                        Deliverable                                     Gate before expansion
+
+
+  Discovery, suggested 2–      Interviews, workflow maps, cost model,          At least five committed design partners
+  3 weeks                      prototype and acceptance pack                   and a bounded first paid scope
+
+
+  Foundation, suggested        Tenant security, master data, free workspace,   Cross-tenant tests and successful tested
+  4–6 weeks                    documents, roles and audit                      restore
+  Phase                           Deliverable                                          Gate before expansion
+
+
+  First paid workflow,            CRM/quotes, forwarding jobs, costs, invoices,        Representative live cases pass finance
+  suggested 6–10 weeks            accounting bridge                                    and operational review
+
+
+  Commercial launch,              Checkout, entitlements, provisioning,                Payment failure/duplicates, downgrade
+  suggested 3–5 weeks             setup/support console, lifecycle                     and activation tests pass
+
+
+  Controlled pilot,               5–10 companies, supervised migration and             Retained use, reconciled data,
+  suggested 4–6 weeks             real support                                         manageable support and positive
+                                                                                       contribution
+
+
+  Expansion                       Transport/WMS/delivery, then specialist              Each sector passes its own evidence-
+                                  sectors and native ledger if justified               based gate
+
+
+
+Durations are rough sequential planning ranges, not commitments; specialist availability, existing code quality and
+connector approvals can materially change them. Do not sell all 18 sector packs at launch. Sell the first complete
+workflow and maintain a public status distinction between available, pilot and planned.
+
+
+
+
+30 — Acceptance scenarios and definition of done
+
+  Scenario                                             Required outcome
+
+
+  Cross-tenant access via edited ID or                 Denied across API, file, export, search and AI retrieval
+  hostname
+
+
+  Replayed payment success                             One effective entitlement transition and provisioning order
+
+
+  Provisioning interruption after slug assignment      Safe resume without duplicate tenant or mapping
+
+
+  Free-to-paid upgrade                                 Existing data, links and owner access preserved
+
+
+  Job delivered with late supplier invoice             Operationally complete; financial closure remains controlled; accrual
+                                                       visible
+
+
+  Warehouse count adjustment                           Authorized compensating movement; owner/lot totals reconcile
+
+
+  COD collection mismatch                              Separate shortage exception and settlement audit
+  Scenario                                         Required outcome
+
+
+  Accounting provider retry after timeout          Existing external invoice reconciled; no duplicate posting
+
+
+  Offline driver proof synchronized twice          One valid server event with retained source evidence
+
+
+  Downgrade while above capacity                   Read/export available under published policy; excess creation controlled
+
+
+  Domain removed or re-assigned                    Ownership revalidated; no tenant data exposure or takeover
+
+
+  Backup restored                                  Tenant documents, balances, permissions and audit verified
+
+
+
+A feature is released only when UI, API, authorization, entitlement enforcement, state logic, audit, realistic test cases,
+documentation, monitoring and support runbook exist. A dashboard with static records does not pass. A connector
+badge without a validated flow does not pass. A native finance module without reconciled books does not pass.
+
+
+
+
+31 — Main risks and controls
+Scope overload: release one complete sector before adding more. Low-price support losses: limit setup and
+standardize imports. Free-tier abuse: verification, quotas and fair scheduling. Incorrect accounting: specialist-reviewed
+posting and reconciliation. Integration dependency: explicit status, outage handling and manual handover. Security
+failure: tenant isolation and privileged-access controls. Regulatory overstatement: publish precise capabilities and
+separate approval dependencies. Customer lock-in fears: usable exports and clear exit policy.
+
+
+Avoid separate forks per customer. Branding, fields, roles and workflows should be configuration. Paid customization
+must use versioned extensions or an explicitly supported dedicated offering; otherwise hundreds of accounts become
+hundreds of maintenance projects.
+
+
+
+
+32 — Decisions required before implementation
+Approve the first sector and end-to-end scope; the contracting entity and payment merchant; hosting/region and
+recovery budget; pilot plan limits; accounting system of record; setup and visit coverage; support hours; free-tier
+retention/exit policy; initial connector provider; and specialist review owners. Verify domain ownership and final vector
+assets before deployment.
+
+
+The recommended first product is LOAD|BY|TON Forwarding Starter: enquiry → quote → job → supplier costs →
+document/milestone control → invoice → collection visibility, with a permanent free entry tier and branded activation.
+Build it so a small logistics owner can trust one complete daily workflow. Expand only when that trust, delivery quality
+and economics are established.
+
+
+
+
+33 — Source and evidence register
+The attached text is authoritative for the requested free-to-paid SaaS model, sector bundles, branded workspaces, 24-
+hour standard activation concept and assisted onboarding. The supplied PNGs are authoritative visual references. The
+recommendations and operating specifications in this report are newly proposed.
+
+
+Official vendor sources above support only the summarized product categories in the competitor table. No comparative
+pricing or proven superiority is claimed. UAE official sources support the eInvoicing/ASP distinction, Dubai Trade
+registration dependency and privacy design obligations. Requirements and provider availability must be rechecked at
+implementation and periodically thereafter.
+
+
+Additional official reading: Fresa global features, Zoho integrations, Odoo fleet documentation. This blueprint
+deliberately leaves external approval, actual vendor quotations and compliance validation as explicit dependencies
+rather than representing them as completed integrations.
+

@@ -1,0 +1,7 @@
+region = "me-dubai-1"
+compartment_ocid = ""
+availability_domain = ""
+ssh_public_key = ""
+operator_cidr = "203.0.113.1/32"
+ocpus = 2
+memory_gb = 12

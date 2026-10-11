@@ -10,26 +10,34 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "worker": "tsx src/worker.ts",
+    "preflight": "tsx scripts/preflight.ts",
+    "backup": "tsx scripts/backup.ts",
+    "restore": "tsx scripts/restore.ts",
+    "rotate-encryption-key": "tsx scripts/rotate-encryption-key.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/db/migrate-cli.ts",
     "create-staff": "tsx scripts/create-staff.ts",
     "seed-demo": "tsx scripts/seed-demo.ts",
     "verify": "tsx scripts/verify-invariants.ts",
-    "e2e": "tsx scripts/e2e.ts"
+    "e2e": "tsx scripts/e2e.ts",
+    "e2e:transport": "tsx scripts/e2e-transport.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@hono/node-server": "^2.1.4",
     "hono": "^4.13.13",
+    "nodemailer": "^10.1.0",
     "pg": "^8.23.1",
+    "tsx": "^4.23.15",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "playwright-core": "^1.64.0",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }
