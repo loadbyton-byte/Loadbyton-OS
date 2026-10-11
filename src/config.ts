@@ -85,6 +85,9 @@ export const config = {
   // ── live statement feeds (bank / card settlement / fuel card / Salik). A workspace may only point a feed at a host listed here; its credentials are its own.
   liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
 
+  // ── OCR for scanned documents: "none" (default) or "google-vision". Document content is sent to the provider, so its processing must be reviewed first.
+  ocr: { provider: (text("OCR_PROVIDER").toLowerCase() || "none"), apiKey: text("OCR_API_KEY"), apiBase: (env.OCR_API_BASE ?? "https://vision.googleapis.com").replace(/\/$/, ""), maxPages: Number(env.OCR_MAX_PAGES ?? 5), reviewed: flag("OCR_DATA_PROCESSING_REVIEWED") },
+
   // ── tax and seller identity shown at checkout (set from your own registrations; have an accountant confirm the treatment)
   vatBps: Number(env.CHECKOUT_VAT_BPS ?? 500),
   checkoutTaxNote: text("CHECKOUT_TAX_NOTE"),
@@ -164,6 +167,12 @@ export function validateConfig(c = config, production = isProd) {
   }
   if (c.liveFeeds.allowedHosts.some((h) => !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(h))) problems.push("FEED_ALLOWED_HOSTS must be a comma list of public host names (no schemes, ports or paths)");
   if (!Number.isInteger(c.liveFeeds.intervalMinutes) || c.liveFeeds.intervalMinutes < 15 || c.liveFeeds.intervalMinutes > 1440) problems.push("FEED_PULL_INTERVAL_MINUTES must be a whole number between 15 and 1440");
+  if (!["none", "google-vision"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none" or "google-vision" (got "${c.ocr.provider}")`);
+  if (c.ocr.provider === "google-vision") {
+    if (!c.ocr.apiKey) problems.push("OCR_API_KEY is required when OCR_PROVIDER=google-vision");
+    if (!c.ocr.reviewed) problems.push("OCR sends document content to the provider: set OCR_DATA_PROCESSING_REVIEWED=true once that processing has been reviewed");
+    if (!Number.isInteger(c.ocr.maxPages) || c.ocr.maxPages < 1 || c.ocr.maxPages > 5) problems.push("OCR_MAX_PAGES must be 1–5 (the provider's limit for inline PDFs)");
+  }
   if (!["log", "resend"].includes(c.mail.provider)) problems.push(`MAIL_PROVIDER must be "log" or "resend" (got "${c.mail.provider}")`);
   if (c.mail.provider === "resend") {
     if (!c.mail.resendApiKey.startsWith("re_")) problems.push("RESEND_API_KEY must be a Resend API key (re_…)");
