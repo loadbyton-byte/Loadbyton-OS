@@ -15,6 +15,11 @@ export const RATE_CODES = {
   return_unit: "Returns handling, per unit",
   storage_location_month: "Storage, per occupied location per month",
   storage_location_day: "Storage, per closing occupied location per Dubai day",
+  storage_pallet_day: "Storage, per closing occupied pallet position per Dubai day",
+  storage_cbm_day: "Storage, per closing stock cubic metre per Dubai day",
+  storage_location_peak_day: "Storage, per peak occupied location per Dubai day",
+  storage_pallet_peak_day: "Storage, per peak occupied pallet position per Dubai day",
+  storage_cbm_peak_day: "Storage, per peak stock cubic metre per Dubai day",
 } as const;
 export type RateCode = keyof typeof RATE_CODES;
 
@@ -40,7 +45,7 @@ export async function setRate(c: Conn, ctx: Ctx, f: Record<string, any>) {
   await assertWritable(c, ctx.tenantId);
   const code = String(f.code) as RateCode;
   if (!(code in RATE_CODES)) throw badRequest("Choose a rate type.");
-  if(code==='storage_location_day')throw badRequest('Daily storage requires an issued, reviewed contract in Daily storage.');
+  if(code.endsWith('_day'))throw badRequest('Daily storage requires an issued, reviewed contract in Daily storage.');
   await must(c.query(`SELECT id FROM parties WHERE id=$1 AND kind='customer'`, [f.party_id]), "Merchant");
   const amount = toMinor(f.amount || "0");
   const tax = TAX_CODES[f.tax_code] ? f.tax_code : "SR5";
@@ -57,7 +62,7 @@ export const listRates = (c: Conn) => c.query<any>(
 /** Unbilled activity per merchant, with the lines that would appear on the invoice. */
 export async function billingSummary(c: Conn) {
   const rows = (await c.query<any>(
-    `SELECT ch.party_id, p.name AS party_name, ch.code, ch.tax_code, ch.unit_minor, sum(ch.qty)::int AS qty, count(*)::int AS events
+    `SELECT ch.party_id, p.name AS party_name, ch.code, ch.tax_code, ch.unit_minor, sum(ch.qty)::float8 AS qty, count(*)::int AS events
      FROM fulfil_charges ch JOIN parties p ON p.id=ch.party_id WHERE ch.invoice_id IS NULL
      GROUP BY ch.party_id, p.name, ch.code, ch.tax_code, ch.unit_minor ORDER BY p.name, ch.code`)).rows;
   const byParty = new Map<string, { party_id: string; party_name: string; total: number; lines: any[] }>();
@@ -123,5 +128,5 @@ export async function runStorageCharges(c: Conn, ctx: Ctx, month: string) {
 }
 
 export const unbilledForParty = (c: Conn, partyId?: string | null) => c.query<any>(
-  `SELECT ch.*, o.no AS order_no FROM fulfil_charges ch LEFT JOIN fulfil_orders o ON o.id=ch.order_id
+  `SELECT ch.*, ch.qty::float8 AS qty, o.no AS order_no FROM fulfil_charges ch LEFT JOIN fulfil_orders o ON o.id=ch.order_id
    WHERE ch.invoice_id IS NULL AND ($1::uuid IS NULL OR ch.party_id=$1) ORDER BY ch.created_at DESC LIMIT 200`, [partyId ?? null]).then((r) => r.rows);
