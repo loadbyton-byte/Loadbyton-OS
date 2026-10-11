@@ -46,6 +46,7 @@ function Head({ p }: { p: Page }) {
       <link rel="apple-touch-icon" href="/brand/by-mark-192.png" />
       <link rel="stylesheet" href="/assets/app.css" />
       <script src="/assets/app.js" defer></script>
+      {p.path.startsWith("/app/driver") ? <link rel="manifest" href="/app/driver/manifest.webmanifest" /> : null}
       {p.path.startsWith("/app/driver") ? <script src="/assets/driver.js" defer></script> : null}
       {p.head ?? null}
     </head>
