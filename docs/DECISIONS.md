@@ -12,7 +12,7 @@
 | 8 | Free-tier retention/exit policy | Export exists; retention/deletion workflow not built |
 | 9 | Initial connector provider (e-invoicing ASP, WhatsApp, Mirsal) | **Mail: Resend and SMS: Twilio adapters built** (env-selected; default is log-only). E-invoicing ASP, WhatsApp and Mirsal remain *Planned* on `/integrations` |
 | 10 | Specialist review owners (accounting, customs, DG, cold chain) | Specialist sectors flagged "review required" |
-| 11 | Verify domain ownership; produce **vector** logo master and check BY mark at favicon size | Raster logos extracted from the blueprint PDF are used; `public/brand/by-mark-*.png` favicon checked at 64 px |
+| 11 | Verify domain registrant evidence and approve the vector identity | `public/brand` now contains outlined parent/.store/OS masters, rebuilt BY icons, full templates and an owner-review checklist, based on Project-Loadbyton. Owner artwork approval and registrar proof remain pending; SVG/PNG/DNS checks do not supply them |
 | 12 | Proration policy for mid-period upgrades | Pilot charges full first month, credits setup only |
 | 13 | Legal review of Terms/Privacy/DPA | Pages are marked **Draft** |
 

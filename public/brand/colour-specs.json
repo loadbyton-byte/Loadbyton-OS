@@ -1,0 +1,197 @@
+{
+  "navy": {
+    "hex": "#0F2B3D",
+    "rgb": [
+      15,
+      43,
+      61
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      75,
+      30,
+      0,
+      76
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "deep": {
+    "hex": "#0A1A24",
+    "rgb": [
+      10,
+      26,
+      36
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      72,
+      28,
+      0,
+      86
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "red": {
+    "hex": "#E53935",
+    "rgb": [
+      229,
+      57,
+      53
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      0,
+      75,
+      77,
+      10
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "redAccessible": {
+    "hex": "#C62828",
+    "rgb": [
+      198,
+      40,
+      40
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      0,
+      80,
+      80,
+      22
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "cream": {
+    "hex": "#FFFDF7",
+    "rgb": [
+      255,
+      253,
+      247
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      0,
+      1,
+      3,
+      0
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "paper": {
+    "hex": "#F5F6F4",
+    "rgb": [
+      245,
+      246,
+      244
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      0,
+      0,
+      1,
+      4
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "white": {
+    "hex": "#FFFFFF",
+    "rgb": [
+      255,
+      255,
+      255
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "ink": {
+    "hex": "#0F2129",
+    "rgb": [
+      15,
+      33,
+      41
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      63,
+      20,
+      0,
+      84
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "muted": {
+    "hex": "#586A72",
+    "rgb": [
+      88,
+      106,
+      114
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      23,
+      7,
+      0,
+      55
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "line": {
+    "hex": "#E5E8E3",
+    "rgb": [
+      229,
+      232,
+      227
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      1,
+      0,
+      2,
+      9
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "blue": {
+    "hex": "#2563EB",
+    "rgb": [
+      37,
+      99,
+      235
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      84,
+      58,
+      0,
+      8
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "green": {
+    "hex": "#2E7D32",
+    "rgb": [
+      46,
+      125,
+      50
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      63,
+      0,
+      60,
+      51
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  },
+  "amber": {
+    "hex": "#8A5A00",
+    "rgb": [
+      138,
+      90,
+      0
+    ],
+    "cmykApproximateUnprofiledPercent": [
+      0,
+      35,
+      100,
+      46
+    ],
+    "printNote": "Unprofiled estimate, not a press specification. Printer ICC conversion and physical proof required."
+  }
+}

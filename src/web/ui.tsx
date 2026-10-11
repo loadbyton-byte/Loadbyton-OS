@@ -39,12 +39,25 @@ function Head({ p }: { p: Page }) {
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>{p.title} · LOAD|BY|TON.store</title>
       <meta name="description" content={p.description ?? "Your logistics company, connected. Start free, choose the tools your business needs, and run enquiries, jobs, documents, deliveries and collections from one branded workspace."} />
-      <meta name="theme-color" content="#071D35" />
+      <meta name="theme-color" content="#0F2B3D" />
       <meta name="csrf-token" content={p.csrf} />
       {p.offlineScope?<meta name="driver-scope" content={p.offlineScope}/>:null}
       <link rel="icon" href="/brand/favicon.ico" sizes="any" />
-      <link rel="apple-touch-icon" href="/brand/by-mark-192.png" />
+      <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+      <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" sizes="180x180" />
+      {!p.path.startsWith("/app/driver") ? <link rel="manifest" href="/brand/site.webmanifest" /> : null}
+      {!p.path.startsWith("/app") && !p.path.startsWith("/admin") ? <>
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="LOAD|BY|TON.store" />
+        <meta property="og:title" content={p.title + " · LOAD|BY|TON.store"} />
+        <meta property="og:image" content={new URL("/brand/exports/templates/open-graph.png", config.baseUrl).href} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="LOAD|BY|TON.store — Run the movement. Know the margin." />
+        <meta name="twitter:card" content="summary_large_image" />
+      </> : null}
       <link rel="stylesheet" href="/assets/app.css" />
+      <link rel="stylesheet" href="/brand/design-tokens.css" />
       <script src="/assets/app.js" defer></script>
       {p.path.startsWith("/app/driver") ? <link rel="manifest" href="/app/driver/manifest.webmanifest" /> : null}
       {p.path.startsWith("/app/driver") ? <script src="/assets/driver.js" defer></script> : null}
@@ -65,7 +78,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => (
       <a class="skip" href="#main">Skip to content</a>
       <header class="site-head">
         <div class="wrap">
-          <a class="brand" href="/" aria-label="LOAD|BY|TON.store home"><img src="/brand/logo-navy.png" alt="LOAD|BY|TON.store" width="120" height="37" /></a>
+          <a class="brand" href="/" aria-label="LOAD|BY|TON.store home"><img src="/brand/logo-navy.svg" alt="LOAD|BY|TON.store" width="170" height="34" /></a>
           <nav class="nav" aria-label="Main">
             {PUBLIC_NAV.map(([h, l]) => <a href={h} aria-current={p.path === h || (h !== "/" && p.path.startsWith(h + "/")) ? "page" : undefined}>{l}</a>)}
             {p.user ? <a class="btn sm" href="/app">Open workspace</a> : (
@@ -81,7 +94,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => (
       <footer class="site">
         <div class="wrap grid g4">
           <div>
-            <img src="/brand/logo-silver.png" alt="LOAD|BY|TON.store" width="170" height="52" />
+            <img src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="170" height="34" />
             <p class="small" style="margin-top:12px">Run the movement. Know the margin.</p>
           </div>
           <div><h4>Product</h4><ul><li><a href="/products">Products</a></li><li><a href="/sectors">Sectors</a></li><li><a href="/pricing">Pricing &amp; plans</a></li><li><a href="/integrations">Integrations</a></li></ul></div>
@@ -109,7 +122,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
         {banner ? <div class="banner" role="status">{banner}</div> : null}
         <div class="shell">
           <aside class="side">
-            <a class="brand" href="/app"><img src="/brand/logo-silver.png" alt="LOAD|BY|TON.store" width="190" height="58" /></a>
+            <a class="brand" href="/app"><img src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="190" height="38" /></a>
             <div style="padding:0 20px 8px;font-weight:700">{tenantName}</div>
             <nav aria-label="Workspace">
               {sections.map((s) => (
@@ -148,7 +161,7 @@ export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
         <div class="banner" style="background:#FDECEE;border-color:var(--red);color:#7C0C15">Platform control console — privileged surface. All actions are audited.</div>
         <div class="shell">
           <aside class="side">
-            <a class="brand" href="/admin"><img src="/brand/logo-silver.png" alt="LOAD|BY|TON.store" width="190" height="58" /></a>
+            <a class="brand" href="/admin"><img src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="190" height="38" /></a>
             <nav aria-label="Control console">{nav.map(([h, l]) => <a href={h} aria-current={p.path === h || (h !== "/admin" && p.path.startsWith(h)) ? "page" : undefined}>{l}</a>)}</nav>
             <div class="me">{p.user?.name}
               <form method="post" action="/logout" style="margin-top:8px"><Csrf t={p.csrf} /><button class="btn ghost sm" style="color:#fff;border-color:#8EA3BA" type="submit">Sign out</button></form>
