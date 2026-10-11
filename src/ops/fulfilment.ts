@@ -687,7 +687,7 @@ export const listInbound = (c: Conn, partyId?: string | null,page=1) => c.query<
 
 export async function getInbound(c: Conn, id: string) {
   const inb = await must(c.query<any>(`SELECT i.*, p.name AS party_name FROM inbound_shipments i JOIN parties p ON p.id=i.party_id WHERE i.id=$1`, [id]), "Inbound");
-  const lines = (await c.query<any>(`SELECT l.*, s.code, s.name FROM inbound_lines l JOIN skus s ON s.id=l.sku_id WHERE l.inbound_id=$1 ORDER BY s.code`, [id])).rows;
+  const lines = (await c.query<any>(`SELECT l.*, s.code, s.name, s.tracking, s.rotation FROM inbound_lines l JOIN skus s ON s.id=l.sku_id WHERE l.inbound_id=$1 ORDER BY s.code`, [id])).rows;
   const receipts = (await c.query<any>(
     `SELECT r.*, s.code, loc.code AS location, u.name AS who FROM inbound_receipts r JOIN inbound_lines l ON l.id=r.line_id JOIN skus s ON s.id=l.sku_id
      JOIN wh_locations loc ON loc.id=r.location_id LEFT JOIN team_members u ON u.user_id=r.created_by WHERE l.inbound_id=$1 ORDER BY r.created_at`, [id])).rows;
@@ -892,7 +892,7 @@ export const listReturns = (c: Conn, partyId?: string | null,page=1) => c.query<
 
 export async function getReturn(c: Conn, id: string) {
   const ret = await must(c.query<any>(`SELECT r.*, p.name AS party_name, o.no AS order_no FROM fulfil_returns r JOIN parties p ON p.id=r.party_id LEFT JOIN fulfil_orders o ON o.id=r.order_id WHERE r.id=$1`, [id]), "Return");
-  const lines = (await c.query<any>(`SELECT l.*, s.code, s.name FROM fulfil_return_lines l JOIN skus s ON s.id=l.sku_id WHERE l.return_id=$1 ORDER BY s.code`, [id])).rows;
+  const lines = (await c.query<any>(`SELECT l.*, s.code, s.name, s.tracking, s.rotation FROM fulfil_return_lines l JOIN skus s ON s.id=l.sku_id WHERE l.return_id=$1 ORDER BY s.code`, [id])).rows;
   const receipts = (await c.query<any>(
     `SELECT r.*, s.code, loc.code AS location FROM fulfil_return_receipts r JOIN fulfil_return_lines l ON l.id=r.line_id JOIN skus s ON s.id=l.sku_id
      LEFT JOIN wh_locations loc ON loc.id=r.location_id WHERE l.return_id=$1 ORDER BY r.created_at`, [id])).rows;
@@ -928,7 +928,7 @@ export async function getFulfilOrder(c: Conn, id: string, ctx?:Ctx) {
 
 /** One row per SKU: where its units are and how many can still be promised to new orders. */
 export const stockOverview = (c: Conn, partyId?: string | null) => c.query<any>(
-  `SELECT s.id, s.code, s.name, s.barcode, s.reorder_point, s.active, s.party_id, p.name AS party_name,
+  `SELECT s.id, s.code, s.name, s.barcode, s.reorder_point, s.active, s.party_id, s.tracking, s.rotation, p.name AS party_name,
      coalesce(sum(l.on_hand) FILTER (WHERE loc.kind='bin'),0)::int AS in_bins,
      coalesce(sum(l.reserved) FILTER (WHERE loc.kind='bin'),0)::int AS reserved,
      coalesce(sum(l.on_hand) FILTER (WHERE loc.kind='receiving'),0)::int AS receiving,

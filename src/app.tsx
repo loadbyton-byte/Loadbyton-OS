@@ -30,6 +30,7 @@ import { weight } from "./web/chargeable-weight.js";
 import { schedule } from "./web/count-schedules.js";
 import { assistant } from "./web/assistant.js";
 import { fulfilStorage } from "./web/fulfil-storage.js";
+import { fulfilLots } from "./web/fulfil-lots.js";
 import { documentDrafts } from "./web/document-drafts.js";
 import { bodyLimit } from "hono/body-limit";
 import { routePath } from "hono/route";
@@ -88,6 +89,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", schedule);
   app.route("/", assistant);
   app.route("/", fulfilStorage);
+  app.route("/", fulfilLots);
   app.route("/", documentDrafts);
   app.route("/", workspace);
 

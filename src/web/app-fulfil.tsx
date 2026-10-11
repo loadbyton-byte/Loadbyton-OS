@@ -11,6 +11,7 @@ import {
 } from "../ops/fulfilment.js";
 import { RATE_CODES, billingSummary, invoiceMerchant, listRates, runStorageCharges, setRate, unbilledForParty } from "../ops/fulfil-billing.js";
 import { listParties } from "../ops/crm.js";
+import { issuedEvidence } from "../ops/fulfil-lots.js";
 import { formBody, str, type Env } from "./mw.js";
 import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table } from "./ui.js";
@@ -36,6 +37,7 @@ fulfil.get(F, async (c) => {
   return appPage(c, "Fulfilment board", (<>
     <PageHead title="Fulfilment board" sub="What is waiting at each stage — and what is late.">
       {can(c, "wh.write") ? <><a class="btn red sm" href={`${F}/orders/new`}>New order</a><a class="btn sm" href={`${F}/inbound/new`}>Expect a delivery</a></> : null}
+      <a class="btn ghost sm" href={`${F}/lots`}>Lots &amp; expiry</a>
     </PageHead>
     <div class="grid g4">
       <div class="card"><h3>Waiting for stock</h3><div class={`kpi ${n("backordered") ? "bad" : "good"}`}>{n("backordered")}</div></div>
@@ -269,7 +271,7 @@ fulfil.get(`${F}/inbound/new`, async (c) => {
 fulfil.post(`${F}/inbound`, async (c) => { need(c, "wh.write"); const b = await formBody(c); return act(c, `${F}/inbound/new`, async () => { const r = await withT(c, (cn, ctx) => createInbound(cn, ctx, { ...b, lines: str(b.lines) })); return { to: `${F}/inbound/${r.id}`, ok: `Inbound ${r.no} saved.` }; }); });
 fulfil.get(`${F}/inbound/:id`, async (c) => {
   const id = c.req.param("id");
-  const d = await withT(c, async (cn) => ({ ...(await getInbound(cn, id)), locations: (await listLocations(cn)).filter((l: any) => l.active && ["bin", "receiving"].includes(l.kind)) }));
+  const d = await withT(c, async (cn) => ({ ...(await getInbound(cn, id)), locations: (await listLocations(cn)).filter((l: any) => l.active && ["bin", "receiving"].includes(l.kind)), evidence: await issuedEvidence(cn) }));
   const csrf = c.get("csrf"), i = d.inb, canRecv = can(c, "wh.floor") && ["expected", "receiving"].includes(i.status);
   return appPage(c, i.no, (<>
     <PageHead title={`${i.no} · ${i.party_name}`} sub={`${i.reference ?? "no reference"} · expected ${dt(i.expected_at)}`}>
@@ -285,6 +287,10 @@ fulfil.get(`${F}/inbound/:id`, async (c) => {
             <form method="post" action={`${F}/inbound/${id}/receive`} class="inline-form"><Csrf t={csrf} /><input type="hidden" name="line_id" value={l.id} /><input type="hidden" name="token" value={tok()} />
               <input name="good" type="number" min="0" step="1" placeholder="Good" style="max-width:80px" aria-label={`Good ${l.code}`} /><input name="damaged" type="number" min="0" step="1" placeholder="Damaged" style="max-width:90px" aria-label={`Damaged ${l.code}`} />
               <select name="location_id" aria-label="Into location">{d.locations.map((x: any) => <option value={x.id}>{x.code}</option>)}</select>
+              {l.tracking === "serial" ? <><textarea name="serials" rows={2} placeholder="Good serials, one per line" aria-label={`Good serials ${l.code}`} /><textarea name="damaged_serials" rows={2} placeholder="Damaged serials" aria-label={`Damaged serials ${l.code}`} /></> : null}
+              {l.tracking !== "none" || l.rotation === "fefo" ? <>{l.tracking === "lot" ? <input name="lot" type="text" placeholder="Lot / batch" aria-label={`Lot ${l.code}`} style="max-width:120px" /> : null}
+                <input name="expires_at" type="date" aria-label={`Expiry ${l.code}`} title="Expiry date" />
+                <select name="document_id" aria-label="Issued source evidence"><option value="">Source evidence…</option>{d.evidence.map((e: any) => <option value={e.id}>{e.title}</option>)}</select></> : null}
               <label class="check" style="border:0;padding:0"><input type="checkbox" name="accept_over" value="1" /><span class="small">accept over-receipt</span></label>
               <button class="btn sm" type="submit">Receive</button></form>) : null}</td></tr>); })}</Table>
     {canRecv ? <p class="small mute">Good units go to the chosen location; damaged units go to quarantine (not sellable). Receiving reserves stock for waiting orders, oldest first. Submitting twice is safe.</p> : null}
@@ -294,7 +300,7 @@ fulfil.get(`${F}/inbound/:id`, async (c) => {
 fulfil.post(`${F}/inbound/:id/receive`, async (c) => {
   const id = c.req.param("id"), b = await formBody(c);
   return act(c, `${F}/inbound/${id}`, async () => {
-    const r = await withT(c, (cn, ctx) => receiveInbound(cn, ctx, id, { line_id: str(b.line_id), good: str(b.good), damaged: str(b.damaged), location_id: str(b.location_id), token: str(b.token), accept_over: str(b.accept_over) }));
+    const r = await withT(c, (cn, ctx) => receiveInbound(cn, ctx, id, { line_id: str(b.line_id), good: str(b.good), damaged: str(b.damaged), location_id: str(b.location_id), token: str(b.token), accept_over: str(b.accept_over), lot: str(b.lot), expires_at: str(b.expires_at), document_id: str(b.document_id), serials: str(b.serials), damaged_serials: str(b.damaged_serials) }));
     if (r.duplicate) return { to: `${F}/inbound/${id}`, ok: "Already recorded — nothing was added twice." };
     return { to: `${F}/inbound/${id}`, ok: `Received ${r.good} good, ${r.damaged} damaged.${r.allocated.units ? ` ${r.allocated.units} unit(s) reserved for waiting orders.` : ""}` };
   });
@@ -320,11 +326,13 @@ fulfil.get(`${F}/stock`, async (c) => {
           <div class="field"><label for="ts">SKU</label><select id="ts" name="sku_id" required>{skuOpts}</select></div>
           <div class="row"><div class="field"><label for="tf">From</label><select id="tf" name="from_location">{locOpts(["bin", "receiving", "quarantine"])}</select></div><div class="field"><label for="tt">To</label><select id="tt" name="to_location">{locOpts(["bin", "receiving", "quarantine"])}</select></div>
             <div class="field"><label for="tq">Quantity</label><input id="tq" name="qty" type="number" min="1" step="1" required /></div></div>
+          <div class="field"><label for="tl">Lot / serial (tracked SKUs)</label><input id="tl" name="lot" type="text" /></div>
           <button class="btn ghost sm" type="submit">Move</button></form></section>
       <section class="card"><h3>Count a bin</h3><p class="small mute">A difference raises an adjustment that someone else must approve; nothing changes until then.</p>
         <form method="post" action={`${F}/stock/count`}><Csrf t={csrf} />
           <div class="field"><label for="cs">SKU</label><select id="cs" name="sku_id" required>{skuOpts}</select></div>
           <div class="row"><div class="field"><label for="cl">Location</label><select id="cl" name="location_id">{locOpts(["bin", "receiving", "quarantine"])}</select></div><div class="field"><label for="cq">Counted</label><input id="cq" name="counted_qty" type="number" min="0" step="1" required /></div></div>
+          <div class="field"><label for="cl2">Lot / serial (tracked SKUs)</label><input id="cl2" name="lot" type="text" /></div>
           <div class="field"><label for="cr">Reason if different</label><input id="cr" name="reason" type="text" placeholder="e.g. damaged, mis-shelved, miscounted at receipt" /></div>
           <button class="btn ghost sm" type="submit">Submit count</button></form></section></div>) : null}
   </>));
@@ -377,8 +385,8 @@ fulfil.get(`${F}/catalog`, async (c) => {
   const csrf = c.get("csrf"), wr = can(c, "wh.write");
   return appPage(c, "Catalogue", (<>
     <PageHead title="Catalogue" sub="Each SKU belongs to one merchant; stock is never mixed between merchants." />
-    <Table head={["Merchant", "SKU", "Product", "Barcode", ["Reorder at", "num"], "Status", ""]} empty={d.skus.length ? undefined : "No SKUs yet."}>
-      {d.skus.map((s: any) => <tr><td>{s.party_name}</td><td><a href={`${F}/stock/${s.id}`}>{s.code}</a></td><td class="small">{s.name}</td><td class="small">{s.barcode ?? "—"}</td><td class="num">{s.reorder_point}</td><td><Badge s={s.active ? "ok" : "info"} label={s.active ? "active" : "inactive"} /></td>
+    <Table head={["Merchant", "SKU", "Product", "Barcode", ["Reorder at", "num"], "Control", "Status", ""]} empty={d.skus.length ? undefined : "No SKUs yet."}>
+      {d.skus.map((s: any) => <tr><td>{s.party_name}</td><td><a href={`${F}/stock/${s.id}`}>{s.code}</a></td><td class="small">{s.name}</td><td class="small">{s.barcode ?? "—"}</td><td class="num">{s.reorder_point}</td><td class="small">{s.tracking === "none" && s.rotation === "fifo" ? "—" : `${s.tracking !== "none" ? s.tracking : ""} ${s.rotation === "fefo" ? "FEFO" : ""}`.trim()}</td><td><Badge s={s.active ? "ok" : "info"} label={s.active ? "active" : "inactive"} /></td>
         <td>{wr ? <PostBtn action={`${F}/catalog/${s.id}`} csrf={csrf} label={s.active ? "Deactivate" : "Activate"} cls="ghost sm" fields={{ active: s.active ? "0" : "1" }} /> : null}</td></tr>)}</Table>
     {wr ? (<div class="grid g2" style="margin-top:22px">
       <section class="card"><h3>Add a SKU</h3>
@@ -386,6 +394,9 @@ fulfil.get(`${F}/catalog`, async (c) => {
           <div class="field"><label for="sm">Merchant</label><select id="sm" name="party_id" required><option value="">— select —</option>{d.merchants.map((p: any) => <option value={p.id}>{p.name}</option>)}</select></div>
           <div class="row"><div class="field"><label for="sc2">SKU code</label><input id="sc2" name="code" type="text" required /></div><div class="field"><label for="sb2">Barcode</label><input id="sb2" name="barcode" type="text" /></div></div>
           <div class="field"><label for="sn2">Product name</label><input id="sn2" name="name" type="text" required /></div>
+          <div class="row"><div class="field"><label for="st">Tracking</label><select id="st" name="tracking"><option value="none">None</option><option value="lot">Lot / batch</option><option value="serial">Serial number</option></select></div>
+            <div class="field"><label for="sro">Rotation</label><select id="sro" name="rotation"><option value="fifo">FIFO</option><option value="fefo">FEFO (expiry)</option></select></div>
+            <div class="field"><label for="ssh">Min. shelf days</label><input id="ssh" name="min_shelf_days" type="number" min="0" value="0" /></div></div>
           <div class="row"><div class="field"><label for="sw">Unit weight (g)</label><input id="sw" name="unit_weight_g" type="number" min="1" /></div><div class="field"><label for="sr">Reorder point</label><input id="sr" name="reorder_point" type="number" min="0" value="0" /></div></div>
           <button class="btn red" type="submit">Save SKU</button></form></section>
       <section class="card"><h3>Import SKUs (CSV)</h3><p class="small mute">Columns: <code>code,name</code> (optional <code>barcode,unit_weight_g,reorder_point</code>). Existing codes/barcodes are skipped. Max 5,000 rows.</p>
@@ -468,6 +479,7 @@ fulfil.get(`${F}/returns/:id`, async (c) => {
             <form method="post" action={`${F}/returns/${id}/receive`} class="inline-form"><Csrf t={csrf} /><input type="hidden" name="line_id" value={l.id} /><input type="hidden" name="token" value={tok()} />
               <input name="qty" type="number" min="1" max={left} step="1" value={left} style="max-width:80px" aria-label={`Quantity ${l.code}`} />
               <select name="disposition" aria-label="Disposition"><option value="restock">Restock (resellable)</option><option value="quarantine">Quarantine (inspect)</option><option value="dispose">Dispose</option></select>
+              {l.tracking !== "none" || l.rotation === "fefo" ? <input name="lot" type="text" placeholder={l.tracking === "serial" ? "Serial" : "Lot"} aria-label={`Lot or serial ${l.code}`} required style="max-width:120px" /> : null}
               <select name="location_id" aria-label="Restock into">{d.locations.map((x: any) => <option value={x.id}>{x.code}</option>)}</select>
               <button class="btn sm" type="submit">Receive</button></form>) : null}</td></tr>); })}</Table>
     {d.receipts.length ? <><h3 style="margin-top:22px">Receiving log</h3><Table head={["When", "SKU", ["Qty", "num"], "Disposition", "Location"]}>{d.receipts.map((x: any) => <tr><td class="small">{dt(x.created_at)}</td><td>{x.code}</td><td class="num">{x.qty}</td><td>{x.disposition}</td><td>{x.location ?? "—"}</td></tr>)}</Table></> : null}
@@ -476,7 +488,7 @@ fulfil.get(`${F}/returns/:id`, async (c) => {
 fulfil.post(`${F}/returns/:id/receive`, async (c) => {
   const id = c.req.param("id"), b = await formBody(c);
   return act(c, `${F}/returns/${id}`, async () => {
-    const r = await withT(c, (cn, ctx) => receiveReturn(cn, ctx, id, { line_id: str(b.line_id), qty: str(b.qty), disposition: str(b.disposition), location_id: str(b.location_id), token: str(b.token) }));
+    const r = await withT(c, (cn, ctx) => receiveReturn(cn, ctx, id, { line_id: str(b.line_id), qty: str(b.qty), disposition: str(b.disposition), location_id: str(b.location_id), token: str(b.token), lot: str(b.lot) }));
     return { to: `${F}/returns/${id}`, ok: r.duplicate ? "Already recorded — nothing was added twice." : "Received." };
   });
 });
