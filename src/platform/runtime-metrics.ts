@@ -25,7 +25,7 @@ export class RuntimeMetrics {
    this.requests.set(labels,sample);
   }
  };}
- worker(name:'provisioning'|'outbox'|'subscriptions'|'storage'|'privacy',failed=false){const sample=this.workers.get(name)??{runs:0,errors:0};sample.runs++;if(failed)sample.errors++;this.workers.set(name,sample);}
+ worker(name:'provisioning'|'outbox'|'subscriptions'|'storage'|'privacy'|'feeds',failed=false){const sample=this.workers.get(name)??{runs:0,errors:0};sample.runs++;if(failed)sample.errors++;this.workers.set(name,sample);}
  render(){
   const lines=['# TYPE lbt_process_start_time_seconds gauge',`lbt_process_start_time_seconds ${this.started}`,
    '# TYPE lbt_http_active_requests gauge',`lbt_http_active_requests ${this.active}`,

@@ -82,6 +82,9 @@ export const config = {
     templateLanguage: text("WHATSAPP_TEMPLATE_LANGUAGE") || "en", templateOutForDelivery: text("WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY"), templateAttemptFailed: text("WHATSAPP_TEMPLATE_ATTEMPT_FAILED"),
   },
 
+  // ── live statement feeds (bank / card settlement / fuel card / Salik). A workspace may only point a feed at a host listed here; its credentials are its own.
+  liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
+
   // ── tax and seller identity shown at checkout (set from your own registrations; have an accountant confirm the treatment)
   vatBps: Number(env.CHECKOUT_VAT_BPS ?? 500),
   checkoutTaxNote: text("CHECKOUT_TAX_NOTE"),
@@ -159,6 +162,8 @@ export function validateConfig(c = config, production = isProd) {
       if (!/^[a-z0-9_]{1,512}$/.test(v)) problems.push(`${k} must be the name of a template Meta has approved (lower-case letters, digits, underscores)`);
     if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(c.whatsapp.templateLanguage)) problems.push("WHATSAPP_TEMPLATE_LANGUAGE must be a language code such as en or ar");
   }
+  if (c.liveFeeds.allowedHosts.some((h) => !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(h))) problems.push("FEED_ALLOWED_HOSTS must be a comma list of public host names (no schemes, ports or paths)");
+  if (!Number.isInteger(c.liveFeeds.intervalMinutes) || c.liveFeeds.intervalMinutes < 15 || c.liveFeeds.intervalMinutes > 1440) problems.push("FEED_PULL_INTERVAL_MINUTES must be a whole number between 15 and 1440");
   if (!["log", "resend"].includes(c.mail.provider)) problems.push(`MAIL_PROVIDER must be "log" or "resend" (got "${c.mail.provider}")`);
   if (c.mail.provider === "resend") {
     if (!c.mail.resendApiKey.startsWith("re_")) problems.push("RESEND_API_KEY must be a Resend API key (re_…)");
