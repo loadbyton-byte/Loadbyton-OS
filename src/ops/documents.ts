@@ -79,7 +79,7 @@ export function signDownload(tenantId: string, docId: string, ttlSec = 300) {
   return { exp, sig: hmac(config.sessionSecret, `dl:${tenantId}:${docId}:${exp}`) };
 }
 export function verifyDownload(tenantId: string, docId: string, exp: number, sig: string) {
-  return exp > Date.now() / 1000 && safeEqual(sig, hmac(config.sessionSecret, `dl:${tenantId}:${docId}:${exp}`));
+  return exp > Date.now() / 1000 && [config.sessionSecret, config.previousSessionSecret].filter(Boolean).some((k) => safeEqual(sig, hmac(k, `dl:${tenantId}:${docId}:${exp}`)));
 }
 export async function readDocumentFile(storageKey: string, tenantId: string): Promise<Buffer> {
   if (!storageKey.startsWith(`${tenantId}/`)) throw new HttpError(403, "Not permitted", "forbidden");

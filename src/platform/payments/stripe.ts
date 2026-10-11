@@ -3,7 +3,7 @@ import { config } from "../../config.js";
 import { safeEqual } from "../../lib/util.js";
 import { ProviderError, WebhookSignatureError, type CheckoutOrder, type CheckoutSession, type CheckoutUrls, type Fetch, type HeaderGetter, type PaymentAdapter, type PaymentEvent } from "./types.js";
 
-export interface StripeConfig { secretKey: string; webhookSecret: string; apiBase: string; paymentMethods: string[] }
+export interface StripeConfig { secretKey: string; webhookSecret: string; webhookSecretPrevious?: string; apiBase: string; paymentMethods: string[] }
 const TOLERANCE_S = 300;
 
 /** Stripe-Signature: `t=<unix>,v1=<hex>[,v1=<hex>…]`; v1 = HMAC-SHA256(`${t}.${rawBody}`, endpoint secret). Any listed v1 may match (secret rotation). */
@@ -62,7 +62,7 @@ export function stripeAdapter(cfg: StripeConfig = config.stripe, fetchImpl: Fetc
     },
 
     parseWebhook(raw: string, header: HeaderGetter, now = Date.now()) {
-      if (!verifyStripeSignature(raw, header("stripe-signature"), cfg.webhookSecret, now)) throw new WebhookSignatureError("invalid signature");
+      if (![cfg.webhookSecret, cfg.webhookSecretPrevious].filter(Boolean).some((k) => verifyStripeSignature(raw, header("stripe-signature"), k as string, now))) throw new WebhookSignatureError("invalid signature");
       let ev: any;
       try { ev = JSON.parse(raw); } catch { throw new WebhookSignatureError("invalid payload"); }
       const obj = ev?.data?.object ?? {};
