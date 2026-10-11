@@ -8,11 +8,12 @@ import { must, recordId, reqStr } from "./common.js";
 export const RETENTION_SUBJECTS = {
   fulfil_recipient: "Fulfilment recipient name, phone and address on shipped or cancelled orders",
   delivery_consignee: "Delivery consignee name, phone, address and received-by on completed parcels",
+  driver_positions: "Driver GPS positions recorded during trips (deleted, not anonymised)",
 } as const;
 export type RetentionSubject = keyof typeof RETENTION_SUBJECTS;
 
 const HOLD = (party: string) => `NOT EXISTS (SELECT 1 FROM privacy_legal_holds h WHERE h.released_at IS NULL AND (h.party_id IS NULL OR h.party_id=${party}))`;
-const SQL: Record<RetentionSubject, { count: string; run: string }> = {
+const SQL = {
   fulfil_recipient: {
     count: `SELECT count(*)::int n FROM fulfil_orders o WHERE o.anonymised_at IS NULL AND o.status IN ('shipped','cancelled') AND coalesce(o.shipped_at,o.cancelled_at) < now() - make_interval(days => $1)
       AND NOT EXISTS (SELECT 1 FROM fulfil_returns r WHERE r.order_id=o.id AND r.status IN ('expected','received')) AND ${HOLD("o.party_id")}`,
@@ -27,6 +28,11 @@ const SQL: Record<RetentionSubject, { count: string; run: string }> = {
       WHERE id IN (SELECT s.id FROM dlv_shipments s WHERE s.anonymised_at IS NULL AND s.status IN ('delivered','return_to_sender','returned','cancelled') AND coalesce(s.delivered_at,s.returned_at,s.created_at) < now() - make_interval(days => $1)
         AND NOT EXISTS (SELECT 1 FROM dlv_collections k WHERE k.shipment_id=s.id AND k.remittance_id IS NULL) AND ${HOLD("s.merchant_id")} ORDER BY s.created_at, s.id LIMIT $2) RETURNING 1`,
   },
+} as Record<RetentionSubject, { count: string; run: string }>;
+
+SQL.driver_positions = {
+  count: `SELECT count(*)::int n FROM trip_positions p WHERE p.effective_time < now() - make_interval(days => $1) AND NOT EXISTS (SELECT 1 FROM privacy_legal_holds h WHERE h.released_at IS NULL AND h.party_id IS NULL)`,
+  run: `DELETE FROM trip_positions WHERE id IN (SELECT p.id FROM trip_positions p WHERE p.effective_time < now() - make_interval(days => $1) AND NOT EXISTS (SELECT 1 FROM privacy_legal_holds h WHERE h.released_at IS NULL AND h.party_id IS NULL) ORDER BY p.effective_time, p.id LIMIT $2) RETURNING 1`,
 };
 
 const owner = (ctx: Ctx) => { require(ctx, "settings.manage"); if (!ctx.roles.includes("owner")) throw forbidden("Retention and legal-hold decisions are made by the workspace owner."); };
@@ -109,6 +115,7 @@ export async function processDataMinimisation(db: Db, limit = 200) {
 const ERASURE_STEPS = [
   ["fulfil_orders", `SELECT count(*)::int n FROM fulfil_orders WHERE anonymised_at IS NULL`, `UPDATE fulfil_orders SET ship_to_name='Anonymised', ship_to_phone=NULL, ship_to_address='Anonymised', ship_to_city=NULL, anonymised_at=now() WHERE anonymised_at IS NULL`],
   ["dlv_shipments", `SELECT count(*)::int n FROM dlv_shipments WHERE anonymised_at IS NULL`, `UPDATE dlv_shipments SET consignee_name='Anonymised', consignee_phone=NULL, address='Anonymised', delivered_to=NULL, anonymised_at=now() WHERE anonymised_at IS NULL`],
+  ["trip_positions", `SELECT count(*)::int n FROM trip_positions`, `DELETE FROM trip_positions`],
   ["parties", `SELECT count(*)::int n FROM parties WHERE email IS NOT NULL OR phone IS NOT NULL`, `UPDATE parties SET email=NULL, phone=NULL, consent_marketing=false WHERE email IS NOT NULL OR phone IS NOT NULL`],
 ] as const;
 const RETAINED = [
@@ -124,6 +131,7 @@ const OPEN_WORK = [
   ["parcels not yet completed", `SELECT count(*)::int n FROM dlv_shipments WHERE status IN ('new','assigned','out_for_delivery','undelivered')`],
   ["cash collected but not remitted", `SELECT count(*)::int n FROM dlv_collections WHERE remittance_id IS NULL`],
   ["unpaid issued invoices", `SELECT count(*)::int n FROM invoices WHERE status IN ('issued','part_paid')`],
+  ["trips still live", `SELECT count(*)::int n FROM trips WHERE status IN ('dispatched','in_progress')`],
   ["open legal holds", `SELECT count(*)::int n FROM privacy_legal_holds WHERE released_at IS NULL`],
 ] as const;
 

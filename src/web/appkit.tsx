@@ -33,7 +33,7 @@ export function navFor(c: C): NavItem[] {
   if (t?.sectors.includes("courier-last-mile")) n.push({href:"/app/delivery",label:"Delivery & COD",section:"Delivery"});
   if (t?.sectors.includes("road-transport")) {
     n.push({ href: "/app/transport", label: "Planning board", section: "Transport" }, { href: "/app/transport/orders", label: "Transport orders", section: "Transport" },
-      { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" });
+      { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" }, { href: "/app/transport/live", label: "Live trips", section: "Transport" }, { href: "/app/transport/feeds", label: "Fuel & Salik", section: "Transport" });
   }
   if (t?.sectors.includes("ecommerce-fulfilment")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Fulfilment" });

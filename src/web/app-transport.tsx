@@ -172,7 +172,7 @@ transport.get(`${T}/trips/:id`, async (c) => {
       <div class={`card ${p.margin < 0 ? "flag" : ""}`}><h3>Trip margin</h3><div class={`kpi ${p.margin < 0 ? "bad" : ""}`}>{bps(p.marginBps)}</div><p class="small mute"><Money v={p.margin} /> · {p.reconciled ? "reconciled" : "not final: estimates included"}</p></div>
       <div class="card"><h3>Cost per km</h3><div class="kpi">{p.costPerKm ? <Money v={p.costPerKm} /> : "—"}</div><p class="small mute">{t.actual_km ? `${Number(t.actual_km)} km actual` : "set actual km on completion"}</p></div>
     </div>
-    <h3 style="margin-top:24px">Stops</h3>
+    <h3 style="margin-top:24px">Stops {canWrite && !["completed", "cancelled"].includes(t.status) ? <a class="btn ghost sm" href={`${T}/trips/${id}/route`}>Plan route</a> : null}</h3>
     <Table head={["#", "Stop", "Order", "Arrived", "Left", "Proof of delivery", "Detention"]}>
       {d.legs.map((l: any) => <tr><td>{l.seq}</td><td><strong>{l.kind}</strong><div class="small mute">{l.address}</div></td><td>{l.order_no}<div class="small mute">{l.customer}</div></td><td>{dt(l.arrived_at)}</td><td>{dt(l.departed_at)}</td>
         <td>{l.kind === "delivery" ? (l.pod_name ? <>{l.pod_name}<div class="small mute">{formatDate(l.pod_at)}{l.pod_lat ? ` · ${l.pod_lat}, ${l.pod_lng}` : ""}</div></> : <Badge s="open" label="awaiting" />) : "—"}</td>

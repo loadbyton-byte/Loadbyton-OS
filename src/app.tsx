@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Db } from "./db/client.js";
@@ -33,6 +35,7 @@ import { fulfilStorage } from "./web/fulfil-storage.js";
 import { fulfilLots } from "./web/fulfil-lots.js";
 import { fulfilSites } from "./web/fulfil-sites.js";
 import { fulfilOps } from "./web/fulfil-ops.js";
+import { transportLive } from "./web/transport-live.js";
 import { deliveryFinance } from "./web/delivery-finance.js";
 import { documentDrafts } from "./web/document-drafts.js";
 import { bodyLimit } from "hono/body-limit";
@@ -46,6 +49,11 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.use('*',bodyLimit({maxSize:config.maxUploadBytes+262144,onError:c=>c.text('Request too large',413)}));
   const metrics = options.metrics ?? new RuntimeMetrics();
   app.use("*", metrics.middleware());
+  // Driver offline shell: served without a session so the service worker can install and update; contains no tenant data.
+  const staticFile = (file: string, type: string, extra: Record<string, string> = {}) => async (c: any) => c.body(await fs.readFile(path.resolve("public", file)), 200, { "content-type": type, "cache-control": "no-cache", ...extra });
+  app.get("/app/driver/sw.js", staticFile("driver-sw.js", "application/javascript; charset=utf-8", { "service-worker-allowed": "/app/driver" }));
+  app.get("/app/driver/offline", staticFile("driver-offline.html", "text/html; charset=utf-8"));
+  app.get("/app/driver/manifest.webmanifest", staticFile("driver-manifest.webmanifest", "application/manifest+json; charset=utf-8"));
   app.use("/assets/*", async (c, next) => { await next(); c.header("Cache-Control", "public, max-age=300"); });
   app.use("/assets/*", serveStatic({ root: "./public" }));
   app.use("/brand/*", serveStatic({ root: "./public" }));
@@ -95,6 +103,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", fulfilLots);
   app.route("/", fulfilSites);
   app.route("/", fulfilOps);
+  app.route("/", transportLive);
   app.route("/", deliveryFinance);
   app.route("/", documentDrafts);
   app.route("/", workspace);

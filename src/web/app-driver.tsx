@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { HttpError, formatDate, fmtMoney } from "../lib/util.js";
 import { FAIL_REASONS, applyRiderEvent, getRun, riderHome, syncRiderEvents, type RiderEvent } from "../ops/delivery.js";
 import { applyDriverEvent, getTrip, listTrips, syncDriverEvents, type DriverEvent } from "../ops/transport.js";
+import { locationConsent, recordPositions, setLocationConsent } from "../ops/transport-live.js";
 import { storeDocument } from "../ops/documents.js";
 import {uploadExpenseReceipt} from '../ops/expense-receipts.js';
 import { formBody, str, type Env } from "./mw.js";
@@ -133,6 +134,7 @@ driver.get(`${D}/trips/:id`, async (c) => {
   const ctx = ctxOf(c), id = c.req.param("id");
   const d = await withT(c, (cn) => getTrip(cn, id));
   if (d.trip.driver_id !== ctx.driverId) throw new HttpError(404, "Trip not found");
+  const consent = await withT(c, (cn) => locationConsent(cn, ctx.driverId));
   const csrf = c.get("csrf");
   const live = ["dispatched", "in_progress"].includes(d.trip.status);
   const next = d.legs.find((l: any) => l.status !== "done");
@@ -145,6 +147,11 @@ driver.get(`${D}/trips/:id`, async (c) => {
   return appPage(c, d.trip.no, (<>
     <PageHead title={`Trip ${d.trip.no}`} sub={d.trip.reg_no}><a class="btn ghost sm" href={D}>← My trips</a></PageHead>
     <div id="offline-banner" class="alert warn" hidden>Saved on this phone — will sync when you are back online.</div>
+    {live ? (<section class="card" id="gps" data-trip={id} data-consent={consent ? "1" : "0"}>
+      <h2>Location sharing</h2>
+      <p class="small">{consent ? "Your phone is sending its position to the office while this trip is live. Switch it off any time." : "Off. If you switch it on, your phone sends its position to the dispatcher while this trip is live, and only then."}</p>
+      <form method="post" action={`${D}/location`} class="driver-form"><Csrf t={csrf} /><input type="hidden" name="grant" value={consent ? "0" : "1"} /><input type="hidden" name="trip_id" value={id} /><button class="btn big ghost" type="submit">{consent ? "Stop sharing my location" : "Share my location"}</button></form>
+    </section>) : null}
     {!live ? <div class="alert info">This trip is {d.trip.status}. {d.trip.status === "planned" ? "Wait for dispatch." : ""}</div> : null}
     {d.legs.map((l: any) => (
       <section class={`card leg ${l.status === "done" ? "done" : l === next ? "current" : ""}`}>
@@ -233,4 +240,18 @@ driver.post(`${D}/trips/:id/photo`, async (c) => {
     if (e instanceof HttpError && e.status < 500) return back(c, `${D}/trips/${id}`, undefined, e.message);
     throw e;
   }
+});
+driver.post(`${D}/location`, async (c) => {
+  need(c, "driver.act");
+  const b = await formBody(c), trip = str(b.trip_id);
+  await withT(c, (cn, ctx) => setLocationConsent(cn, ctx, str(b.grant) === "1"));
+  return back(c, `${D}/trips/${trip}`, str(b.grant) === "1" ? "Location sharing is on for live trips." : "Location sharing is off.");
+});
+// JSON batch of GPS fixes from the phone (same signed header token as /sync). Ignored without consent.
+driver.post(`${D}/positions`, async (c) => {
+  need(c, "driver.act");
+  let body: any;
+  try { body = await c.req.json(); } catch { throw new HttpError(400, "Invalid JSON"); }
+  const r = await withT(c, (cn, ctx) => recordPositions(cn, ctx, String(body?.trip_id ?? ""), Array.isArray(body?.points) ? body.points : []));
+  return c.json(r);
 });

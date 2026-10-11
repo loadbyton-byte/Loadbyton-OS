@@ -38,6 +38,8 @@ Source: user-uploaded **LOAD_BY_TON.store — Master Blueprint (1).pdf**, extrac
 
 - COD cash controls (migration 036): owner-set unsettled-cash and offline-window limits (new runs are held with a recorded supervisor override, late-synced events raise supervisor checks), bank statement CSV import with exact document-number/amount auto-matching of handover deposits and merchant payouts, manual match/classify/unmatch with separation of duties, unconfirmed deposit/payout reconciliation, and proposal/approval of cash-shortage write-offs with an owner threshold, a liability report and an accountant CSV. Automatic bank or card-provider *feeds* (API connections) are not built: statements, including refund lines classified as refunds, arrive by CSV; posting write-offs to the books remains an accountant's act.
 
+- Transport (migration 037): a driver-scope service worker (shell precached, last-seen pages kept for offline first-open, cleared on sign-out, writes never cached), per-driver scoped offline queues, driver-granted GPS sharing with offline buffering, a dispatcher live board and retention-managed positions, nearest-neighbour + 2-opt route planning that respects pickup-before-delivery on stops with coordinates, and fuel-card/Salik statement CSV import matched by plate and time into unapproved trip expenses with idempotent provider references. Provider *API* feeds, geocoding of addresses and traffic-aware routing are not built; coordinates are entered per stop and distances are straight-line.
+
 ## External acceptance — code is present; deployment evidence remains
 
 `RELEASE_ACCEPTANCE.md` lists merchant/provider credentials, live payment and wallet eligibility, actual regions/private buckets/tunnel, SMTP delivery, provider failover/PITR/restore, alert delivery, legal/tax/retention review, controller acceptance, specialist reviews and real pilot customers. These are not obtainable by inventing credentials, certifications or customer evidence.
@@ -49,7 +51,7 @@ These remain real work, not items that merely need environment variables:
 | Area | Remaining scope |
 |---|---|
 | Freight commercial depth | Richer opportunities/tenders/rate tiers and supplier contract restrictions; integrated forwarding master/house operations and authoritative issuer integration |
-| Transport | Offline first-open/service-worker strategy, GPS/route optimisation, fuel-card/Salik provider feeds |
+| Transport | Provider API feeds for fuel cards/Salik, address geocoding and traffic-aware routing (CSV statements and entered coordinates today) |
 | Delivery/COD | Live bank/card-provider API feeds (statements import by CSV today) and posting write-offs into an accounting system |
 | Fulfilment | Scheduled personal-data minimisation (see Legal/data operations); everything else in the former row is implemented |
 | Custody warehouse | Backorder/return policy, approved bonded/liability boundary, richer scanner/printer/RF integrations; the new traceability controls require real quality/sector review |

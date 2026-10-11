@@ -2,7 +2,10 @@
 // If the network fails the action is queued in localStorage and re-sent later; the server dedupes on the client event id,
 // so retries and double syncs are harmless.
 (function () {
-  var KEY = "lbt_driver_queue_v1";
+  var scopeMeta = document.querySelector("meta[name=driver-scope]"), SCOPE = scopeMeta ? scopeMeta.getAttribute("content") : "";
+  // queues are per signed-in driver, so a shared phone never replays one driver's actions under another's login
+  var KEY = "lbt_driver_queue_v2:" + SCOPE, GPS_KEY = "lbt_driver_gps_v1:" + SCOPE;
+  try { var legacy = localStorage.getItem("lbt_driver_queue_v1"); if (legacy && SCOPE && !localStorage.getItem(KEY)) { localStorage.setItem(KEY, legacy); } localStorage.removeItem("lbt_driver_queue_v1"); } catch (e) {}
   function csrf() { var m = document.querySelector("meta[name=csrf-token]"); return m ? m.getAttribute("content") : ""; }
   function load() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { return []; } }
   function save(q) { try { localStorage.setItem(KEY, JSON.stringify(q)); } catch (e) {} }
@@ -46,4 +49,37 @@
     var d = document.createElement("div"); d.className = "alert err"; d.setAttribute("role", "alert"); d.textContent = "Not applied: " + m; main.insertBefore(d, main.firstChild);
   }
   showMsg(); banner(); flush();
+
+  // ── offline first-open: the service worker keeps the shell and last-seen driver pages on this phone
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/app/driver/sw.js", { scope: "/app/driver/" }).catch(function () {});
+    document.addEventListener("submit", function (e) {
+      var f = e.target;
+      if (f instanceof HTMLFormElement && /\/logout$/.test(f.getAttribute("action") || "")) {
+        try { localStorage.removeItem(GPS_KEY); } catch (x) {}
+        if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "clear" });
+      }
+    }, true);
+  }
+
+  // ── GPS: only on a live trip page, only after the driver switched sharing on; buffered offline and sent in batches
+  var gps = document.getElementById("gps");
+  if (gps && gps.getAttribute("data-consent") === "1" && "geolocation" in navigator) {
+    var tripId = gps.getAttribute("data-trip"), last = 0;
+    var loadG = function () { try { return JSON.parse(localStorage.getItem(GPS_KEY) || "[]"); } catch (e) { return []; } };
+    var saveG = function (q) { try { localStorage.setItem(GPS_KEY, JSON.stringify(q.slice(-400))); } catch (e) {} };
+    var sendG = function () {
+      var q = loadG().filter(function (p) { return p.trip_id === tripId; }); if (!q.length) return;
+      fetch("/app/driver/positions", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json", "x-csrf-token": csrf() }, body: JSON.stringify({ trip_id: tripId, points: q.slice(0, 100) }) })
+        .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+        .then(function () { var sent = {}; q.slice(0, 100).forEach(function (p) { sent[p.device_time] = true; }); saveG(loadG().filter(function (p) { return !(p.trip_id === tripId && sent[p.device_time]); })); })
+        .catch(function () {});
+    };
+    navigator.geolocation.watchPosition(function (pos) {
+      var now = Date.now(); if (now - last < 20000) return; last = now;
+      var q = loadG(); q.push({ trip_id: tripId, lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy_m: Math.round(pos.coords.accuracy || 0), speed_kmh: pos.coords.speed != null ? Math.round(pos.coords.speed * 3.6) : undefined, device_time: new Date(pos.timestamp || now).toISOString() });
+      saveG(q);
+    }, function () {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+    setInterval(sendG, 60000); window.addEventListener("online", sendG); sendG();
+  }
 })();
