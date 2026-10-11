@@ -26,6 +26,7 @@
     "readiness": "tsx scripts/readiness.ts",
     "audit:brand": "tsx scripts/audit-brand-domain.ts",
     "e2e": "tsx scripts/e2e.ts",
+    "e2e:experience": "tsx scripts/e2e-experience.ts",
     "e2e:transport": "tsx scripts/e2e-transport.ts"
   },
   "dependencies": {

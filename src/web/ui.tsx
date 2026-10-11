@@ -1,4 +1,5 @@
 import type { Child } from "hono/jsx";
+import { Icon, WorkspaceTools } from "./experience.js";
 import { config } from "../config.js";
 import { fmtMoney } from "../lib/util.js";
 import { SECTORS } from "../platform/catalog.js";
@@ -58,6 +59,7 @@ function Head({ p }: { p: Page }) {
       </> : null}
       <link rel="stylesheet" href="/assets/app.css" />
       <link rel="stylesheet" href="/brand/design-tokens.css" />
+      <link rel="stylesheet" href="/assets/experience.css" />
       <script src="/assets/app.js" defer></script>
       {p.path.startsWith("/app/driver") ? <link rel="manifest" href="/app/driver/manifest.webmanifest" /> : null}
       {p.path.startsWith("/app/driver") ? <script src="/assets/driver.js" defer></script> : null}
@@ -68,18 +70,19 @@ function Head({ p }: { p: Page }) {
 
 const PUBLIC_NAV: [string, string][] = [
   ["/sectors", "Sectors"], ["/products", "Products"], ["/find-my-bundle", "Find my bundle"], ["/pricing", "Pricing"],
-  ["/how-activation-works", "How it works"], ["/security", "Security"], ["/help", "Help"],
+  ["/how-activation-works", "How it works"], ["/enterprise", "Enterprise"], ["/security", "Security"],
 ];
 
 export const PublicShell = ({ p, children }: { p: Page; children: Child }) => (
   <html lang="en">
     <Head p={p} />
-    <body>
+    <body class="public-experience">
       <a class="skip" href="#main">Skip to content</a>
       <header class="site-head">
         <div class="wrap">
           <a class="brand" href="/" aria-label="LOAD|BY|TON.store home"><img src="/brand/logo-navy.svg" alt="LOAD|BY|TON.store" width="170" height="34" /></a>
-          <nav class="nav" aria-label="Main">
+          <button class="site-menu-toggle btn ghost sm" type="button" data-site-menu aria-expanded="false" aria-controls="public-navigation" hidden>Menu</button>
+          <nav class="nav" id="public-navigation" aria-label="Main">
             {PUBLIC_NAV.map(([h, l]) => <a href={h} aria-current={p.path === h || (h !== "/" && p.path.startsWith(h + "/")) ? "page" : undefined}>{l}</a>)}
             {p.user ? <a class="btn sm" href="/app">Open workspace</a> : (
               <>
@@ -97,7 +100,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => (
             <img src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="170" height="34" />
             <p class="small" style="margin-top:12px">Run the movement. Know the margin.</p>
           </div>
-          <div><h4>Product</h4><ul><li><a href="/products">Products</a></li><li><a href="/sectors">Sectors</a></li><li><a href="/pricing">Pricing &amp; plans</a></li><li><a href="/integrations">Integrations</a></li></ul></div>
+          <div><h4>Product</h4><ul><li><a href="/products">Products</a></li><li><a href="/sectors">Sectors</a></li><li><a href="/pricing">Pricing &amp; plans</a></li><li><a href="/integrations">Integrations</a></li><li><a href="/enterprise">Enterprise controls</a></li></ul></div>
           <div><h4>Company</h4><ul><li><a href="/contact">Contact</a></li><li><a href="/coverage">Service coverage</a></li><li><a href="/stories">Customer stories</a></li><li><a href="/resources">Resources</a></li><li><a href="/status">Service status</a></li></ul></div>
           <div><h4>Legal</h4><ul><li><a href="/legal/terms">Terms</a></li><li><a href="/legal/privacy">Privacy</a></li><li><a href="/legal/data-processing">Data processing</a></li><li><a href="/legal/subprocessors">Subprocessors</a></li><li><a href="/legal/accessibility">Accessibility</a></li></ul></div>
         </div>
@@ -114,22 +117,24 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
   p: Page; nav: NavItem[]; tenantName: string; roles: string[]; banner?: string; children: Child; switcher?: Child;
 }) => {
   const sections = [...new Set(nav.map((n) => n.section ?? ""))];
+  const activeHref = nav.filter(n => p.path === n.href || (n.href !== '/app' && p.path.startsWith(n.href + '/')))
+    .sort((a,b) => b.href.length - a.href.length)[0]?.href;
   return (
     <html lang="en">
       <Head p={p} />
-      <body>
+      <body class="workspace-experience">
         <a class="skip" href="#main">Skip to content</a>
         {banner ? <div class="banner" role="status">{banner}</div> : null}
         <div class="shell">
-          <aside class="side">
+          <aside class="side" id="workspace-sidebar">
             <a class="brand" href="/app"><img src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="190" height="38" /></a>
-            <div style="padding:0 20px 8px;font-weight:700">{tenantName}</div>
+            <div class="tenant-label"><span class="tenant-indicator"></span>{tenantName}</div>
             <nav aria-label="Workspace">
               {sections.map((s) => (
                 <>
                   {s ? <h4>{s}</h4> : null}
                   {nav.filter((n) => (n.section ?? "") === s).map((n) => (
-                    <a href={n.href} aria-current={p.path === n.href || (n.href !== "/app" && p.path.startsWith(n.href)) ? "page" : undefined}>{n.label}</a>
+                    <a href={n.href} aria-current={n.href === activeHref ? "page" : undefined}><Icon name={n.section === "Money" ? "money" : n.section === "Admin" ? "shield" : n.section === "Transport" ? "truck" : n.section === "Operate" ? "document" : "grid"} /><span>{n.label}</span></a>
                   ))}
                 </>
               ))}
@@ -142,6 +147,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
             </div>
           </aside>
           <main id="main" class="main">
+            <WorkspaceTools title={p.title} tenantName={tenantName} nav={nav} />
             <Flash ok={p.ok} err={p.err} />
             {children}
           </main>
@@ -157,17 +163,18 @@ export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
   return (
     <html lang="en">
       <Head p={p} />
-      <body>
+      <body class="workspace-experience control-experience">
+        <a class="skip" href="#main">Skip to content</a>
         <div class="banner" style="background:#FDECEE;border-color:var(--red);color:#7C0C15">Platform control console — privileged surface. All actions are audited.</div>
         <div class="shell">
-          <aside class="side">
+          <aside class="side" id="workspace-sidebar">
             <a class="brand" href="/admin"><img src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="190" height="38" /></a>
-            <nav aria-label="Control console">{nav.map(([h, l]) => <a href={h} aria-current={p.path === h || (h !== "/admin" && p.path.startsWith(h)) ? "page" : undefined}>{l}</a>)}</nav>
+            <nav aria-label="Control console">{nav.map(([h, l]) => <a href={h} aria-current={p.path === h || (h !== "/admin" && p.path.startsWith(h + "/")) ? "page" : undefined}><Icon name="shield" /><span>{l}</span></a>)}</nav>
             <div class="me">{p.user?.name}
               <form method="post" action="/logout" style="margin-top:8px"><Csrf t={p.csrf} /><button class="btn ghost sm" style="color:#fff;border-color:#8EA3BA" type="submit">Sign out</button></form>
             </div>
           </aside>
-          <main id="main" class="main"><Flash ok={p.ok} err={p.err} />{children}</main>
+          <main id="main" class="main"><WorkspaceTools title={p.title} tenantName="Platform control" nav={nav.map(([href,label]) => ({href,label}))} /><Flash ok={p.ok} err={p.err} />{children}</main>
         </div>
       </body>
     </html>

@@ -1,3 +1,5 @@
+import { HomeExperience } from "./home-experience.js";
+import { Icon } from "./experience.js";
 import { Hono } from "hono";
 import { currentPlans, INTEGRATIONS, PLAN_SEEDS, PRODUCTS, recommendBundle, SECTORS, sectorBySlug, type PlanVersion } from "../platform/catalog.js";
 import { HttpError, badRequest, fmtMoney } from "../lib/util.js";
@@ -19,60 +21,31 @@ pub.get("/", async (c) => {
   const p = pg(c, "Logistics operating platform for UAE logistics companies");
   return c.html(
     <PublicShell p={p}>
-      <section class="hero">
-        <div class="wrap">
-          <img class="hero-logo" src="/brand/logo-silver.svg" alt="LOAD|BY|TON.store" width="560" height="112" />
-          <div class="eyebrow">Business · Product · Architecture · Execution</div>
-          <h1>Run the movement. Know the margin.</h1>
-          <p class="lead">Your logistics company, connected. Start free, choose the tools your business needs, and run enquiries, jobs, documents, deliveries and collections from one branded workspace.</p>
-          <div class="actions">
-            <a class="btn red" href="/start">Start free</a>
-            <a class="btn ghost" href="/find-my-bundle">Find my bundle</a>
-          </div>
-        </div>
-      </section>
-
-      <section class="block">
-        <div class="wrap">
-          <h2>One workspace. One set of records. Upgrade without starting over.</h2>
-          <div class="grid g3">
-            <div class="card flat"><h3>1 · Register once</h3><p>Company, contact, emirate and sectors. You get a real, empty workspace on the permanent Free plan — no trade documents demanded up front.</p></div>
-            <div class="card flat"><h3>2 · Add depth as you grow</h3><p>Buy sector bundles with a visible total price. The same company account upgrades in place; your customers, jobs and documents stay exactly where they are.</p></div>
-            <div class="card flat"><h3>3 · See the margin</h3><p>Quotation estimate, updated expected cost and actual reconciled outcome — kept separate, with “Why this number?” linking to source records.</p></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="block alt">
-        <div class="wrap">
-          <h2>First complete workflow: LOAD<span class="sep"></span>BY<span class="sep"></span>TON Forwarding Starter</h2>
-          <p class="prose">Enquiry → quote → job → supplier costs → document and milestone control → invoice → collection visibility. Build so a small logistics owner can trust one complete daily workflow before anything else is added.</p>
-          <ol class="stages" aria-label="Forwarding workflow">
-            {["Enquiry", "Quote", "Job", "Supplier costs", "Documents & milestones", "Invoice", "Collection"].map((s) => <li>{s}</li>)}
-          </ol>
-          <div class="grid g3">
-            <div class="card"><h3>Jobs delivered, not yet invoiced</h3><p>See them as soon as proof of delivery is on file — before cash leaks.</p></div>
-            <div class="card"><h3>Costs missed before invoicing</h3><p>Supplier costs stay as visible accruals until the supplier invoice is reconciled.</p></div>
-            <div class="card"><h3>Operational vs financial closure</h3><p>A delivered job can still have unreceived supplier invoices or overdue receivables. Owners see the difference.</p></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="block">
-        <div class="wrap">
-          <h2>Honest availability</h2>
-          <p class="prose">We sell the first complete workflow and publish a clear distinction between what is available, in pilot and planned. Nothing below is shown as live until a tested end-to-end flow exists.</p>
-          <div class="grid g3">
-            {PRODUCTS.map((x) => (
-              <div class="card"><h3>{x.name} <AvailBadge s={x.status} /></h3><p class="mute">{x.blurb}</p></div>
-            ))}
-          </div>
-          <p style="margin-top:20px"><a class="btn ghost" href="/sectors">See all 18 sector profiles</a></p>
-        </div>
-      </section>
+      <HomeExperience />
     </PublicShell>,
   );
 });
+
+pub.get("/enterprise", (c) => c.html(
+  <PublicShell p={pg(c, "Enterprise controls", { description: "Tenant isolation, team roles, reviewed financial operations, audit history and deployment readiness for your logistics workspace." })}>
+    <section class="block enterprise-intro"><div class="wrap"><span class="eyebrow">THE CONTROL BEHIND THE MOVEMENT</span><h1>More operational depth.<br />More deliberate control.</h1><p>Bring your team, workflows and evidence together. Enterprise capacity builds on the same company records and approval controls.</p><div class="actions"><a class="btn red" href="/contact">Discuss your requirements <Icon name="arrow" /></a><a class="btn hero-outline" href="/pricing">Compare plans</a></div></div></section>
+    <section class="block"><div class="wrap"><div class="section-heading"><div><span class="eyebrow">IMPLEMENTED PLATFORM CONTROLS</span><h2>Give every action<br />the right context.</h2></div><p>These controls exist in the platform. Your selected sectors, subscription capacity and team roles determine the tools available to each person.</p></div><div class="grid g2">
+      {[
+        ['shield', 'Company isolation & access', 'Tenant-scoped database transactions, row-level security, team permissions, customer portals, limited driver seats and company MFA.', '/security', 'Explore security'],
+        ['people', 'Governance & review', 'Independent approval for sensitive workflows, controlled support-access grants, audited staff actions and versioned source evidence.', '/security', 'Explore governance'],
+        ['money', 'Financial visibility', 'Invoices, collections, supplier bills, credit notes, exchange rates and an optional general ledger with sub-ledger reconciliation.', '/products', 'Explore products'],
+        ['document', 'Operational depth', 'Freight tenders, supplier contracts, master shipments, warehouse traceability, storage billing, transport receipts and delivery cash controls.', '/sectors', 'Explore sector workflows'],
+        ['grid', 'Platform management', 'Versioned plans, usage limits, billing, provisioning, rollout controls and a privileged platform console.', '/pricing', 'Compare capacity'],
+        ['clock', 'Continuity & monitoring', 'Health and worker readiness endpoints, gated metrics, encrypted backups, restore verification and retention review workflows.', '/security', 'Explore platform safeguards'],
+      ].map(([icon,title,body,href,label]) => <article class="card enterprise-feature"><Icon name={icon} /><div><h3>{title}</h3><p class="mute">{body}</p><a href={href}>{label} <Icon name="arrow" /></a></div></article>)}
+    </div></div></section>
+    <section class="block alt"><div class="wrap"><div class="section-heading"><div><span class="eyebrow">DEPLOYMENT IS A SEPARATE ACCEPTANCE STEP</span><h2>Configure. Rehearse.<br />Then accept.</h2></div><p>Software capability and production acceptance are different stages. External services must be configured and verified for your deployment.</p></div><div class="grid g3">
+      <article class="card"><Badge s="pilot" label="Pilot software" /><h3 style="margin-top:20px">Operational workflows</h3><p class="mute">Tested development flows need customer and operational acceptance before production rollout.</p></article>
+      <article class="card"><Badge s="planned" label="Provider setup required" /><h3 style="margin-top:20px">External integrations</h3><p class="mute">Payments, messaging, object storage, OCR, e-invoicing and statement feeds require provider configuration and acceptance.</p></article>
+      <article class="card"><Badge s="planned" label="Separate capability" /><h3 style="margin-top:20px">Marketplace & enterprise identity</h3><p class="mute">Public carrier bidding, escrow settlement, SAML SSO and SCIM provisioning are not available in this platform.</p></article>
+    </div><p style="margin-top:28px"><a href="/contact">Bring us your acceptance checklist <Icon name="arrow" /></a></p></div></section>
+  </PublicShell>
+));
 
 pub.get("/sectors", (c) => {
   const p = pg(c, "Sectors", { description: "18 configurable logistics sector profiles. Combine them in one company account." });

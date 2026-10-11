@@ -117,4 +117,51 @@ const BASE: Record<string, string> = {
   "Settings saved.": "تم حفظ الإعدادات.", "Language": "اللغة", "English": "English",
 };
 
-export const AR: Record<string, string> = { ...BASE, ...AR2, ...AR3 };
+
+const EXPERIENCE_AR: Record<string, string> = {
+  "Find a page": "ابحث عن صفحة",
+  "Menu": "القائمة",
+  "Go to a page": "الانتقال إلى صفحة",
+  "Search workspace pages": "ابحث في صفحات مساحة العمل",
+  "Search pages…": "ابحث عن صفحات…",
+  "Page search": "البحث عن صفحة",
+  "No matching pages. Try another name.": "لا توجد صفحات مطابقة. جرّب اسماً آخر.",
+  "Search the pages available to your role. Escape to close.": "ابحث في الصفحات المتاحة لدورك. اضغط Escape للإغلاق.",
+  "Workspace setup progress": "تقدم إعداد مساحة العمل",
+  "Enterprise": "المؤسسات",
+  "Enterprise controls": "ضوابط المؤسسات",
+  "General ledger": "دفتر الأستاذ العام",
+  "Statement feeds": "مصادر كشوف الحساب",
+  "Close": "إغلاق",
+  "YOUR LOGISTICS. CONNECTED.": "عملياتك اللوجستية. متصلة.",
+  "Back to the operating record.": "عد إلى سجل العمليات.",
+  "A new chapter. One workspace.": "فصل جديد. مساحة عمل واحدة.",
+  "From the first enquiry to the final collection. Give every team one place to move the work forward.": "من أول استفسار إلى التحصيل النهائي. امنح كل فريق مكاناً واحداً لإنجاز العمل.",
+  "Your company, your records": "شركتك، سجلاتك",
+  "Tenant isolation and role-based access.": "عزل الشركات والوصول حسب الأدوار.",
+  "Evidence stays with the work": "الأدلة مرتبطة بالعمل",
+  "Documents, approvals and milestones together.": "المستندات والموافقات والمراحل معاً.",
+  "Keep the margin in view": "تابع هامش الربح",
+  "Separate estimates from reconciled outcomes.": "افصل التقديرات عن النتائج المسوّاة.",
+  "Explore our security controls": "استكشف ضوابط الأمان",
+  "WELCOME BACK": "مرحباً بعودتك",
+  "START SOMETHING BETTER": "ابدأ تجربة أفضل",
+  "Your team, your records, your next move.": "فريقك، سجلاتك، خطوتك التالية.",
+  "Forgot password?": "نسيت كلمة المرور؟",
+  "ACCOUNT RECOVERY": "استعادة الحساب",
+  "Reset your password": "أعد تعيين كلمة المرور",
+  "Enter your account email. If an account exists, we will send a link that works once and expires in one hour.": "أدخل بريد حسابك الإلكتروني. إذا كان الحساب موجوداً، سنرسل رابطاً يُستخدم مرة واحدة وتنتهي صلاحيته خلال ساعة.",
+  "Send reset link": "أرسل رابط إعادة التعيين",
+  "Back to sign in": "العودة إلى تسجيل الدخول",
+  "Choose a new password": "اختر كلمة مرور جديدة",
+  "All existing sessions will be signed out. Your authenticator settings stay in place.": "سيتم تسجيل الخروج من جميع الجلسات الحالية. ستبقى إعدادات المصادقة كما هي.",
+  "New password": "كلمة المرور الجديدة",
+  "Save new password": "احفظ كلمة المرور الجديدة",
+  "Request a new reset link": "اطلب رابط إعادة تعيين جديد",
+  "If an account exists for this email, a reset link has been sent.": "إذا كان هناك حساب لهذا البريد الإلكتروني، فقد أُرسل رابط إعادة التعيين.",
+  "Password updated. Sign in with your new password.": "تم تحديث كلمة المرور. سجّل الدخول بكلمة المرور الجديدة.",
+  "This reset link is invalid or has expired. Request a new link.": "رابط إعادة التعيين غير صالح أو انتهت صلاحيته. اطلب رابطاً جديداً.",
+  "Too many requests. Try again in a few minutes.": "طلبات كثيرة جداً. حاول مجدداً بعد بضع دقائق."
+};
+
+export const AR: Record<string, string> = { ...BASE, ...AR2, ...AR3, ...EXPERIENCE_AR };

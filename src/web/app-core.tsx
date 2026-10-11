@@ -184,6 +184,7 @@ core.get("/app", async (c) => {
     {goal ? <p class="mute">Your first goal: <strong>{goal}</strong></p> : null}
     <div class="grid g2">
       <section class="card flat"><h3>Getting started · {done}/{data.checklist.length}</h3>
+        <progress class="setup-progress" value={done} max={data.checklist.length || 1} aria-label="Workspace setup progress">{done}/{data.checklist.length}</progress>
         <ul style="list-style:none;padding:0;margin:0">{data.checklist.map((x) => (
           <li style="padding:6px 0">{x.done ? <Badge s="ok" label="Done" /> : <Badge s="open" label="To do" />} <a href={x.href}>{x.label}</a></li>
         ))}</ul>

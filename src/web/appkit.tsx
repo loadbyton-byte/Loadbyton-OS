@@ -87,7 +87,7 @@ export function navFor(c: C): NavItem[] {
   if(ctx.perms.has('settings.manage'))n.push({href:'/app/migration',label:'Migration and calendar',section:'Admin'});
   n.push({href:'/account/security',label:'Account security',section:'Admin'});
   if (ctx.perms.has("audit.read")) n.push({ href: "/app/audit", label: "Audit trail", section: "Admin" });
-  return n;
+  return n.filter((item, index) => n.findIndex(other => other.href === item.href) === index);
 }
 
 export function appPage(c: C, title: string, body: Child, extra: Partial<Page> = {}) {

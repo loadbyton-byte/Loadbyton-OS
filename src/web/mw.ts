@@ -32,7 +32,8 @@ export const securityHeaders: MiddlewareHandler = async (c, next) => {
     "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
   c.header("X-Content-Type-Options", "nosniff");
   c.header("X-Frame-Options", "DENY");
-  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  // Recovery links contain bearer credentials; keep their complete URL out of referrers.
+  c.header("Referrer-Policy", c.req.path === '/reset-password' ? 'no-referrer' : 'strict-origin-when-cross-origin');
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   if (config.isProd) c.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
   if (!c.res.headers.has("Cache-Control") && !c.req.path.startsWith("/assets") && !c.req.path.startsWith("/brand")) c.header("Cache-Control", "no-store");
