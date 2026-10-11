@@ -5,6 +5,7 @@ import { badRequest, lineNet, toMinor } from "../lib/util.js";
 import { consumeQuota } from "../platform/entitlements.js";
 import { must, nextNumber, optStr, reqStr } from "./common.js";
 import { marginBps } from "./quotes.js";
+import { supplierProblems } from "./freight-commercial.js";
 
 const MILESTONES: Record<string, [string, string][]> = {
   air: [["booked", "Booking confirmed"], ["received", "Cargo received"], ["departed", "Departed"], ["arrived", "Arrived"], ["cleared", "Customs cleared"], ["delivered", "Delivered"]],
@@ -125,8 +126,19 @@ export async function completeOperationally(c: Conn, ctx: Ctx, jobId: string) {
 
 export async function addCost(c: Conn, ctx: Ctx, jobId: string, f: Record<string, any>) {
   require(ctx, "job.cost");
-  await c.query(`INSERT INTO job_costs(tenant_id,job_id,supplier_id,description,estimated_minor) VALUES ($1,$2,$3,$4,$5)`,
-    [ctx.tenantId, jobId, optStr(f.supplier_id, 40), reqStr(f.description, "Description", 300), toMinor(f.estimated || 0)]);
+  const supplier = optStr(f.supplier_id, 40);
+  let override: string | null = null;
+  if (supplier) {
+    const job = await must(c.query<any>(`SELECT mode, origin, destination FROM jobs WHERE id=$1`, [jobId]), "Job");
+    const problems = await supplierProblems(c, supplier, { mode: job.mode, origin: job.origin, destination: job.destination, amountMinor: toMinor(f.estimated || 0) });
+    if (problems.length) {
+      // an approver may knowingly proceed against a contract limit; the reason stays on the cost line
+      if (!f.contract_override || !ctx.perms.has("quote.approve")) throw badRequest(`${problems.join(" ")} ${ctx.perms.has("quote.approve") ? "Enter an override reason to proceed." : "An approver must authorise this."}`);
+      override = reqStr(f.contract_override, "Override reason", 500);
+    }
+  }
+  await c.query(`INSERT INTO job_costs(tenant_id,job_id,supplier_id,description,estimated_minor,contract_override) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [ctx.tenantId, jobId, supplier, reqStr(f.description, "Description", 300), toMinor(f.estimated || 0), override]);
   await audit(c, ctx.tenantId, actorOf(ctx), "cost.added", "job", jobId);
 }
 

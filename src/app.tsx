@@ -22,6 +22,7 @@ import { driver } from "./web/app-driver.js";
 import { admin } from "./web/admin.js";
 import { adminConsole } from "./web/admin-console.js";
 import { stockMigration } from "./web/stock-migration.js";
+import { freightCommercial } from "./web/freight-commercial.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
 import { connections } from "./web/connections.js";
@@ -84,8 +85,9 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", security);
   app.route("/", admin);
   app.route("/", adminConsole);
-  app.route("/", stockMigration);
   app.route("/", core);
+  app.route("/", stockMigration);
+  app.route("/", freightCommercial);
   app.route("/", connections);
   app.route("/", privacy);
   app.route("/", service);
@@ -129,7 +131,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
       const title = e.status === 403 ? "Not permitted" : e.status === 404 ? "Not found" : e.status === 402 ? "Plan limit reached" : "Something is not right";
       return errorPage(c, e.status, title, e.message);
     }
-    console.error("[error]", c.req.method, routePath(c)||'unmatched');
+    console.error("[error]", c.req.method, routePath(c)||"unmatched", process.env.LBT_DEBUG_ERRORS ? e : "");
     return errorPage(c, 500, "Something went wrong", "An unexpected error occurred. Refresh to check the record status before retrying. If it keeps happening, contact us with the time it happened.");
   });
   return app;

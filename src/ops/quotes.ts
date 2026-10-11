@@ -5,6 +5,7 @@ import { HttpError, TAX_CODES, badRequest, forbidden, lineNet, toMinor } from ".
 import { assertWritable } from "../platform/entitlements.js";
 import { must, nextNumber, optStr, reqStr, today } from "./common.js";
 import { createJobFromQuote } from "./jobs.js";
+import { priceRate, supplierProblems } from "./freight-commercial.js";
 
 export interface LineInput {
   description: string; qty: number; unit_sell: number | string; unit_cost?: number | string;
@@ -93,6 +94,19 @@ export async function submitQuote(c: Conn, ctx: Ctx, id: string) {
     if (exposure > limit) reasons.push(`credit exposure would exceed the customer's limit`);
   }
   if (d.lines.some((l: any) => l.rate_valid_to && String(l.rate_valid_to).slice(0, 10) < today())) reasons.push("a supplier rate used has expired");
+  // a line costed from a supplier rate must carry the cost that rate gives at that quantity (quantity breaks and minimum included)
+  for (const l of d.lines) {
+    if (!l.rate_id) continue;
+    const p = await priceRate(c, l.rate_id, Number(l.qty)).catch(() => null);
+    if (p && Math.abs(Math.round(Number(l.qty) * Number(l.unit_cost_minor)) - p.total_minor) > Math.max(1, Math.round(Number(l.qty)))) reasons.push(`line ${l.position} cost differs from its supplier rate (${(p.total_minor / 100).toFixed(2)} for this quantity)`);
+  }
+  // suppliers with a contract, a block, or a contract requirement must be usable for this lane, mode and amount
+  const enq = d.quote.enquiry_id ? (await c.query<any>(`SELECT mode, origin, destination FROM enquiries WHERE id=$1`, [d.quote.enquiry_id])).rows[0] : null;
+  for (const l of d.lines) {
+    if (!l.supplier_id) continue;
+    const probs = await supplierProblems(c, l.supplier_id, { mode: enq?.mode, origin: enq?.origin, destination: enq?.destination, amountMinor: Math.round(Number(l.qty) * Number(l.unit_cost_minor)) });
+    for (const pr of probs) reasons.push(`line ${l.position}: ${pr}`);
+  }
   const status = reasons.length ? "pending_approval" : "approved";
   await c.query(`UPDATE quotes SET status=$2, approval_reason=$3 WHERE id=$1`, [id, status, reasons.join("; ") || null]);
   await audit(c, ctx.tenantId, actorOf(ctx), "quote.submitted", "quote", id, { status, reasons });

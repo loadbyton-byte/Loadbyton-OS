@@ -133,7 +133,7 @@ sales.get("/app/rates", async (c) => {
     <PageHead title="Supplier rates" sub="Validity, currency, basis and exclusions are tracked. Expired rates flag quotes for approval." />
     <Table head={["Supplier", "Lane", "Charge", "Basis", ["Cost", "num"], "Valid", ""]} empty={d.rates.length ? undefined : "No rates yet."}>
       {d.rates.map((r: any) => <tr><td>{r.supplier_name ?? "—"}</td><td>{r.origin} → {r.destination} ({r.mode})</td><td>{r.charge_name}{r.exclusions ? <div class="small mute">Excl: {r.exclusions}</div> : null}</td><td>{r.basis.replace("_", " ")}</td>
-        <td class="num"><Money v={r.unit_cost_minor} cur={r.currency} /></td><td class="small">{formatDay(r.valid_from)} – {formatDay(r.valid_to)}</td><td>{r.expired ? <Badge s="expired" /> : <Badge s="ok" label="valid" />}</td></tr>)}
+        <td class="num"><Money v={r.unit_cost_minor} cur={r.currency} /></td><td class="small">{formatDay(r.valid_from)} – {formatDay(r.valid_to)}</td><td>{r.expired ? <Badge s="expired" /> : <Badge s="ok" label="valid" />} <a class="small" href={`/app/rates/${r.id}`}>Breaks</a></td></tr>)}
     </Table>
     {can(c, "rate.write") ? (
       <section class="card" style="margin-top:22px;max-width:820px"><h3>Add a rate</h3>
