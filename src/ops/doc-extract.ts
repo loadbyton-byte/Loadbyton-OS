@@ -1,6 +1,7 @@
 import type { Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
+import { defaultOcr, OCR_IMAGE_TYPES, OCR_MAX_BYTES, type OcrAdapter } from "../adapters/ocr.js";
 import { extractText } from "../lib/text-extract.js";
 import { badRequest, forbidden, sha256 } from "../lib/util.js";
 import { assertWritable } from "../platform/entitlements.js";
@@ -100,25 +101,35 @@ export function extractFields(text: string): Extracted[] {
   return out.sort((a, b) => a.offset - b.offset || a.key.localeCompare(b.key));
 }
 
-export async function extractFromDocument(c: Conn, ctx: Ctx, documentId: string) {
+export async function extractFromDocument(c: Conn, ctx: Ctx, documentId: string, ocrAdapter?: OcrAdapter) {
   require(ctx, "doc.write");
   await assertWritable(c, ctx.tenantId);
   if (ctx.partyId || ctx.supportStaffId) throw forbidden("Extraction needs an operating company session.");
   const doc = await must(c.query<any>(`SELECT * FROM documents WHERE id=$1 AND status='issued' AND NOT hold`, [recordId(documentId, "Document")]), "Issued document");
   const buf = await fetchDocumentFile(doc.storage_key, doc.tenant_id, doc.sha256);
-  const t = extractText(buf, doc.mime ?? "", doc.filename ?? doc.title ?? "");
+  let t = extractText(buf, doc.mime ?? "", doc.filename ?? doc.title ?? "");
+  let ocr = false;
+  const mime = String(doc.mime ?? "").toLowerCase(), scannable = mime === "application/pdf" || OCR_IMAGE_TYPES.includes(mime);
+  if (!t.readable && scannable && buf.length <= OCR_MAX_BYTES && (ocrAdapter ?? defaultOcr())) {
+    try {
+      const r = await (ocrAdapter ?? defaultOcr()!).recognise(buf, mime);
+      if (r.text.length >= 8) { t = { text: r.text, readable: true, method: "none", note: undefined }; ocr = true; }
+      else t = { ...t, note: "The OCR service found no readable text. Enter the details manually." };
+    } catch (e: any) { t = { ...t, note: `${e.message} Enter the details manually.` }; }
+  }
   const textHash = sha256(t.text);
   const old = (await c.query<any>(`SELECT * FROM document_extractions WHERE document_id=$1 AND extractor_version=$2 AND text_hash=$3`, [doc.id, EXTRACTOR_VERSION, textHash])).rows[0];
   if (old) return old;
   const fields = t.readable ? extractFields(t.text) : [];
   const warnings: string[] = [];
+  if (ocr) warnings.push("This text was recognised by OCR from a scan or image, not read from the document's own text. Check every value against the original before accepting it.");
   if (!t.readable) warnings.push(t.note ?? "No readable text.");
   else if (!fields.length) warnings.push("No recognised fields were found in this document's text.");
   for (const f of fields) { if (!f.valid) warnings.push(`${f.label} “${f.raw}” failed its ${f.check} check — do not rely on it.`); if (f.note) warnings.push(`${f.label}: ${f.note}`); }
   const row = (await c.query<any>(
     `INSERT INTO document_extractions(tenant_id,document_id,doc_sha256,extractor_version,text_hash,readable,fields,warnings,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
     [ctx.tenantId, doc.id, doc.sha256, EXTRACTOR_VERSION, textHash, t.readable, JSON.stringify(fields), JSON.stringify(warnings), ctx.userId])).rows[0];
-  await audit(c, ctx.tenantId, actorOf(ctx), "document.extracted", "document", doc.id, { extraction: row.id, fields: fields.length, readable: t.readable });
+  await audit(c, ctx.tenantId, actorOf(ctx), "document.extracted", "document", doc.id, { extraction: row.id, fields: fields.length, readable: t.readable, ocr });
   return row;
 }
 
