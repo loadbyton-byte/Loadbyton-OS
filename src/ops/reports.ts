@@ -11,13 +11,5 @@ export async function managementReports(c:Conn,ctx:Ctx) {
  const accuracy=(await c.query<any>(`SELECT count(*)::int AS approved_lines,count(*) FILTER(WHERE counted_qty=system_qty)::int AS exact_lines,coalesce(sum(abs(counted_qty-system_qty)),0) AS absolute_variance FROM wh_count_lines WHERE status='approved'`)).rows[0];
  const service=(await c.query<any>(`SELECT count(*) FILTER(WHERE status='open')::int AS open,count(*) FILTER(WHERE status='open' AND accepted_at IS NULL)::int AS unaccepted,count(*) FILTER(WHERE status='open' AND due_at<now())::int AS overdue FROM conversations`)).rows[0];
  const specialist=(await c.query<any>(`SELECT sector,status,count(*)::int AS cases FROM specialist_cases GROUP BY sector,status ORDER BY sector,status`)).rows;
- const cod=(await c.query<any>(`WITH adjusted AS(SELECT a.parcel_id,sum(CASE WHEN a.kind IN ('recovery','correction_in') THEN a.amount_minor ELSE -a.amount_minor END) delta,sum(CASE WHEN a.kind='recovery' THEN a.amount_minor ELSE 0 END) recovered FROM delivery_cash_adjustments a JOIN delivery_cash_adjustment_decisions x ON x.adjustment_id=a.id AND x.approved GROUP BY a.parcel_id),paid AS(SELECT parcel_id,sum(amount_minor) amount FROM delivery_remittances GROUP BY parcel_id)
- SELECT count(*)::int AS delivered,count(*) FILTER(WHERE d.id IS NULL)::int AS awaiting_review,
- coalesce(sum(p.cod_expected_minor),0) AS expected,coalesce(sum(cr.amount_minor),0) AS original_handover,
- coalesce(sum(a.delta),0) AS cash_change,coalesce(sum(cr.amount_minor+coalesce(a.delta,0)),0) AS current_cash,
- coalesce(sum(r.amount),0) AS remitted,coalesce(sum(greatest(0,p.cod_expected_minor-coalesce(r.amount,0))),0) AS outstanding,
- coalesce(sum(CASE WHEN d.id IS NOT NULL THEN greatest(0,d.expected_minor-least(d.collected_minor+coalesce(a.recovered,0),d.received_minor+coalesce(a.delta,0))) ELSE 0 END),0) AS reviewed_shortage,
- coalesce(sum(CASE WHEN d.id IS NOT NULL THEN greatest(0,least(d.expected_minor,d.collected_minor+coalesce(a.recovered,0),d.received_minor+coalesce(a.delta,0))-coalesce(r.amount,0)) ELSE 0 END),0) AS remittable
- FROM delivery_parcels p LEFT JOIN delivery_cod_decisions d ON d.parcel_id=p.id LEFT JOIN delivery_cash_receipts cr ON cr.parcel_id=p.id LEFT JOIN adjusted a ON a.parcel_id=p.id LEFT JOIN paid r ON r.parcel_id=p.id WHERE p.status='delivered' AND p.cod_expected_minor>0`)).rows[0];
- return {asOf:new Date().toISOString(),sales,lost,finance,transport,warehouse,utilization,accuracy,service,specialist,cod};
+ return {asOf:new Date().toISOString(),sales,lost,finance,transport,warehouse,utilization,accuracy,service,specialist};
 }

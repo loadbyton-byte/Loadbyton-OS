@@ -90,6 +90,42 @@ Run `npm run verify`. A "stock balance = sum of its ledger movements" violation 
 never edit either by hand — the ledger is the source of truth. Restore from backup, or post an approved count adjustment once the
 cause is understood. Reservation violations point at an interrupted allocation/pick; cancel the dispatch order to release them.
 
+
+## Delivery: a rider's cash is short or over
+Cash desk → count the cash against “expected”. A difference needs a note and a **second person** (owner excepted) to Accept or send back for a recount.
+Accepting records the variance against the rider (`Cash differences on record`); the merchant is still paid what was collected. Never edit a collection: the database refuses it.
+If a rider took cash for a parcel the system refused (“stored, not applied” on the board), the cash arrives as an **overage** at handover — find the parcel from the board's conflict list and fix the parcel, not the cash.
+
+## Delivery: paying a merchant
+Cash desk → “Owed to merchants” → Prepare (tick *Net fees* to invoice their rated delivery charges and settle them out of the COD). A different person confirms the payout with the bank transfer reference.
+A statement with no fees netted can be withdrawn before it is paid. If a statement is wrong after fees were netted, pay it, then correct through finance (credit/void) — do not delete.
+
+## Delivery: undelivered and return-to-sender
+Board → “Needs a decision”. Re-attempt (optionally with a corrected phone/address) or return to the merchant. A parcel that used all attempts is already marked return-to-sender with a 24-hour task.
+Confirm *returned* when it is physically back with the merchant: that accrues the return fee once.
+
+## Delivery: billing run
+Rates & billing → set the merchant's rate (activity before the rate existed is priced at the rate in force that day). “Invoice” bills all rated, unbilled activity up to today. Voiding the invoice releases the charges.
+
+## Delivery: a rider cannot see their run
+The run must be **Sent out**, the rider needs a login (Riders → Invite), and a rider can have one run out at a time. Close the previous run first.
+
+
+## Dead-lettered outbox rows (mail, SMS, webhooks, accounting)
+`lbt_outbox_rows{status="dead"}` > 0 (see `docs/MONITORING.md`). `SELECT topic, last_error, count(*) FROM outbox WHERE status='dead' GROUP BY 1,2;`
+- `email` + “rejected … domain” → fix the Resend sender domain (DKIM/SPF), then `UPDATE outbox SET status='pending', attempts=0, next_at=now() WHERE topic='email' AND status='dead'`. Invitation emails have already lost their link after a successful send, but a dead row still carries it — re-queueing is safe.
+- `merchant.webhook` + “410” or “address refused” → the merchant removed or moved the endpoint: ask them to update *Integrations*; re-queue after they do. They can always read parcel status through the API meanwhile.
+- `sms` + “rejected (… code 21211)” → bad number; nothing to retry.
+
+## A merchant API key leaked
+Delivery → Integrations → **Revoke** (takes effect on the next request), create a new key, give it to the merchant. Check *Last used*. A leaked key can only read/create that merchant's parcels; it cannot see other merchants, cash or rates.
+
+## A merchant's webhook secret leaked
+Integrations → tick **new secret** → Save (shown once). Old signatures stop verifying immediately.
+
+## Uptime alert on /readyz
+`curl -s https://www.yourdomain/readyz` shows which worker is stale (`outbox: silent for 300s`). `docker compose -f docker-compose.prod.yml logs --tail=200 web | grep worker:` for the error; restart the web container if a worker loop is wedged.
+
 ## Delivery: unsuccessful attempts and return to merchant
 
 Delivery → parcel → Dispatch chooses an active courier with an accepted individual driver invitation and a manual route reference. Drivers open My trips → My parcels. A failed attempt needs a reason and collects no COD. Redispatch a failed parcel for another attempt, or record its return with a reason. Delivery requires recipient proof; its recorded evidence cannot be overwritten. Only undispatched parcels can be cancelled. Parcel events currently require an online connection; the Transport offline queue does not cover COD.
@@ -129,7 +165,7 @@ Serial inventory moves in single whole units and cannot exist twice across locat
 
 Capture the source reference and party; record actual email consent. The assigned team member accepts a handover before drafting a reply. Owner approval captures the recipient and consumes the plan's message allowance; only approved drafts enter the outbox. Inspect the configurable Dubai business calendar when a due date is disputed.
 
-A timeout after SMTP submission can mean delivery succeeded. The system places such a message in delivery review and prevents automatic resending. Inspect the provider delivery log using the recorded deterministic Message-ID, then record supporting evidence with **confirmed sent**, **retry**, or **cancel**. Retry is an explicit owner decision after checking the recipient/consent and the expired worker lease; it is not proof that an earlier delivery failed. SMTP cannot provide a universal exactly-once delivery guarantee. Actual inbound mail/WhatsApp ingestion is not implemented by the manual capture form.
+A timeout after mail-provider submission can mean delivery succeeded. The system places such a message in delivery review and prevents automatic resending. Inspect the provider delivery log using the recorded deterministic Message-ID, then record supporting evidence with **confirmed sent**, **retry**, or **cancel**. Retry is an explicit owner decision after checking the recipient/consent and the expired worker lease; it is not proof that an earlier delivery failed. mail-provider cannot provide a universal exactly-once delivery guarantee. Actual inbound mail/WhatsApp ingestion is not implemented by the manual capture form.
 
 ## Source-evidenced party migration
 

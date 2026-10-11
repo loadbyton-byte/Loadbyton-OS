@@ -222,7 +222,7 @@ pub.get("/pricing", async (c) => {
         </table></div>
         <h2 style="margin-top:32px">How limits work</h2>
         <ul class="prose">
-          <li>A <strong>job</strong> is an operational case with a unique job ID; milestones are not metered separately. Billing units differ per sector: a forwarding <strong>job</strong>, a transport <strong>trip</strong> and a warehouse <strong>order</strong> (one inbound notice or one dispatch order) are separate allowances, and a parcel or a warehouse scan would be a different unit again.</li>
+          <li>A <strong>job</strong> is an operational case with a unique job ID; milestones are not metered separately. Billing units differ per sector: a forwarding <strong>job</strong>, a transport <strong>trip</strong>, a delivery <strong>parcel</strong> and a warehouse <strong>order</strong> (one inbound notice or one dispatch order) are separate allowances, and a warehouse scan would be a different unit again.</li>
           <li>Exceeding storage or record limits blocks <em>new</em> excess usage — it never blocks reading or exporting existing records.</li>
           <li>Downgrades apply at renewal after a preview of the consequences. Paid-period cancellation keeps agreed access. A published grace period precedes restriction.</li>
           <li>We do not offer unlimited messaging, AI, storage or visits in low-priced bundles. No unlimited 24/7 human support is implied on low-cost plans.</li>
@@ -337,7 +337,7 @@ pub.get("/coverage", (c) => c.html(
       <p><strong>Market:</strong> UAE-first. Initial design partners are small UAE freight forwarders that coordinate transport through suppliers and currently use email, WhatsApp and spreadsheets.</p>
       <p><strong>Software:</strong> English interface today; AED and multi-currency fields, tax identifiers, tax-code mappings and Arabic/RTL document layouts are on the roadmap.</p>
       <p><strong>Setup:</strong> basic setup is a bounded remote service — entity/branding, purchased templates, owner/staff invitation, initial customer import, one remote training session and an acceptance checklist. On-site visits, travel, printer/barcode setup and historical migration are scoped additions.</p>
-      <p><strong>Not covered:</strong> global customs coverage, airport-certified systems, complex bonded warehouse automation, enterprise-wide migration.</p>
+      <p><strong>Not covered:</strong> filing customs declarations (the customs module is case management and a controlled handover to your licensed broker channel), global customs coverage, airport-certified systems, complex bonded warehouse automation, enterprise-wide migration.</p>
     </div></section>
   </PublicShell>));
 
@@ -368,7 +368,7 @@ pub.get("/legal/:doc", (c) => {
       <section class="block"><div class="wrap prose">
         {config.legalReviewed?null:<div class="draft-note"><strong>Draft — requires legal review before publication.</strong> Review this service-specific copy with the contracting entity before setting LEGAL_REVIEWED.</div>}
         <h1>{d.title}</h1>{d.body}
-        {config.merchant.legalName?<p>Contracting service provider: {config.merchant.legalName}, {config.merchant.address}, {config.merchant.country}. {config.merchant.taxId?`Tax registration: ${config.merchant.taxId}.`:''} Contact: {config.merchant.supportEmail}.</p>:null}
+        {config.seller.legalName?<p>Contracting service provider: {config.seller.legalName}, {config.seller.address}. {config.seller.gstin?`Tax registration: ${config.seller.gstin}.`:''} Contact: {config.seller.email}.</p>:null}
       </div></section>
     </PublicShell>);
 });

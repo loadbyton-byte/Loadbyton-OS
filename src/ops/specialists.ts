@@ -5,7 +5,7 @@ import {badRequest,forbidden,HttpError,TAX_CODES,sha256} from '../lib/util.js';
 import {assertWritable,consumeQuota} from '../platform/entitlements.js';
 import {SPECIALIST_PROFILES,parseFields} from './specialist-profiles.js';
 import {must,nextNumber,recordId,reqStr,today} from './common.js';
-import {deliveryMoney} from './delivery.js';
+import {deliveryMoney} from '../lib/money.js';
 import {issueInvoice} from './finance.js';
 
 export const specialistProfile=(sector:string)=>{const p=SPECIALIST_PROFILES[sector];if(!p)throw badRequest('Unknown specialist profile');return p;};

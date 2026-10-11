@@ -1,5 +1,5 @@
 import type {Db} from '../db/client.js';
-import type {RuntimeMetrics} from './metrics.js';
+import type {RuntimeMetrics} from './runtime-metrics.js';
 export async function collectQueueMetrics(db:Db,metrics:RuntimeMetrics) {
  const row=(await db.query<any>(`SELECT
  (SELECT count(*) FROM outbox WHERE status='pending' AND topic<>'staff.review') outbox_pending,

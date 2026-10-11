@@ -4,7 +4,7 @@ import os from 'node:os';
 import {spawn} from 'node:child_process';
 import crypto from 'node:crypto';
 import {openDb} from '../src/db/client.js';
-import {objectStorage} from '../src/adapters/storage.js';
+import {storage} from '../src/lib/storage.js';
 import {sha256} from '../src/lib/util.js';
 import {encryptBackup} from '../src/platform/backup.js';
 import {libpqEnv} from '../src/db/libpq.js';
@@ -29,7 +29,7 @@ try {
   for(const table of tables){if(!/^[a-z_]+$/.test(table))throw new Error('Unexpected backup table name');manifest.counts[table]=Number((await c.query<any>(`SELECT count(*) n FROM ${table}`)).rows[0].n);}
  });
  for(const doc of manifest.objects) {
-  const data=await objectStorage().get(doc.storage_key);
+  const data=await storage.get(doc.storage_key);
   if(sha256(data)!==doc.sha256||data.length!==Number(doc.size_bytes))throw new Error('Backup document integrity check failed');
   const file=path.join(dir,'objects',doc.storage_key);await fs.mkdir(path.dirname(file),{recursive:true,mode:0o700});await fs.writeFile(file,data,{mode:0o600});
  }

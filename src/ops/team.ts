@@ -1,9 +1,9 @@
 import type { Db, Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { ROLES, actorOf, require, type Ctx } from "../lib/perms.js";
-import { HttpError, badRequest, checkPasswordStrength, hashPassword, randomToken, sha256,verifyPassword } from "../lib/util.js";
-import {encryptSecret} from '../lib/encryption.js';
-import {rateLimit} from '../adapters/rate-limit.js';
+import { HttpError, badRequest, baseUrl, checkPasswordStrength, hashPassword, randomToken, sha256, verifyPassword } from "../lib/util.js";
+import { encryptSecret } from "../lib/encryption.js";
+import { rateLimit } from "../adapters/rate-limit.js";
 import { assertCapacity, getLimit } from "../platform/entitlements.js";
 import { optStr } from "./common.js";
 
@@ -41,7 +41,7 @@ export async function invite(c: Conn, ctx: Ctx, f: { email: string; roles: unkno
     `INSERT INTO invitations(tenant_id,email,roles,party_id,driver_id,token_hash,expires_at,created_by) VALUES ($1,$2,$3,$4,$5,$6, now() + interval '7 days',$7)`,
     [ctx.tenantId, email, roles, optStr(f.party_id, 40), roles.includes("driver") ? f.driver_id : null, sha256(token), ctx.userId]);
   await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'email',$2,$3) ON CONFLICT (key) DO NOTHING`,
-    [ctx.tenantId, `invite:${sha256(token)}`, JSON.stringify({ template: "invitation", email,tokenEncrypted:encryptSecret(token) })]);
+    [ctx.tenantId, `invite:${sha256(token)}`, JSON.stringify({ template: "invitation", email, tokenEncrypted: encryptSecret(token) })]);
   await audit(c, ctx.tenantId, actorOf(ctx), "team.invited", "invitation", undefined, { email, roles });
   return token;
 }

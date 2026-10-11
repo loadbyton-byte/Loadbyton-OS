@@ -6,14 +6,16 @@ import type { Ctx } from "../lib/perms.js";
 import { HttpError, hmac, randomToken, safeEqual } from "../lib/util.js";
 import { loadSession, resolveCtx, type Session } from "../platform/auth.js";
 import { tenantForHost } from "../platform/admin.js";
+import type { ApiPrincipal } from "../ops/delivery-notify.js";
 
 export type Env = {
   Variables: {
     db: Db; session: Session | null; ctx: Ctx | null; csrf: string; hostSlug: string | null;
     tenant: { name: string; slug: string; sectors: string[]; plan: string; planCode: string; subStatus: string } | null;
     memberships: { tenant_id: string; name: string }[];
-    apiAuth: Awaited<ReturnType<typeof import('../platform/api.js').apiContext>>;
-    traceId: string;
+    apiKey?: ApiPrincipal;
+    apiAuth?: Awaited<ReturnType<typeof import('../platform/api.js').apiContext>>;
+    traceId?: string;
   };
 };
 export type C = Context<Env>;
@@ -51,7 +53,7 @@ export const csrfMw: MiddlewareHandler<Env> = async (c, next) => {
     const h = c.req.header("x-csrf-token") ?? "";
     if (!(c.req.header("content-type") ?? "").includes("application/json")) throw new HttpError(415, "Unsupported content type");
     if (!valid(h) || !safeEqual(h, tok!)) throw new HttpError(403, "Invalid CSRF token", "csrf");
-  } else if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/") && !c.req.path.startsWith('/api/v1/')) {
+  } else if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/") && !c.req.path.startsWith("/api/")) {   // /api/ is bearer-token authenticated and never reads cookies
     const ct = c.req.header("content-type") ?? "";
     if (!/form/.test(ct)) throw new HttpError(415, "Unsupported content type");
     const body = await c.req.parseBody({ all: true });
@@ -115,4 +117,11 @@ export const requireStaff: MiddlewareHandler<Env> = async (c, next) => {
 
 export function safeNext(n: string | undefined | null, fallback: string) {
   return n && /^\/[A-Za-z0-9\-._~\/%?=&]*$/.test(n) && !n.startsWith("//") ? n : fallback;
+}
+
+/** The caller's address, taken only from the header the deployment says it controls (Cloudflare / a trusted proxy); otherwise unknown. */
+export function clientIp(c: C): string {
+  if (config.trustProxy === "cloudflare") return (c.req.header("cf-connecting-ip") ?? "").trim();
+  if (config.trustProxy === "xff") return (c.req.header("x-forwarded-for") ?? "").split(",")[0].trim();
+  return "";
 }

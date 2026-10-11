@@ -8,7 +8,8 @@ import { audit } from "../lib/audit.js";
 import { actorOf } from "../lib/perms.js";
 import { currentPlans, PRODUCTS, SECTORS } from "../platform/catalog.js";
 import { currentUsage, getLimits, previewPlanChange } from "../platform/entitlements.js";
-import { beginCheckout, cancelAtPeriodEnd, createOrder, paymentQuote, priceCheckout, scheduleDowngrade, signPayload, buildMockEvent } from "../platform/billing.js";
+import { cancelAtPeriodEnd, createOrder, priceCheckout, scheduleDowngrade, signPayload, buildMockEvent, startCheckout, paymentQuote } from "../platform/billing.js";
+import { enabledProviders, getAdapter } from "../platform/payments/index.js";
 import { processProvisioningQueue, releaseInformationPending } from "../platform/provisioning.js";
 import { switchTenant, membershipsFor, resolveCtx } from "../platform/auth.js";
 import { decideGrant, removeDomain, requestCustomDomain, verifyCustomDomain } from "../platform/admin.js";
@@ -17,8 +18,8 @@ import { invite, listTeam, setRoles, deactivate } from "../ops/team.js";
 import { ownerDashboard } from "../ops/dashboard.js";
 import { exportTenantData, invoicesCsv } from "../ops/exporter.js";
 import { listJobs } from "../ops/jobs.js";
-import { listParcels } from "../ops/delivery.js";
 import { portalStock } from "../ops/warehouse.js";
+import { listRemittances, listShipments } from "../ops/delivery.js";
 import { listInvoices } from "../ops/finance.js";
 import { listDocuments } from "../ops/documents.js";
 import { listFulfilOrders, stockOverview } from "../ops/fulfilment.js";
@@ -80,6 +81,22 @@ core.use("/app/*", async (c, next) => {
         {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
       </div>));
   }
+  if (!driverOnly && !portalOnly && p.startsWith("/app/delivery") && !t.sectors.includes("courier-last-mile")) {
+    return appPage(c, "Sector not enabled", (
+      <div class="card" style="max-width:640px">
+        <h1>Courier / last mile is not selected</h1>
+        <p>Parcels, delivery runs, riders and cash on delivery belong to the <strong>Courier / last mile</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
+        {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
+      </div>));
+  }
+  if (!driverOnly && !portalOnly && p.startsWith("/app/customs") && !t.sectors.includes("customs-brokerage")) {
+    return appPage(c, "Sector not enabled", (
+      <div class="card" style="max-width:640px">
+        <h1>Customs brokerage is not selected</h1>
+        <p>Customs cases, evidence checklists and handover packs belong to the <strong>Customs brokerage</strong> sector. Your selected sectors: {t.sectors.length ? t.sectors.map(sectorName).join(", ") : "none"}.</p>
+        {can(c, "settings.manage") ? <a class="btn red" href="/app/settings">Choose sectors</a> : <p>Ask an owner to enable it in Settings.</p>}
+      </div>));
+  }
   // forwarding workflow requires the sector to be selected. Invoices & collections and Tasks & exceptions are SHARED modules
   // (every sector bills and raises exceptions), so they are deliberately not in this list.
   const fwdOnly = ["/app/enquiries", "/app/quotes", "/app/jobs", "/app/rates", "/app/reports"];
@@ -108,7 +125,7 @@ core.get("/app", async (c) => {
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return c.redirect("/app/driver");
   const data = await withT(c, async (cn) => {
     const n = async (sql: string) => Number((await cn.query<any>(sql)).rows[0].n);
-    const fwd = t.sectors.includes("freight-forwarding"), ful = t.sectors.includes("ecommerce-fulfilment");
+    const fwd = t.sectors.includes("freight-forwarding"), ful = t.sectors.includes("ecommerce-fulfilment"), dlv = t.sectors.includes("courier-last-mile"), cus = t.sectors.includes("customs-brokerage");
     const customer = { done: (await n(`SELECT count(*) n FROM parties WHERE kind='customer'`)) > 0, label: ful && !fwd ? "Add your first merchant (the business whose goods you store and ship)" : "Add or import your first customer", href: "/app/parties" };
     const colleague = { done: (await n(`SELECT count(*) n FROM memberships WHERE active`)) > 1, label: "Invite a colleague (individual account)", href: "/app/team" };
     const freight = [
@@ -128,15 +145,28 @@ core.get("/app", async (c) => {
       { done: (await n(`SELECT count(*) n FROM fulfil_orders WHERE status='shipped'`)) > 0, label: "Pick, pack and ship it", href: "/app/fulfilment/pick" },
       { done: (await n(`SELECT count(*) n FROM fulfil_rates`)) > 0, label: "Agree a rate card so activity can be billed", href: "/app/fulfilment/billing" },
     ];
-    const scoped = [];
-    for(const [slug,table,href,label] of [
-      ['road-transport','trips','/app/transport','Plan and dispatch a transport trip'],
-      ['contract-warehouse-3pl','wh_inbound','/app/warehouse','Receive and dispatch customer-owned stock'],
-      ['courier-last-mile','delivery_parcels','/app/delivery','Deliver a parcel and reconcile its cash'],
-      ['customs-brokerage','customs_cases','/app/customs','Complete a reviewed Customs handover'],
-    ]) if(t.sectors.includes(slug))scoped.push({done:(await n(`SELECT count(*) n FROM ${table}`))>0,label,href});
-    for(const slug of t.sectors.filter(s=>SPECIALIST_PROFILES[s]))scoped.push({done:Number((await cn.query<any>(`SELECT count(*) n FROM specialist_cases WHERE sector=$1`,[slug])).rows[0].n)>0,label:`Record a reviewed ${sectorName(slug)} case`,href:`/app/specialists/${slug}`});
-    const checklist = (fwd?[...freight,...(ful?fulfilment:[]),...scoped]:[customer,...(ful?fulfilment:[]),...scoped]).concat([colleague]);
+    const delivery = [
+      { done: (await n(`SELECT count(*) n FROM drivers WHERE active`)) > 0, label: "Add a rider and invite them to sign in on their phone", href: "/app/delivery/riders" },
+      { done: (await n(`SELECT count(*) n FROM dlv_shipments`)) > 0, label: "Add (or import) the first parcels", href: "/app/delivery/shipments/new" },
+      { done: (await n(`SELECT count(*) n FROM dlv_runs WHERE status IN ('out','closed')`)) > 0, label: "Build a run and send the rider out", href: "/app/delivery/runs/new" },
+      { done: (await n(`SELECT count(*) n FROM dlv_shipments WHERE status='delivered'`)) > 0, label: "Deliver a parcel from the rider app", href: "/app/delivery/runs" },
+      { done: (await n(`SELECT count(*) n FROM dlv_settlements`)) > 0, label: "Count a rider's cash at the cash desk", href: "/app/delivery/cash" },
+      { done: (await n(`SELECT count(*) n FROM dlv_rates`)) > 0, label: "Agree a rate card so deliveries can be billed", href: "/app/delivery/billing" },
+    ];
+    const customsList = [
+      { done: (await n(`SELECT count(*) n FROM cus_cases`)) > 0, label: "Create the first customs case", href: "/app/customs/cases/new" },
+      { done: (await n(`SELECT count(*) n FROM cus_lines`)) > 0, label: "Add goods lines with the broker's HS codes and rates", href: "/app/customs/cases" },
+      { done: (await n(`SELECT count(*) n FROM cus_checklist WHERE status='received'`)) > 0, label: "Attach the supporting documents", href: "/app/customs/cases" },
+      { done: (await n(`SELECT count(*) n FROM cus_cases WHERE approved_by IS NOT NULL`)) > 0, label: "Get a case approved, then open its handover pack", href: "/app/customs/cases" },
+      { done: (await n(`SELECT count(*) n FROM cus_cases WHERE declaration_no IS NOT NULL`)) > 0, label: "Record the declaration number after lodging it", href: "/app/customs/cases" },
+    ];
+    const scoped: { done: boolean; label: string; href: string }[] = [];
+    for (const [slug, table, href, label] of [
+      ["road-transport", "trips", "/app/transport", "Plan and dispatch a transport trip"],
+      ["contract-warehouse-3pl", "wh_inbound", "/app/warehouse", "Receive and dispatch customer-owned stock"],
+    ]) if (t.sectors.includes(slug)) scoped.push({ done: (await n(`SELECT count(*) n FROM ${table}`)) > 0, label, href });
+    for (const slug of t.sectors.filter((x) => SPECIALIST_PROFILES[x])) scoped.push({ done: Number((await cn.query<any>(`SELECT count(*) n FROM specialist_cases WHERE sector=$1`, [slug])).rows[0].n) > 0, label: `Record a reviewed ${sectorName(slug)} case`, href: `/app/specialists/${slug}` });
+    const checklist = [...(fwd || (!ful && !dlv && !cus) ? freight : [customer]), ...(ful ? fulfilment : []), ...(dlv ? delivery : []), ...(cus ? customsList : []), ...scoped, colleague];
     const mine = (await cn.query<any>(`SELECT id,no,status,origin,destination FROM jobs WHERE assigned_to=$1 AND status IN ('planned','in_transit') ORDER BY created_at DESC LIMIT 8`, [ctx.userId])).rows;
     const tasks = (await cn.query<any>(`SELECT id,title,due_at FROM job_exceptions WHERE status='open' AND (owner_id=$1 OR owner_id IS NULL) ORDER BY due_at LIMIT 8`, [ctx.userId])).rows;
     return { checklist, mine, tasks };
@@ -216,16 +246,25 @@ core.get("/app/portal", async (c) => {
   const ctx = ctxOf(c);
   if (!ctx.partyId && !ctx.roles.includes("portal")) return c.redirect("/app");
   const ful = c.get("tenant")!.sectors.includes("ecommerce-fulfilment") && !!ctx.partyId;
+  const dlv = c.get("tenant")!.sectors.includes("courier-last-mile") && !!ctx.partyId;
   const d = await withT(c, async (cn) => ({
+    parcels: dlv ? (await listShipments(cn, { merchantId: ctx.partyId, limit: 100 })) : [], payouts: dlv ? await listRemittances(cn, ctx.partyId) : [],
     jobs: await listJobs(cn, ctx.partyId), invoices: await listInvoices(cn, ctx.partyId),
     docs: await listDocuments(cn, { portalPartyId: ctx.partyId }),
     orders: ful ? (await listFulfilOrders(cn, { partyId: ctx.partyId,ctx })).slice(0, 50) : [],
     stock: ful ? await stockOverview(cn, ctx.partyId) : [],
-    parcels: ctx.partyId ? await listParcels(cn,{partyId:ctx.partyId}) : [],
     whStock: ctx.partyId ? await portalStock(cn, ctx.partyId) : [],
   }));
   return appPage(c, "My shipments", (<>
     <PageHead title="My shipments" sub="A limited view: your shipments, issued documents and invoices only." />
+    {dlv ? (<>
+      <Table caption="Your parcels (latest 100)" head={["Waybill", "Your reference", "Consignee", ["COD", "num"], "Status", "Tracking"]} empty={d.parcels.length ? undefined : "No parcels yet."}>
+        {d.parcels.map((s: any) => <tr><td>{s.no}</td><td class="small">{s.external_ref ?? "—"}</td><td class="small">{s.consignee_name}</td><td class="num">{Number(s.cod_minor) ? <Money v={s.cod_minor} /> : "—"}</td><td><Badge s={s.status} label={s.status.replace(/_/g, " ")} /></td><td class="small"><a href={`/t/${s.track_token}`}>track</a></td></tr>)}</Table>
+      <div style="height:18px" />
+      <Table caption="Your COD payouts" head={["Statement", ["COD collected", "num"], ["Fees", "num"], ["Paid to you", "num"], "Status"]} empty={d.payouts.length ? undefined : "No payouts yet."}>
+        {d.payouts.map((r: any) => <tr><td>{r.no}</td><td class="num"><Money v={r.gross_minor} /></td><td class="num"><Money v={r.fees_minor} /></td><td class="num"><Money v={r.net_minor} /></td><td><Badge s={r.status === "pending_payment" ? "pending" : r.status} label={r.status === "pending_payment" ? "being prepared" : r.status} /></td></tr>)}</Table>
+      <div style="height:18px" />
+    </>) : null}
     {ful ? (<>
       <Table caption="Your stock with us" head={["SKU", "Product", ["Available", "num"], ["Reserved", "num"], ["Incoming", "num"], ["Quarantine", "num"]]} empty={d.stock.length ? undefined : "No SKUs yet."}>
         {d.stock.map((x: any) => <tr><td><strong>{x.code}</strong></td><td class="small">{x.name}</td><td class="num">{x.available}</td><td class="num">{x.reserved}</td><td class="num">{x.incoming}</td><td class="num">{x.quarantine}</td></tr>)}</Table>
@@ -302,6 +341,15 @@ core.post("/app/team/deactivate", async (c) => {
 });
 
 // ── billing & lifecycle
+const Seller = () => {
+  const x = config.seller;
+  if (!x.legalName) return null;
+  return (
+    <p class="small mute" style="margin-top:12px">Sold by <strong>{x.legalName}</strong>{x.tradeName ? ` (${x.tradeName})` : ""}{x.address ? ` · ${x.address}` : ""}{x.gstin ? ` · GSTIN ${x.gstin}` : ""}{x.pan ? ` · PAN ${x.pan}` : ""}{x.email ? ` · ${x.email}` : ""}.{x.lutNote ? <><br />{x.lutNote}</> : null}</p>
+  );
+};
+const providerLabel = (p: string) => (p === "mock" ? "Upgrade / switch" : getAdapter(p)?.label ?? p);
+
 core.get("/app/billing", async (c) => {
   need(c, "billing.manage");
   const ctx = ctxOf(c), db = c.get("db");
@@ -315,12 +363,15 @@ core.get("/app/billing", async (c) => {
   const usage = await withT(c, async (cn) => ({ limits: await getLimits(cn, ctx.tenantId),
     used: { ai_drafts_per_month: await currentUsage(cn, ctx.tenantId, "ai_drafts_per_month"), max_users: await currentUsage(cn, ctx.tenantId, "max_users"), jobs_per_month: await currentUsage(cn, ctx.tenantId, "jobs_per_month"),
       storage_mb: await currentUsage(cn, ctx.tenantId, "storage_mb"), max_branches: await currentUsage(cn, ctx.tenantId, "max_branches"),
-      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month"), fulfilment_orders_per_month: await currentUsage(cn, ctx.tenantId, "fulfilment_orders_per_month"), wh_orders_per_month: await currentUsage(cn, ctx.tenantId, "wh_orders_per_month") } }));
+      trips_per_month: await currentUsage(cn, ctx.tenantId, "trips_per_month"), fulfilment_orders_per_month: await currentUsage(cn, ctx.tenantId, "fulfilment_orders_per_month"), wh_orders_per_month: await currentUsage(cn, ctx.tenantId, "wh_orders_per_month"), parcels_per_month: await currentUsage(cn, ctx.tenantId, "parcels_per_month") } }));
   const quotes: Record<string, Awaited<ReturnType<typeof priceCheckout>> | null> = {};
   for (const pl of plans) quotes[pl.plan_code] = await db.system((cn) => priceCheckout(cn, ctx.tenantId, pl)).catch(() => null);
   const csrf = c.get("csrf");
   const want = c.req.query("plan");
+  const providers = enabledProviders();
   return appPage(c, "Plan & billing", (<>
+    {c.req.query("paid") ? <div class="alert info" role="status"><strong>Thank you.</strong> Your upgrade is applied when the payment provider confirms the payment to our server — usually within seconds. This page does not grant access by itself; refresh to see the status under Orders and Activation.</div> : null}
+    {c.req.query("cancelled") ? <div class="alert warn" role="status">Checkout was cancelled. Nothing was charged.</div> : null}
     <PageHead title="Plan & billing" sub={`Current: ${sub.plan} · ${sub.status}${sub.period_end ? ` · renews ${formatDay(sub.period_end)}` : " · free forever"}`} />
     {sub.scheduled_name ? <div class="alert warn">Scheduled to move to <strong>{sub.scheduled_name}</strong> at renewal.</div> : null}
     {sub.cancel_at_period_end ? <div class="alert warn">Cancellation scheduled: access continues to the end of the paid period, then the workspace moves to Free.</div> : null}
@@ -330,12 +381,13 @@ core.get("/app/billing", async (c) => {
       <div class="card"><h3>Documents</h3><div class="kpi">{usage.used.storage_mb} / {usage.limits.storage_mb} MB</div></div>
       {c.get("tenant")!.sectors.includes("road-transport") ? <div class="card"><h3>Trips this month</h3><div class="kpi">{usage.used.trips_per_month} / {usage.limits.trips_per_month}</div></div> : null}
       {c.get("tenant")!.sectors.includes("ecommerce-fulfilment") ? <div class="card"><h3>Fulfilment orders this month</h3><div class="kpi">{usage.used.fulfilment_orders_per_month} / {usage.limits.fulfilment_orders_per_month}</div></div> : null}
+      {c.get("tenant")!.sectors.includes("courier-last-mile") ? <div class="card"><h3>Parcels this month</h3><div class="kpi">{usage.used.parcels_per_month} / {usage.limits.parcels_per_month}</div></div> : null}
       {c.get("tenant")!.sectors.includes("contract-warehouse-3pl") ? <div class="card"><h3>Warehouse orders this month</h3><div class="kpi">{usage.used.wh_orders_per_month} / {usage.limits.wh_orders_per_month}</div><p class="small mute">Inbound notices + dispatch orders</p></div> : null}
     </div>
     {c.get("tenant")!.sectors.includes("freight-forwarding") ? <div class="card"><h3>Assistant drafts this month</h3><div class="kpi">{usage.used.ai_drafts_per_month} / {usage.limits.ai_drafts_per_month}</div><p>Existing drafts remain readable. Provider generation also requires a reviewed cost budget.</p></div> : null}
     <h2 style="margin-top:28px">Change plan</h2>
     <p class="mute small">Net incremental price shown: setup already paid at a lower tier is credited. No proration in the pilot. Tax is shown at checkout.</p>
-    {config.enabledPaymentProviders.includes('razorpay')&&config.razorpayPresentment.currency==='INR'?<p class="alert info">Razorpay is charged in INR at the merchant's quoted rate of {config.razorpayPresentment.aedToInr} INR per AED. {config.razorpayPresentment.note} The payment amount is fixed on your order; your card provider may apply its own charges.</p>:null}
+    {enabledProviders().includes('razorpay')&&config.razorpayPresentment.currency==='INR'?<p class="alert info">Razorpay is charged in INR at the merchant's quoted rate of {config.razorpayPresentment.aedToInr} INR per AED. {config.razorpayPresentment.note} The payment amount is fixed on your order; your card provider may apply its own charges.</p>:null}
     <div class="grid g4">
       {plans.filter((p) => p.plan_code !== "free").map((pl) => {
         const q = quotes[pl.plan_code]; const cur = pl.plan_code === sub.plan_code;
@@ -343,11 +395,11 @@ core.get("/app/billing", async (c) => {
           <div class={`card plan ${want === pl.plan_code ? "hot" : ""}`}>
             <h3>{pl.name} {cur ? <Badge s="active" label="current" /> : null}</h3>
             <div class="price">{pl.contact_sales ? "From " : ""}{fmtMoney(pl.monthly_minor)}<span class="small mute"> / mo</span></div>
-            {pl.contact_sales ? <p class="small mute">Scoped with our team.</p> : cur ? <p class="small mute">Your current plan.</p> : q ? <p class="small">Due now: <strong>{fmtMoney(q.subtotal)}</strong> + {config.taxLabel} {fmtMoney(q.tax)} = <strong>{fmtMoney(q.total)}</strong>{q.setupCredit ? <><br />Setup credit applied: {fmtMoney(q.setupCredit)}</> : null}</p> : null}
+            {pl.contact_sales ? <p class="small mute">Scoped with our team.</p> : cur ? <p class="small mute">Your current plan.</p> : q ? <p class="small">Due now: <strong>{fmtMoney(q.subtotal)}</strong> + {"VAT"} {fmtMoney(q.tax)} = <strong>{fmtMoney(q.total)}</strong>{q.setupCredit ? <><br />Setup credit applied: {fmtMoney(q.setupCredit)}</> : null}</p> : null}
             <div style="flex:1" />
             {pl.contact_sales ? <a class="btn ghost" href="/contact">Contact sales</a> : cur ? <PostBtn action="/app/billing/checkout" csrf={csrf} label="Renew paid period" fields={{plan:pl.plan_code}} /> : (
               <>
-                {config.enabledPaymentProviders.map(provider => <PostBtn action="/app/billing/checkout" csrf={csrf} label={`Pay with ${provider}${q&&provider==='razorpay'&&config.razorpayPresentment.currency!==q.currency?` · ${fmtMoney(paymentQuote(q.total,q.currency,provider).total,config.razorpayPresentment.currency)}`:''}`} cls="red" fields={{ plan: pl.plan_code,provider }} />)}
+                {providers.map((pv, i) => <PostBtn action="/app/billing/checkout" csrf={csrf} label={`${providerLabel(pv)}${q && pv === "razorpay" && config.razorpayPresentment.currency !== q.currency ? ` · ${fmtMoney(paymentQuote(q.total, q.currency, pv).total, config.razorpayPresentment.currency)}` : ""}`} cls={i === 0 ? "red" : "ghost"} fields={{ plan: pl.plan_code, provider: pv }} />)}
                 {pl.monthly_minor < (plans.find((x) => x.plan_code === sub.plan_code)?.monthly_minor ?? 0) ? <PostBtn action="/app/billing/downgrade" csrf={csrf} label="Preview & schedule at renewal" cls="ghost sm" fields={{ plan: pl.plan_code }} /> : null}
               </>)}
           </div>);
@@ -361,21 +413,22 @@ core.get("/app/billing", async (c) => {
       {jobs.map((j: any) => <tr><td class="small">{formatDate(j.queued_at)}</td><td><Badge s={j.state} /></td><td>{j.done}/9</td><td class="small">{j.owner_action ?? j.failure_reason ?? (j.ready_at ? `Ready ${formatDate(j.ready_at)}` : "")}</td></tr>)}</Table>
     <h2 style="margin-top:28px">Orders</h2>
     <Table head={["Reference", "Date", ["Total", "num"], "Status", ""]} empty={orders.length ? undefined : "No orders."}>
-      {orders.map((o: any) => <tr><td>{o.reference}</td><td>{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} cur={o.currency} />{o.payment_currency&&o.payment_currency!==o.currency?<div class="small">Payment: <Money v={o.payment_total_minor} cur={o.payment_currency}/> · {o.fx_rate} {o.payment_currency}/{o.currency}<br/>{o.fx_note}</div>:null}</td><td><Badge s={o.status} /></td>
-        <td>{o.status === "pending" ? <PostBtn action={`/app/billing/resume/${o.id}`} csrf={csrf} label="Continue payment" cls="sm" /> : null}</td></tr>)}</Table>
+      {orders.map((o: any) => <tr><td>{o.reference}</td><td>{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} cur={o.currency} />{o.payment_currency && o.payment_currency !== o.currency ? <div class="small">Payment: <Money v={o.payment_total_minor} cur={o.payment_currency} /> · {o.fx_rate} {o.payment_currency}/{o.currency}<br />{o.fx_note}</div> : null}</td><td><Badge s={o.status} /></td>
+        <td>{o.status === "paid" ? <a class="btn ghost sm" href={`/app/billing/orders/${o.id}/receipt`}>Receipt</a> : null}{o.status === "pending" && (o.provider === "mock" ? config.paymentProviders.includes("mock") : !!o.checkout_url) ? <a class="btn sm" href={`/app/billing/pay/${o.id}`}>{o.provider === "mock" ? "Pay" : "Continue to payment"}</a> : null}</td></tr>)}</Table>
+    <Seller />
   </>));
 });
 core.post("/app/billing/checkout", async (c) => {
   need(c, "billing.manage");
   const b = await formBody(c); const ctx = ctxOf(c);
   return act(c, "/app/billing", async () => {
-    const r = await createOrder(c.get("db"), ctx.tenantId, ctx.userId, str(b.plan),str(b.provider)||config.paymentProvider);
-    return c.redirect(await beginCheckout(c.get('db'),ctx.tenantId,r.orderId),303);
+    const provider = str(b.provider) || config.paymentProvider;
+    const r = await createOrder(c.get("db"), ctx.tenantId, ctx.userId, str(b.plan), provider);
+    if (provider !== "mock") {
+      await startCheckout(c.get("db"), r.orderId, ctx.tenantId, { success: `${baseUrl()}/app/billing?paid=${encodeURIComponent(r.reference)}`, cancel: `${baseUrl()}/app/billing?cancelled=1` });
+    }
+    return { to: `/app/billing/pay/${r.orderId}` };
   });
-});
-core.post('/app/billing/resume/:id',async c=>{
-  need(c,'billing.manage');
-  return act(c,'/app/billing',async()=>c.redirect(await beginCheckout(c.get('db'),ctxOf(c).tenantId,c.req.param('id')),303));
 });
 core.post("/app/billing/downgrade", async (c) => {
   need(c, "billing.manage");
@@ -392,21 +445,70 @@ core.post("/app/billing/cancel", async (c) => {
   return back(c, "/app/billing", "Cancellation scheduled for the end of the paid period.");
 });
 
+// Printable receipt / tax invoice for a PAID subscription order. Seller identity comes from the deployment's environment; the buyer is the workspace's legal entity.
+core.get("/app/billing/orders/:id/receipt", async (c) => {
+  need(c, "billing.manage");
+  const ctx = ctxOf(c), db = c.get("db"), x = config.seller;
+  const o = (await db.query<any>(`SELECT o.*, p.name AS plan FROM orders o JOIN plan_versions p ON p.id=o.plan_version_id WHERE o.id=$1 AND o.tenant_id=$2 AND o.status IN ('paid','refunded')`, [c.req.param("id"), ctx.tenantId])).rows[0];
+  if (!o) throw new HttpError(404, "Receipt not found");
+  const ent = (await db.query<any>(`SELECT name, legal_name, tax_id FROM entities WHERE tenant_id=$1 ORDER BY created_at LIMIT 1`, [ctx.tenantId])).rows[0];
+  const t = c.get("tenant")!;
+  return appPage(c, `Receipt ${o.reference}`, (
+    <div class="card" style="max-width:760px">
+      <PageHead title={x.gstin ? "Tax invoice" : "Payment receipt"} sub={`No. ${o.reference} · ${formatDate(o.paid_at ?? o.created_at)}`}><button class="btn ghost sm" type="button" data-print>Print</button></PageHead>
+      {o.status === "refunded" ? <div class="alert warn">This payment was refunded.</div> : null}
+      <div class="grid g2">
+        <div><h3>Supplier</h3><p>{x.legalName || "LOAD|BY|TON.store"}{x.tradeName ? <><br />Trading as {x.tradeName}</> : null}{x.address ? <><br />{x.address}</> : null}{x.gstin ? <><br />GSTIN: {x.gstin}</> : null}{x.pan ? <><br />PAN: {x.pan}</> : null}{x.email ? <><br />{x.email}</> : null}</p></div>
+        <div><h3>Customer</h3><p>{ent?.legal_name || ent?.name || t.name}{ent?.tax_id ? <><br />Tax registration: {ent.tax_id}</> : null}</p></div>
+      </div>
+      <Table head={["Description", ["Amount", "num"]]}>
+        {o.lines.map((l: any) => <tr><td>{l.label}{x.sac ? <span class="small mute"> · SAC {x.sac}</span> : null}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
+        {Number(o.tax_minor) ? <tr><td>VAT</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr> : null}
+        <tr><th>Total paid</th><th class="num"><Money v={o.total_minor} cur={o.currency} /></th></tr>
+      </Table>
+      <p class="small mute">{o.tax_note}</p>
+      {x.supplyNote ? <p class="small">{x.supplyNote}</p> : null}
+      {x.lutNote ? <p class="small">{x.lutNote}</p> : null}
+      <p class="small mute">Paid by {o.provider === "stripe" ? "card / wallet (Stripe)" : o.provider === "razorpay" ? "UPI / card (Razorpay)" : o.provider}. Whether this document qualifies as a statutory tax invoice for your jurisdiction is a matter for your accountant.</p>
+    </div>));
+});
+
 // Mock checkout (development/test only): drives the same signed-webhook path a real provider would.
 core.get("/app/billing/pay/:id", async (c) => {
   need(c, "billing.manage");
-  if (config.paymentProvider !== "mock") throw new HttpError(404, "Not found");
   const ctx = ctxOf(c);
   const o = (await c.get("db").query<any>(`SELECT o.*, p.name AS plan FROM orders o JOIN plan_versions p ON p.id=o.plan_version_id WHERE o.id=$1 AND o.tenant_id=$2`, [c.req.param("id"), ctx.tenantId])).rows[0];
   if (!o) throw new HttpError(404, "Order not found");
   const csrf = c.get("csrf");
+  if (o.provider !== "mock") {
+    // Real provider: send the browser to the provider-hosted page with a link / meta refresh. (A form post that redirects off-site is blocked by our
+    // form-action CSP, and we never want the redirect itself to be what activates anything.)
+    const pending = o.status === "pending" && !!o.checkout_url;
+    const extra = pending ? { head: <meta http-equiv="refresh" content={`1;url=${o.checkout_url}`} /> } : {};
+    return appPage(c, "Checkout", (
+      <div class="card" style="max-width:640px">
+        <h1>Checkout · {o.plan}</h1>
+        <Table head={["Item", ["Amount", "num"]]}>
+          {o.lines.map((l: any) => <tr><td>{l.label}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
+          {Number(o.tax_minor) ? <tr><td>VAT</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr> : null}
+          <tr><th>Total payable</th><th class="num"><Money v={o.total_minor} cur={o.currency} /></th></tr>
+        </Table>
+        <p class="small mute">{o.tax_note}</p>
+        <p class="small">Reference <code>{o.reference}</code> · status <Badge s={o.status} /></p>
+        {pending ? <><p>Taking you to our payment provider… If nothing happens, <a class="btn red" href={o.checkout_url}>continue to secure payment</a>.</p>
+          <p class="small mute">Your plan changes only when the provider confirms the payment to our server — not when you return to this site.</p></>
+          : <a class="btn" href="/app/billing">Back to billing</a>}
+        <Seller />
+      </div>), extra);
+  }
+  if (!config.paymentProviders.includes("mock")) throw new HttpError(404, "Not found");
   return appPage(c, "Checkout", (
     <div class="card" style="max-width:640px">
       <div class="alert warn"><strong>Simulated payment provider (non-production).</strong> Access is granted only by the server-verified webhook this page triggers — never by this redirect.</div>
       <h1>Checkout · {o.plan}</h1>
       <Table head={["Item", ["Amount", "num"]]}>
         {o.lines.map((l: any) => <tr><td>{l.label}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
-        <tr><td>{config.taxLabel}</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr>
+        <tr><td>{"VAT"}</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr>
         <tr><th>Total payable</th><th class="num"><Money v={o.total_minor} cur={o.currency} /></th></tr>
       </Table>
       <p class="small mute">{o.tax_note}</p>
@@ -420,9 +522,9 @@ core.get("/app/billing/pay/:id", async (c) => {
 });
 core.post("/app/billing/pay/:id", async (c) => {
   need(c, "billing.manage");
-  if (config.paymentProvider !== "mock") throw new HttpError(404, "Not found");
+  if (!config.paymentProviders.includes("mock")) throw new HttpError(404, "Not found");
   const ctx = ctxOf(c), b = await formBody(c), db = c.get("db");
-  const o = (await db.query<any>(`SELECT * FROM orders WHERE id=$1 AND tenant_id=$2`, [c.req.param("id"), ctx.tenantId])).rows[0];
+  const o = (await db.query<any>(`SELECT * FROM orders WHERE id=$1 AND tenant_id=$2 AND provider='mock'`, [c.req.param("id"), ctx.tenantId])).rows[0];
   if (!o) throw new HttpError(404, "Order not found");
   const raw = JSON.stringify(buildMockEvent(o, str(b.outcome) === "failed" ? "payment.failed" : "payment.succeeded"));
   const r = await handlePaymentWebhook(db, "mock", raw, signPayload(raw));

@@ -3,14 +3,14 @@
 | # | Decision | Where the code is waiting |
 |---|---|---|
 | 1 | Approve first sector and end-to-end scope (recommended: Forwarding Starter) | Built; pilot with ≥5 design partners (§29 gate) |
-| 2 | Contracting entity and payment merchant | User chose Indian freelance service provider serving UAE, with GST/legal documents. Stripe/Razorpay adapters implemented; identity, tax treatment and account eligibility supplied/verified at deployment. |
-| 3 | Hosting, region and recovery budget | User chose Oracle, Cloudflare, Redis/Upstash, Supabase and Neon. Adapters/templates and encrypted restore tooling implemented; actual regions/PITR/recovery evidence remain deployment inputs. |
+| 2 | Contracting entity and **payment merchant** | **Decided: an India-based GST-registered freelancer selling to UAE customers; Stripe (cards, Google Pay) and Razorpay (UPI/Google Pay/cards).** Adapters built (`PAYMENT_PROVIDERS`); identity/GST/PAN/tax text are env vars. Still to confirm with the providers: AED presentment/settlement for your accounts; with your accountant: tax treatment of the supply |
+| 3 | Hosting, region and recovery budget | **Decided: Oracle Cloud VM + Cloudflare (tunnel) + Neon or Supabase (PostgreSQL) + Upstash (rate limits).** See `docs/DEPLOYMENT.md`. Region, recovery budget (RPO/RTO) and the subprocessor page still to be set |
 | 4 | Pilot plan limits | `PLAN_SEEDS` in `src/platform/catalog.ts` (hypotheses, immutable once published) |
-| 5 | Accounting system of record | Zoho Books encrypted draft-invoice bridge implemented; controller acceptance required. CSV export is not sync. Native ledger remains a later justified roadmap. |
-| 6 | Setup and visit coverage | Copy on `/coverage`; setup orders / expiring appointments / evidence / customer acceptance implemented; actual visit coverage remains a business input |
+| 5 | Accounting system of record | `AccountingAdapter` (CSV/export stub today). Subscription receipts for your own SaaS sales are printable from Plan & billing |
+| 6 | Setup and visit coverage | Copy on `/coverage`; setup orders / technician appointments not built |
 | 7 | Support hours and tiers | Not published; do not promise 24/7 on low plans |
-| 8 | Free-tier retention/exit policy | Export exists; privacy requests/review implemented; reviewed retention/erasure execution remains pending |
-| 9 | Initial connector provider (e-invoicing ASP, WhatsApp, Mirsal) | Official connectors are shown as *Planned* on `/integrations`; manual Customs handover does not replace provider selection |
+| 8 | Free-tier retention/exit policy | Export exists; retention/deletion workflow not built |
+| 9 | Initial connector provider (e-invoicing ASP, WhatsApp, Mirsal) | **Mail: Resend and SMS: Twilio adapters built** (env-selected; default is log-only). E-invoicing ASP, WhatsApp and Mirsal remain *Planned* on `/integrations` |
 | 10 | Specialist review owners (accounting, customs, DG, cold chain) | Specialist sectors flagged "review required" |
 | 11 | Verify domain ownership; produce **vector** logo master and check BY mark at favicon size | Raster logos extracted from the blueprint PDF are used; `public/brand/by-mark-*.png` favicon checked at 64 px |
 | 12 | Proration policy for mid-period upgrades | Pilot charges full first month, credits setup only |
@@ -55,18 +55,39 @@
 | 35 | Backorders, partial-shipment policy and returns | Partial allocation closes the shortfall; no returns flow (belongs with E-commerce fulfilment) |
 | 36 | Insurance / liability cut-off for custody stock and bonded goods | Not modelled; bonded warehousing is explicitly out of scope (see /coverage) |
 
-## Delivery and Customs implementation decisions still required
 
-| # | Decision | Current boundary |
+## Added with Delivery / COD
+
+| # | Decision | Where the code is waiting |
 |---|---|---|
-| 37 | Parcel and customs-case allowances, and courier/service fees | Dedicated usage keys fall back to jobs/month; published plans are unchanged. Parcel fee is entered manually; Customs cleared-case service-fee billing is implemented separately from deposits |
-| 38 | COD settlement schedule, shortages/surpluses, subsequent recovery, refunds and bank reconciliation | Actual figures are immutable; mismatches need an independent finance approver. Remittances are bounded by real reconciled cash; no loss accounting, recovery or refund workflow exists yet |
-| 39 | Delivery dispatch/route provider and offline cash collection policy | Manual courier + route reference; parcel actions require connectivity. Transport offline sync remains separate |
-| 40 | Customs specialist approval, permits by goods/category, authority/agent channel and duty/deposit policy | Manual evidence-based case handover only; no filing, duty assessment, authority disbursement or provider certification |
-| 41 | Monitoring hosting, notification receiver and incident ownership | Authenticated instrumentation and alert templates exist; deployment and end-to-end alert delivery remain pending |
+| 37 | Delivery billing unit and plan allowances (`parcels_per_month`: 100 / 1,500 / 6,000 / 25,000 / 500,000) | Hypotheses in `PLAN_SEEDS`; plan v5. Older versions fall back to the jobs allowance |
+| 38 | COD cash policy: who counts, who may accept a difference, any tolerance, and who bears a shortage (company vs. rider deduction) | Any non-zero difference needs a second person (owner excepted); no tolerance; the shortage is only *recorded*, no payroll deduction |
+| 39 | COD payment methods beyond cash (card-on-delivery terminal, payment links, wallet) | Cash only. Exact amount required; no partial acceptance |
+| 40 | Remittance cycle and cap (daily/weekly, holdbacks, merchant bank details, payout file format) | Manual: staff prepare a statement and a second person records the bank reference. No bank file, no bank-detail storage |
+| 41 | Consignee notifications (SMS / WhatsApp) and delivery-code delivery | **SMS built** (Twilio, opt-in per merchant, UAE mobiles, out-for-delivery and failed-attempt only; code included only when the parcel requires it). WhatsApp needs approved templates and is not built. Sender-ID registration and consent are the courier's/merchant's responsibility |
+| 42 | Route optimisation / live rider location / geofenced POD | Runs are ordered by the dispatcher; no GPS (see #14) |
+| 43 | Carrier hand-off: label printing, AWB format, merchant API/webhooks, marketplace connectors | **Built:** label printing (Code 128), merchant API v1 (`docs/API.md`), signed webhooks. Waybill is `DLV-<year>-<seq>` (no carrier-standard AWB format). Marketplace connectors (Shopify, Noon, Amazon…) are not built — merchants integrate through the API |
+| 44 | Parcel data retention: consignee name/phone/address kept indefinitely and visible to all office roles | Same as #27; no anonymisation job |
+| 45 | Inter-emirate pricing zones, weight/size bands, and failed-delivery fees | One flat delivery fee, one inter-emirate surcharge (destination ≠ origin emirate), one return fee, COD % with a minimum |
+| 46 | Multiple COD currencies / cross-border | AED only |
 
-The uploaded complete blueprint is now extracted in `MASTER_BLUEPRINT_SOURCE.txt`; it supersedes the earlier summary-only baseline. The user's hosting and merchant choices supersede their previously undecided entries. Do not request those choices again. Credentials/legal identifiers belong in secure environment settings at deployment.
+## Added with Customs brokerage
 
-Plan v5 adds separate specialist-case allowances (2 / 10 / 25 / 50 / 500); v6 adds approved-message allowances (20 / 100 / 500 / 2,000 / 10,000); v7 adds assistant draft allowances (10 / 50 / 150 / 500 / 2,000). These are pilot hypotheses, not approved commercial commitments. Older published versions are preserved; these units do not fall back to forwarding jobs. Pricing/coverage/retention/specialist release evidence must be reviewed before availability claims.
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 47 | Customs billing unit and plan allowances (`cus_cases_per_month`: 5 / 50 / 200 / 600 / 6,000) | Hypotheses in `PLAN_SEEDS`; plan v6. Older versions fall back to the jobs allowance |
+| 48 | Official filing: Dubai Trade / Mirsal 2 / Abu Dhabi channels need licensed-broker accounts and their own API agreements | Not integrated. The system produces a handover pack + CSV and records the declaration number the broker gets back (unique per channel) |
+| 49 | Tariff and rates: HS classification, duty rates, exemptions, FTA origin rules | No built-in tariff. HS codes are format-checked (6–12 digits); duty/VAT rates are entered by the broker and results are labelled estimates. The official assessment prevails and a difference of AED 100 **and** 5% is flagged |
+| 50 | Who may approve a case | A different person from the preparer; an owner may approve their own (single-person firms are normal). Waiving a missing document needs the approve permission and a reason |
+| 51 | Deposits and bank guarantees | Held as client money: never revenue, never over-applied (row-locked), refunds ≤ balance, immutable ledger. Guarantee expiry is shown, not enforced |
+| 52 | Valuation method | Freight/insurance/other charges are shared over lines by value (largest remainder, exact to the fils) and converted at the broker-entered rate. Other methods (weight, quantity) not built |
+| 53 | Restricted goods / permits | A line can be flagged restricted with a note; this adds a mandatory permit item to the checklist. No automatic restricted-goods list |
 
-Optional Razorpay INR presentment requires a reviewed quoted AED/INR rate/note. The order retains catalogue and payment money; it never treats Indian GST credentials as evidence that a particular UAE VAT rate or payment method is supported.
+## Added with platform operations
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 47 | Alert routing and on-call: who is paged, for which `docs/MONITORING.md` alerts, and the failure drill that earns *Available* | Endpoints and rules exist; nobody is wired to them. Sectors stay *Pilot* until this is decided and exercised |
+| 48 | Document storage location and retention (Oracle Object Storage vs Cloudflare R2; encryption keys; deletion/retention policy; migrating existing files) | `STORAGE_DRIVER=s3` works with either; no migration tool, no retention job (links to #8) |
+| 49 | Mail sender identity and templates (domain, branding, languages, Arabic) | Three plain English templates (invitation, payment received, workspace ready) via Resend |
+| 50 | Webhook/API commercial terms (rate limits per plan, SLA for webhook delivery, key rotation policy) | 120 requests/minute per key, 5 keys per merchant, ~3 h of retries; no per-plan differences |

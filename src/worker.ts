@@ -1,6 +1,6 @@
 import {serve} from '@hono/node-server';
 import {openDb} from './db/client.js';
-import {RuntimeMetrics} from './platform/metrics.js';
+import {RuntimeMetrics} from './platform/runtime-metrics.js';
 import {startWorkers} from './platform/workers.js';
 import {config} from './config.js';
 import {safeEqual} from './lib/util.js';

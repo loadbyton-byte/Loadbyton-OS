@@ -9,6 +9,7 @@ import { acceptQuote, approveQuote, createQuote, sendQuote, submitQuote } from "
 import { getJob, recordMilestone } from "../src/ops/jobs.js";
 import { invoiceJob } from "../src/ops/finance.js";
 import { acceptInvite, invite } from "../src/ops/team.js";
+import { addLine as cusAddLine, approveCase as cusApprove, attachEvidence as cusAttach, createCase as cusCreate, getCase as cusGet, receiveDeposit as cusDeposit, recordAssessment as cusAssess, recordSubmission as cusSubmit, submitForReview as cusReview } from "../src/ops/customs.js";
 import { createInbound as fulCreateInbound, createLocation as fulCreateLocation, createOrder as createFulfilOrder, createReturn, createSku as fulCreateSku, getFulfilOrder, getInbound as fulGetInbound, getReturn, packScan, pickOrder, receiveInbound, receiveReturn, requestAdjustment, shipOrder } from "../src/ops/fulfilment.js";
 import { runStorageCharges, setRate as fulSetRate } from "../src/ops/fulfil-billing.js";
 
@@ -16,6 +17,9 @@ import {
   accrueStorage, addFoundLine, allocateOutbound, closeInbound, confirmPick, createInbound, createLocation, createOutbound, createSku, createWarehouse,
   decideCountLine, dispatchOutbound, getCount, getInbound, receiveLine, recordCount, setRate, startCount, submitCount,
 } from "../src/ops/warehouse.js";
+import {
+  applyRiderEvent, createRemittance as dlvRemit, createRider, createRun, createShipment, setRate as dlvSetRate, settleRider, startRun,
+} from "../src/ops/delivery.js";
 import { addCompliance, addMaintenance, applyDriverEvent, completeTrip, createDriver, createOrder, createTrip, createVehicle, dispatchTrip, getTrip } from "../src/ops/transport.js";
 
 if (process.env.NODE_ENV === "production") { console.error("Refusing to seed demo data in production."); process.exit(1); }
@@ -198,5 +202,78 @@ await db.tenant(wr.tenantId, async (c) => {
   for (const l of (await getCount(c, k.id)).lines) await recordCount(c, counter, l.id, Number(l.system_qty) - 4);   // 4 cartons short
   await submitCount(c, counter, k.id);
 });
-console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123\n  Fulfilment owner: ${fEmail} / demo-password-123\n  Warehouse owner: ${wEmail} / demo-password-123`);
+
+// ── fourth demo company: courier / last mile with cash on delivery (one run delivered, cash counted in, one failed attempt, one shortage waiting for a decision)
+const kEmail = "delivery@loadbyton.example";
+const kr = await registerCompany(db, { company: "DEMO Falcon Express Couriers", contactName: "Demo Dispatcher", email: kEmail, password: "demo-password-123", sectors: ["courier-last-mile"], goal: "Know where every dirham of COD is" });
+const kctx = { userId: kr.userId, tenantId: kr.tenantId, roles: ["owner"], perms: permsFor(["owner"]), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
+const riderToken = await db.tenant(kr.tenantId, async (c) => {
+  const shop = await createParty(c, kctx, { kind: "customer", name: "DEMO Souq Gadgets" });
+  const abaya = await createParty(c, kctx, { kind: "customer", name: "DEMO Noor Abayas" });
+  await dlvSetRate(c, kctx, { merchant_id: shop, delivery: "12", intercity: "6", return: "8", cod_fee_pct: "2.5", cod_fee_min: "3", effective_from: day(-60) });
+  const rider = await createRider(c, kctx, { name: "Rashid Ali", phone: "+971 50 000 0101" });
+  const rider2 = await createRider(c, kctx, { name: "Sami Khan", phone: "+971 50 000 0102" });
+  const tokR = await invite(c, kctx, { email: "rider1@loadbyton.example", roles: ["driver"], driver_id: rider });
+  const tokR2 = await invite(c, kctx, { email: "rider2@loadbyton.example", roles: ["driver"], driver_id: rider2 });
+  return { shop, abaya, rider, rider2, tokR, tokR2 };
+});
+const accR = await acceptInvite(db, riderToken.tokR, { name: "Rashid Ali", password: "demo-password-123" });
+await acceptInvite(db, riderToken.tokR2, { name: "Sami Khan", password: "demo-password-123" });
+const rctx = { userId: accR.userId, tenantId: kr.tenantId, roles: ["driver"], perms: permsFor(["driver"]), partyId: null, driverId: riderToken.rider, readOnly: false, supportStaffId: null };
+const evId = () => `seed-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+await db.tenant(kr.tenantId, async (c) => {
+  const { shop, abaya, rider } = riderToken;
+  const mk = (merchant_id: string, ref: string, name: string, emirate: string, cod?: string, extra: Record<string, any> = {}) =>
+    createShipment(c, kctx, { merchant_id, external_ref: ref, consignee_name: name, consignee_phone: "+971 55 000 0000", address: `${name}'s flat, ${emirate}`, emirate, cod, ...extra });
+  const a = await mk(shop, "SG-1001", "Aisha Al Zaabi", "Dubai", "249.00");
+  const b = await mk(shop, "SG-1002", "Omar Hassan", "Sharjah", "89.50", { require_code: "1" });
+  const d = await mk(abaya, "NA-2001", "Mariam Saeed", "Abu Dhabi", "320.00");
+  const e = await mk(shop, "SG-1003", "Fahad Khalid", "Dubai");                                       // prepaid
+  const f = await mk(shop, "SG-1004", "Layla Nasser", "Dubai", "59.00");                              // will fail (nobody home)
+  await mk(abaya, "NA-2002", "Huda Rahman", "Ajman", "150.00");                                        // still waiting for dispatch
+  const run = await createRun(c, kctx, { driver_id: rider, shipment_ids: [a.id, b.id, d.id, e.id, f.id] });
+  await startRun(c, kctx, run.id);
+  const code = (await c.query<any>(`SELECT delivery_code FROM dlv_shipments WHERE id=$1`, [b.id])).rows[0].delivery_code;
+  const ev = (id: string, kind: any, payload: Record<string, any>) => applyRiderEvent(c, rctx, { client_event_id: evId(), shipment_id: id, kind, device_time: new Date().toISOString(), payload });
+  await ev(a.id, "deliver", { name: "Aisha", cash: "249" });
+  await ev(b.id, "deliver", { name: "Omar", cash: "89.5", code });
+  await ev(d.id, "deliver", { name: "Mariam", cash: "320" });
+  await ev(e.id, "deliver", { name: "Fahad" });
+  await ev(f.id, "fail", { reason: "not_home", note: "Door locked, phone off" });
+  // cash desk: a counted-in handover for what is owed, then the merchant is paid net of fees
+  await settleRider(c, kctx, rider, { counted: "658.50" });
+  await dlvRemit(c, kctx, shop, { net_fees: true });
+});
+// a second rider whose cash is SHORT: waiting for an independent decision
+const accR2 = await db.system((cn) => cn.query<any>(`SELECT user_id FROM memberships WHERE driver_id=$1`, [riderToken.rider2])).then((x) => x.rows[0].user_id);
+const r2ctx = { userId: accR2, tenantId: kr.tenantId, roles: ["driver"], perms: permsFor(["driver"]), partyId: null, driverId: riderToken.rider2, readOnly: false, supportStaffId: null };
+await db.tenant(kr.tenantId, async (c) => {
+  const x = await createShipment(c, kctx, { merchant_id: riderToken.abaya, external_ref: "NA-2003", consignee_name: "Reem Yousef", address: "Al Nahda, Sharjah", emirate: "Sharjah", cod: "200.00" });
+  const run = await createRun(c, kctx, { driver_id: riderToken.rider2, shipment_ids: [x.id] });
+  await startRun(c, kctx, run.id);
+  await applyRiderEvent(c, r2ctx, { client_event_id: evId(), shipment_id: x.id, kind: "deliver", device_time: new Date().toISOString(), payload: { name: "Reem", cash: "200" } });
+  const cashier = { ...kctx, roles: ["owner"] };
+  await settleRider(c, cashier, riderToken.rider2, { counted: "190", note: "Customer paid with a torn note that was refused at the desk" });
+});
+// ── fifth demo company: customs brokerage (one case approved and handed over, one assessed, one still collecting documents, one deposit held)
+const cEmail = "customs@loadbyton.example";
+const cr = await registerCompany(db, { company: "DEMO Gulf Customs Services", contactName: "Demo Broker", email: cEmail, password: "demo-password-123", sectors: ["customs-brokerage"], goal: "Never lodge a declaration with a missing document" });
+const cctx = { userId: cr.userId, tenantId: cr.tenantId, roles: ["owner"], perms: permsFor(["owner"]), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
+await db.tenant(cr.tenantId, async (c) => {
+  const acme = await createParty(c, cctx, { kind: "customer", name: "DEMO Acme Imports LLC" });
+  const mk = (ref: string, over: Record<string, any> = {}) => cusCreate(c, cctx, { party_id: acme, direction: "import", mode: "sea", customs_office: "Jebel Ali", origin_country: "CN", destination_country: "AE", incoterm: "cif", currency: "USD", fx_rate: "3.6725", freight: "400", insurance: "40", transport_ref: ref, ...over });
+  const line = { description: "Laptops", hs_code: "8471.30.10", origin_country: "CN", qty: 10, net_kg: 25, gross_kg: 30, value: "1000.00", duty_pct: 5, vat_pct: 5 };
+  const ready = async (id: string) => {
+    await cusAddLine(c, cctx, id, line);
+    for (const it of (await cusGet(c, id)).checklist.filter((x: any) => x.mandatory && x.status === "missing"))
+      await cusAttach(c, cctx, id, { item_id: it.id, kind: it.kind, title: it.label, filename: `${it.kind}.pdf`, data: Buffer.from(`%PDF-1.4 demo ${id} ${it.id}`) });
+  };
+  const a = await mk("MAEU-DEMO-1"); await ready(a.id); await cusReview(c, cctx, a.id); await cusApprove(c, cctx, a.id);
+  const b = await mk("MAEU-DEMO-2"); await ready(b.id); await cusReview(c, cctx, b.id); await cusApprove(c, cctx, b.id);
+  await cusSubmit(c, cctx, b.id, { channel: "dubai_trade", declaration_no: "DT-DEMO-2001" });
+  await cusAssess(c, cctx, b.id, { duty: "190.00", vat: "199.50" });
+  const d = await mk("MAEU-DEMO-3"); await cusAddLine(c, cctx, d.id, line);                            // still collecting documents
+  await cusDeposit(c, cctx, { party_id: acme, kind: "cash_deposit", amount: "5000", reference: "DEP-DEMO-1" });
+});
+console.log(`Demo seeded.\n  Freight owner : ${email} / demo-password-123\n  Transport owner: ${tEmail} / demo-password-123\n  Driver (phone) : driver1@loadbyton.example / demo-password-123\n  Fulfilment owner: ${fEmail} / demo-password-123\n  Warehouse owner: ${wEmail} / demo-password-123\n  Delivery owner : ${kEmail} / demo-password-123\n  Customs owner  : ${cEmail} / demo-password-123\n  Rider (phone)  : rider1@loadbyton.example / demo-password-123`);
 await db.close();

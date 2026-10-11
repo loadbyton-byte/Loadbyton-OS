@@ -1,14 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import {beforeAll,it,expect} from 'vitest';
-import {RuntimeMetrics} from '../src/platform/metrics.js';
+import {RuntimeMetrics} from '../src/platform/runtime-metrics.js';
 import {buildApp} from '../src/app.js';
 import {freshDb} from './helpers.js';
 import type {Db} from '../src/db/client.js';
 let db:Db;beforeAll(async()=>{db=await freshDb();});
 it('requires a configured metrics token and hides credentials and dynamic identifiers',async()=>{
  const metrics=new RuntimeMetrics(),token='test-only-metrics-token-with-32-characters',app=buildApp(db,{metrics,metricsToken:token});
- expect((await app.request('/metrics')).status).toBe(401);
- expect((await app.request('/metrics',{headers:{authorization:'Bearer wrong'}})).status).toBe(401);
+ expect((await app.request('/metrics')).status).toBe(404);   // the endpoint does not reveal itself without the exact token
+ expect((await app.request('/metrics',{headers:{authorization:'Bearer wrong'}})).status).toBe(404);
  await app.request('/healthz');await app.request('/never-a-route/private-customer-identifier?phone=0501234567');
  metrics.worker('outbox');metrics.worker('outbox',true);
  const response=await app.request('/metrics',{headers:{authorization:`Bearer ${token}`}}),text=await response.text();
@@ -24,5 +24,5 @@ it('fails startup for an unimplemented payment provider instead of silently acce
   cwd:process.cwd(),encoding:'utf8',timeout:10000,
   env:{...process.env,NODE_ENV:'development',PAYMENT_PROVIDER:'not-implemented'},
  });
- expect(result.status).not.toBe(0);expect(result.stderr).toContain('Unsupported payment provider');
+ expect(result.status).not.toBe(0);expect(result.stderr).toContain('unknown payment provider');
 });

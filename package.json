@@ -22,8 +22,6 @@
     "seed-demo": "tsx scripts/seed-demo.ts",
     "verify": "tsx scripts/verify-invariants.ts",
     "e2e": "tsx scripts/e2e.ts",
-    "e2e:delivery": "tsx scripts/e2e-delivery.ts",
-    "e2e:fulfilment-delivery": "tsx scripts/e2e-fulfilment-delivery.ts",
     "e2e:transport": "tsx scripts/e2e-transport.ts"
   },
   "dependencies": {

@@ -1,32 +1,35 @@
 import { forbidden } from "./util.js";
 
-export const ROLES = ["owner", "sales", "pricing", "coordinator", "dispatcher", "warehouse", "finance", "hr", "auditor", "customs", "specialist", "portal", "driver"] as const;
+export const ROLES = ["owner", "sales", "pricing", "coordinator", "dispatcher", "warehouse", "finance", "hr", "auditor", "portal", "driver", "customs", "specialist"] as const;
 export type Role = (typeof ROLES)[number];
 
 export type Perm =
   | "read" | "party.write" | "enquiry.write" | "quote.write" | "quote.approve" | "rate.write"
   | "job.write" | "job.cost" | "doc.write" | "finance.write" | "finance.void" | "team.manage"
   | "billing.manage" | "settings.manage" | "export" | "audit.read" | "dashboard.owner"
-  | "transport.write" | "transport.expense" | "driver.act" | "delivery.write" | "delivery.finance" | "customs.write" | "customs.approve"
-  | "inbox.write" | "inbox.approve"
+  | "transport.write" | "transport.expense" | "driver.act"
+  | "wh.write" | "wh.floor" | "wh.approve" | "wh.rates" | "wh.bill"
+  | "inbox.write" | "inbox.approve"   // shared inbox: draft replies / independent approval of outbound replies
   | "specialist.write" | "specialist.approve"
-  | "wh.write" | "wh.floor" | "wh.approve" | "wh.rates" | "wh.bill";   // shared by E-commerce fulfilment (floor, rates) and Contract warehouse (bill)
+  | "cus.write" | "cus.submit" | "cus.approve" | "cus.cash"   // Customs: prepare cases, record official-channel steps, independent approval, deposits & payments
+  | "dlv.write" | "dlv.cash" | "dlv.approve" | "dlv.remit" | "dlv.bill";   // Delivery/COD: dispatch, cash desk, independent approval, merchant payout, rates & billing   // shared by E-commerce fulfilment (floor, rates) and Contract warehouse (bill)
 
 const R: Record<Role, Perm[]> = {
   owner: ["read", "party.write", "enquiry.write", "quote.write", "quote.approve", "rate.write", "job.write", "job.cost", "doc.write",
-    "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner", "transport.write", "transport.expense", "delivery.write", "delivery.finance", "customs.write", "customs.approve",
-    "inbox.write", "inbox.approve", "wh.write", "wh.floor", "wh.approve", "wh.rates", "wh.bill", "specialist.write", "specialist.approve"],
+    "finance.write", "finance.void", "team.manage", "billing.manage", "settings.manage", "export", "audit.read", "dashboard.owner", "transport.write", "transport.expense",
+    "wh.write", "wh.floor", "wh.approve", "wh.rates", "wh.bill", "dlv.write", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill",
+    "cus.write", "cus.submit", "cus.approve", "cus.cash", "inbox.write", "inbox.approve", "specialist.write", "specialist.approve"],
   sales: ["inbox.write", "read", "party.write", "enquiry.write", "quote.write"],
   pricing: ["read", "rate.write", "quote.write", "quote.approve"],
-  coordinator: ["inbox.write", "read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write", "delivery.write", "customs.write", "wh.write", "wh.approve", "specialist.write"],
-  dispatcher: ["read", "job.write", "doc.write", "transport.write", "delivery.write"],
+  coordinator: ["inbox.write", "specialist.write", "read", "party.write", "enquiry.write", "job.write", "doc.write", "job.cost", "transport.write", "wh.write", "wh.approve", "dlv.write", "dlv.approve", "cus.write"],
+  dispatcher: ["read", "job.write", "doc.write", "transport.write", "dlv.write"],
   warehouse: ["read", "doc.write", "wh.write", "wh.floor"],   // operators run the floor; they cannot approve their own count adjustments
-  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense", "delivery.finance", "wh.approve", "wh.rates", "wh.bill"],
+  finance: ["read", "job.cost", "finance.write", "export", "dashboard.owner", "transport.expense", "wh.approve", "wh.rates", "wh.bill", "dlv.cash", "dlv.approve", "dlv.remit", "dlv.bill", "cus.cash"],
   hr: ["read", "team.manage"],
   auditor: ["read", "audit.read", "export"],
-  customs: ["read", "doc.write", "customs.write", "customs.approve"],
-  specialist: ['inbox.write','read','doc.write','specialist.write','specialist.approve'],
+  specialist: ["inbox.write", "read", "doc.write", "specialist.write", "specialist.approve"],
   portal: [],
+  customs: ["read", "party.write", "doc.write", "cus.write", "cus.submit", "cus.approve"],   // customs officer: prepares, hands over, may approve a case someone else prepared; no cash
   driver: ["driver.act"],   // limited seat: sees only trips assigned to them
 };
 

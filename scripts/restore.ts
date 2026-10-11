@@ -5,7 +5,7 @@ import {spawn} from 'node:child_process';
 import pg from 'pg';
 import {config} from '../src/config.js';
 import {openDb} from '../src/db/client.js';
-import {supabaseStorage,validateStorageKey,type ObjectStorage} from '../src/adapters/storage.js';
+import {fsStorage,s3Storage,type Storage} from '../src/lib/storage.js';
 import {sha256} from '../src/lib/util.js';
 import {decryptBackup} from '../src/platform/backup.js';
 import {verifyInvariants} from '../src/platform/invariants.js';
@@ -17,14 +17,15 @@ if(!target||!file||process.env.RESTORE_CONFIRM_ISOLATED!=='true')throw new Error
 const parsed=new URL(target),source=config.databaseUrl?new URL(config.databaseUrl):null;
 if(source&&source.hostname===parsed.hostname&&source.pathname===parsed.pathname)throw new Error('Restore target must differ from the active database');
 if(config.isProd&&parsed.searchParams.get('sslmode')!=='verify-full')throw new Error('Restore database requires verified TLS');
-const bucket=process.env.RESTORE_SUPABASE_STORAGE_BUCKET,localDir=process.env.RESTORE_STORAGE_DIR;
-let storage:ObjectStorage;
-if(config.storageProvider==='supabase') {
- if(!bucket||bucket===config.supabase.bucket)throw new Error('Use a separate private Supabase bucket for the restore');
- storage=supabaseStorage({...config.supabase,bucket});
+const validateStorageKey=(key:string)=>{if(!/^[a-f0-9-]{36}\/[a-f0-9-]{36}$/i.test(key))throw new Error('Unexpected storage key');};
+const bucket=process.env.RESTORE_S3_BUCKET,localDir=process.env.RESTORE_STORAGE_DIR;
+let storage:Storage;
+if(config.storage.driver==='s3') {
+ if(!bucket||bucket===config.storage.s3.bucket)throw new Error('Set RESTORE_S3_BUCKET to a separate private bucket for the restore drill');
+ storage=s3Storage({...config.storage.s3,bucket});
 }else{
  if(!localDir||path.resolve(localDir)===config.storageDir)throw new Error('Set a separate RESTORE_STORAGE_DIR');
- storage={async put(key,data){validateStorageKey(key);const file=path.join(localDir,key);await fs.mkdir(path.dirname(file),{recursive:true,mode:0o700});await fs.writeFile(file,data,{mode:0o600,flag:'wx'});},async get(key){validateStorageKey(key);return fs.readFile(path.join(localDir,key));}};
+ storage=fsStorage(path.resolve(localDir));
 }
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'lbt-restore-'));await fs.chmod(dir,0o700);
 let db:Awaited<ReturnType<typeof openDb>>|undefined;
@@ -46,7 +47,7 @@ try {
   validateStorageKey(doc.storage_key);
   const match=manifest.objects.find((x:any)=>x.storage_key===doc.storage_key);if(!match||match.sha256!==doc.sha256)throw new Error('Restored document metadata mismatch');
   const data=await fs.readFile(path.join(dir,'objects',doc.storage_key));if(sha256(data)!==doc.sha256||data.length!==Number(doc.size_bytes))throw new Error('Restored document integrity failed');
-  await storage.put(doc.storage_key,data,'application/octet-stream');if(sha256(await storage.get(doc.storage_key))!==doc.sha256)throw new Error('Restored storage verification failed');
+  await storage.put(doc.storage_key,data);if(sha256(await storage.get(doc.storage_key))!==doc.sha256)throw new Error('Restored storage verification failed');
  }
  for(const table of Object.keys(manifest.counts)) {
   if(!/^[a-z_]+$/.test(table))throw new Error('Unexpected restore table name');

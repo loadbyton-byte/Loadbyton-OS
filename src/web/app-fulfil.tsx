@@ -11,7 +11,6 @@ import {
 } from "../ops/fulfilment.js";
 import { RATE_CODES, billingSummary, invoiceMerchant, listRates, runStorageCharges, setRate, unbilledForParty } from "../ops/fulfil-billing.js";
 import { listParties } from "../ops/crm.js";
-import {handoffFulfilment} from '../ops/fulfilment-delivery.js';
 import { formBody, str, type Env } from "./mw.js";
 import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table } from "./ui.js";
@@ -192,7 +191,6 @@ fulfil.get(`${F}/orders/:id`, async (c) => {
           <button class="btn red" type="submit">Dispatch</button><p class="hint">Carrier label printing and live tracking APIs are not built: enter the tracking number from the carrier.</p></form>)}</>) : null}
 
     {d.shipment ? <div class="card" style="margin-top:20px"><h3>Shipment</h3><p style="margin:0">{d.shipment.carrier} · <strong>{d.shipment.tracking_no}</strong> · {d.shipment.cartons} carton(s){d.shipment.weight_g ? ` · ${d.shipment.weight_g} g` : ""} · {dt(d.shipment.shipped_at)}</p></div> : null}
-    {d.shipment?.delivery_parcel_id?<p><a href={`/app/delivery/parcels/${d.shipment.delivery_parcel_id}`}>Open the linked delivery parcel and COD record</a></p>:d.shipment?.carrier==='Own fleet'&&o.ship_to_country==='AE'&&wr&&can(c,'delivery.write')&&c.get('tenant')?.sectors.includes('courier-last-mile')?<form class="card" method="post" action={`${F}/orders/${id}/delivery-handover`}><Csrf t={csrf}/><h3>Handover to Delivery</h3><p>Creates one parcel linked to this committed shipment. Delivery fees and merchant-approved COD stay separate from fulfilment handling charges; this creates no collection or payment.</p>{!o.ship_to_phone?<div class="field"><label for="handover-phone">Recipient phone</label><input id="handover-phone" name="recipient_phone" required maxlength={40}/></div>:null}<div class="row"><div class="field"><label for="handover-fee">Agreed delivery service fee (AED)</label><input id="handover-fee" name="fee" type="number" min="0" step="0.01" required/></div><div class="field"><label for="handover-cod">Merchant-approved COD (AED, explicit zero if prepaid)</label><input id="handover-cod" name="cod" type="number" min="0" step="0.01" required/></div><div class="field"><label for="handover-tax">Service tax code</label><select id="handover-tax" name="tax_code">{Object.keys(TAX_CODES).map(t=><option value={t}>{t}</option>)}</select></div></div><div class="field"><label for="handover-evidence">Merchant fee/COD instruction and handover evidence</label><textarea id="handover-evidence" name="evidence" required maxlength={1000}/></div><button class="btn">Create linked delivery parcel</button></form>:null}
     {d.charges.length ? <><h3 style="margin-top:22px">Billable activity</h3><Table head={["Activity", ["Qty", "num"], ["Rate", "num"], "Invoiced"]}>{d.charges.map((x: any) => <tr><td class="small">{x.description}</td><td class="num">{x.qty}</td><td class="num"><Money v={x.unit_minor} /></td><td>{x.invoice_id ? <Badge s="invoiced" /> : <Badge s="open" label="not yet" />}</td></tr>)}</Table></> : null}
     {d.returns.length ? <><h3 style="margin-top:22px">Returns</h3><Table head={["Return", "Status"]}>{d.returns.map((r: any) => <tr><td><a href={`${F}/returns/${r.id}`}>{r.no}</a></td><td><Badge s={r.status} /></td></tr>)}</Table></> : null}
   </>));
@@ -213,7 +211,6 @@ fulfil.post(`${F}/orders/:id/pick`, async (c) => {
 fulfil.post(`${F}/orders/:id/pack`, async (c) => { const id = c.req.param("id"), b = await formBody(c); return act(c, O(id), async () => { const r = await withT(c, (cn, ctx) => packScan(cn, ctx, id, { code: str(b.code), qty: str(b.qty) })); return { to: O(id), ok: `${r.sku}: ${r.packed} of ${r.picked} packed.` }; }); });
 fulfil.post(`${F}/orders/:id/pack-reset`, async (c) => { const id = c.req.param("id"); return act(c, O(id), async () => { await withT(c, (cn, ctx) => resetPacking(cn, ctx, id)); return { to: O(id), ok: "Packing reset." }; }); });
 fulfil.post(`${F}/orders/:id/ship`, async (c) => { const id = c.req.param("id"), b = await formBody(c); return act(c, O(id), async () => { const r = await withT(c, (cn, ctx) => shipOrder(cn, ctx, id, b)); return { to: O(id), ok: `Dispatched ${r.units} unit(s).` }; }); });
-fulfil.post(`${F}/orders/:id/delivery-handover`,async c=>{const id=c.req.param('id'),b=await formBody(c);return act(c,O(id),async()=>{const p=await withT(c,(cn,ctx)=>handoffFulfilment(cn,ctx,id,b));return {to:`/app/delivery/parcels/${p.id}`,ok:p.duplicate?'This shipment already has its linked parcel.':'Shipment handed to Delivery; no cash collected yet.'};});});
 
 fulfil.get(`${F}/orders/:id/slip`, async (c) => {
   const id = c.req.param("id");
