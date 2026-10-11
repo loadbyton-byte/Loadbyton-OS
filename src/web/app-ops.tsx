@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { HttpError, formatDate, formatDay, fmtMoney, lineNet, taxFor } from "../lib/util.js";
 import { addCost, addExceptionItem, closeFinancially, completeOperationally, financialClosureBlockers, getJob, listJobs, planMilestone, reconcileCost, recordMilestone, resolveException, updateJobRefs } from "../ops/jobs.js";
-import { getInvoice, invoiceJob, listInvoices, recordReceipt, voidInvoice } from "../ops/finance.js";
+import { getInvoice, invoiceJob, listInvoices, recordReceipt, reverseReceipt, voidInvoice } from "../ops/finance.js";
 import { DOC_KINDS, listDocuments, fetchDocumentFile, setHold, signDownload, uploadDocument, verifyDownload } from "../ops/documents.js";
 import { listParties } from "../ops/crm.js";
 import { listTeam } from "../ops/team.js";
@@ -215,7 +215,7 @@ ops.get("/app/invoices", async (c) => {
     </PageHead>
     <Table head={["Invoice", "Customer", "Job", "Due", ["Total", "num"], ["Outstanding", "num"], "Status", "Accounting"]} empty={rows.length ? undefined : "No invoices."}>
       {rows.map((i: any) => <tr><td><a href={`/app/invoices/${i.id}`}>{i.no}</a></td><td>{i.party_name}</td><td>{i.job_no ?? "—"}</td><td>{formatDay(i.due_at)}{i.overdue ? <> <Badge s="bad" label="overdue" /></> : null}</td>
-        <td class="num"><Money v={i.total_minor} /></td><td class="num"><Money v={Number(i.total_minor) - Number(i.paid_minor)} /></td><td><Badge s={i.status} /></td><td><Badge s={i.sync_status === "synced" ? "synced" : i.sync_status === "failed" ? "failed" : "draft"} label={i.sync_status.replace("_", " ")} /></td></tr>)}
+        <td class="num"><Money v={i.total_minor} /></td><td class="num"><Money v={Number(i.balance_minor)} /></td><td><Badge s={i.status} /></td><td><Badge s={i.sync_status === "synced" ? "synced" : i.sync_status === "failed" ? "failed" : "draft"} label={i.sync_status.replace("_", " ")} /></td></tr>)}
     </Table>
   </>));
 });
@@ -224,21 +224,22 @@ ops.get("/app/invoices/:id", async (c) => {
   const d = await withT(c, (cn) => getInvoice(cn, id));
   if (ctx.partyId && d.inv.party_id !== ctx.partyId) throw new HttpError(403, "Not permitted", "forbidden");
   const csrf = c.get("csrf"), inv = d.inv;
-  const out = Number(inv.total_minor) - Number(inv.paid_minor);
+  const out = Number(inv.balance_minor);
   const arabic=c.req.query("lang")==="ar",label=(en:string,ar:string)=>arabic?ar:en;
   return appPage(c, inv.no, (<>
     <PageHead title={`Invoice ${inv.no}`} sub={`${inv.party_name}${inv.job_no ? ` · job ${inv.job_no}` : ""}`}>
       <Badge s={inv.status} />{inv.job_id && !ctx.partyId ? <a class="btn ghost sm" href={J(inv.job_id)}>Open job</a> : null}<a class="btn ghost sm" href={`/app/invoices/${id}?lang=${arabic?"en":"ar"}`}>{arabic?"English":"العربية"}</a><button class="btn ghost sm" data-print="1" type="button">Print</button>
     </PageHead>
     <div class="print-doc" lang={arabic?"ar":"en"} dir={arabic?"rtl":"ltr"}>
-      <h2>{inv.legal_name ?? inv.entity_name}</h2>
-      <p class="small">{inv.entity_tax_id ? `Tax registration no. ${inv.entity_tax_id} · ` : ""}{label("Invoice","فاتورة")} <strong>{inv.no}</strong> · {label("Issued","تاريخ الإصدار")} {formatDay(inv.issued_at)} · {label("Due","تاريخ الاستحقاق")} {formatDay(inv.due_at)}<br />{label("Bill to","العميل")}: {inv.party_name}{inv.party_tax_id ? ` · Tax no. ${inv.party_tax_id}` : ""}</p>
+      <h2>{arabic && inv.legal_name_ar ? inv.legal_name_ar : (inv.legal_name ?? inv.entity_name)}</h2>
+      <p class="small">{inv.entity_tax_id ? `Tax registration no. ${inv.entity_tax_id} · ` : ""}{label("Invoice","فاتورة")} <strong>{inv.no}</strong> · {label("Issued","تاريخ الإصدار")} {formatDay(inv.issued_at)} · {label("Due","تاريخ الاستحقاق")} {formatDay(inv.due_at)}<br />{label("Bill to","العميل")}: {arabic && inv.party_name_ar ? inv.party_name_ar : inv.party_name}{inv.party_tax_id ? ` · Tax no. ${inv.party_tax_id}` : ""}</p>
       <Table head={[label("Description","الوصف"), [label("Qty","الكمية"), "num"], [label("Unit","سعر الوحدة"), "num"], label("Tax","رمز الضريبة"), [label("Net","الصافي"), "num"], [label("Tax","الضريبة"), "num"]]}>
         {d.lines.map((l: any) => <tr><td>{l.description}</td><td class="num">{Number(l.qty)}</td><td class="num"><Money v={l.unit_minor} cur={inv.currency} /></td><td>{l.tax_code}</td><td class="num"><Money v={l.net_minor} cur={inv.currency} /></td><td class="num"><Money v={l.tax_minor} cur={inv.currency} /></td></tr>)}
         <tr><td colspan={4} class="right">{label("Subtotal","المجموع الفرعي")}</td><td class="num" colspan={2}><Money v={inv.subtotal_minor} cur={inv.currency} /></td></tr>
         <tr><td colspan={4} class="right">{label("Tax","الضريبة")}</td><td class="num" colspan={2}><Money v={inv.tax_minor} cur={inv.currency} /></td></tr>
         <tr><th colspan={4} class="right">{label("Total","الإجمالي")}</th><th class="num" colspan={2}><Money v={inv.total_minor} cur={inv.currency} /></th></tr>
         <tr><td colspan={4} class="right">{label("Paid","المدفوع")}</td><td class="num" colspan={2}><Money v={inv.paid_minor} cur={inv.currency} /></td></tr>
+        {Number(inv.credited_minor) > 0 ? <tr><td colspan={4} class="right">{label("Credited","الإشعارات الدائنة")}</td><td class="num" colspan={2}><Money v={inv.credited_minor} cur={inv.currency} /></td></tr> : null}
         <tr><th colspan={4} class="right">{label("Outstanding","الرصيد المستحق")}</th><th class="num" colspan={2}><Money v={out} cur={inv.currency} /></th></tr>
       </Table>
       <p class="small mute">{label("Operational invoice generated by LOAD|BY|TON. This document is not an accredited UAE e-invoice. Accounting bridge status:","فاتورة تشغيلية من LOAD|BY|TON. هذا المستند ليس فاتورة إلكترونية إماراتية معتمدة. حالة الربط المحاسبي:")} {inv.sync_status.replace("_", " ")}{inv.external_id ? ` (${inv.external_id})` : ""}.</p>
@@ -246,7 +247,10 @@ ops.get("/app/invoices/:id", async (c) => {
     <h3 style="margin-top:22px" class="no-print">Receipts</h3>
     <div class="no-print">
       <Table head={["Date", "Method", "Reference", ["Amount", "num"]]} empty={d.receipts.length ? undefined : "No receipts yet."}>
-        {d.receipts.map((r: any) => <tr><td>{formatDay(r.received_at)}</td><td>{r.method}</td><td>{r.reference ?? "—"}</td><td class="num"><Money v={r.amount_minor} cur={inv.currency} /></td></tr>)}</Table>
+        {d.receipts.map((r: any) => <tr><td>{formatDay(r.received_at)}</td><td>{r.method}</td><td>{r.reference ?? "—"}{r.reversed ? <> <Badge s="bad" label="reversed" /><div class="small mute">{r.reversal_reason}</div></> : null}</td><td class="num"><Money v={r.amount_minor} cur={inv.currency} />
+          {!r.reversed && can(c, "finance.void") && inv.status !== "void" ? <form method="post" action={`/app/invoices/${id}/receipt/${r.id}/reverse`} class="inline-form"><Csrf t={csrf} /><input name="reason" type="text" placeholder="Reason" required /><button class="btn ghost sm">Reverse</button></form> : null}</td></tr>)}</Table>
+      {d.credits.length ? <Table head={["Credit note", "Reason", "Status", ["Amount", "num"]]}>{d.credits.map((n: any) => <tr><td><a href={`/app/finance/credit-notes/${n.id}`}>{n.no ?? "Draft"}</a></td><td class="small">{n.reason}</td><td><Badge s={n.status} /></td><td class="num"><Money v={n.total_minor} cur={inv.currency} /></td></tr>)}</Table> : null}
+      {can(c, "finance.write") && out > 0 && !["void", "credited"].includes(inv.status) ? <p style="margin-top:12px"><a class="btn ghost sm" href={`/app/invoices/${id}/credit`}>Credit this invoice</a></p> : null}
       {can(c, "finance.write") && out > 0 && inv.status !== "void" ? (
         <form method="post" action={`/app/invoices/${id}/receipt`} class="inline-form" style="margin-top:12px"><Csrf t={csrf} />
           <input name="amount" type="number" step="0.01" min="0.01" max={(out / 100).toFixed(2)} placeholder="Amount received" required /><input name="method" type="text" value="bank transfer" /><input name="reference" type="text" placeholder="Bank reference" /><input name="received_at" type="date" value={today()} /><button class="btn red sm" type="submit">Record receipt</button></form>) : null}
@@ -256,4 +260,5 @@ ops.get("/app/invoices/:id", async (c) => {
   </>));
 });
 ops.post("/app/invoices/:id/receipt", async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, `/app/invoices/${id}`, async () => { await withT(c, (cn, ctx) => recordReceipt(cn, ctx, id, b)); return { to: `/app/invoices/${id}`, ok: "Receipt recorded." }; }); });
+ops.post("/app/invoices/:id/receipt/:rid/reverse", async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, `/app/invoices/${id}`, async () => { await withT(c, (cn, ctx) => reverseReceipt(cn, ctx, c.req.param("rid"), str(b.reason))); return { to: `/app/invoices/${id}`, ok: "Receipt reversed; the invoice is open for that amount again." }; }); });
 ops.post("/app/invoices/:id/void", async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, `/app/invoices/${id}`, async () => { await withT(c, (cn, ctx) => voidInvoice(cn, ctx, id, str(b.reason))); return { to: `/app/invoices/${id}`, ok: "Invoice voided; its charges are released." }; }); });

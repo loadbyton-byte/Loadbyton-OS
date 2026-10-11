@@ -25,7 +25,7 @@ export async function createParty(c: Conn, ctx: Ctx, f: Record<string, any>) {
 }
 
 export const listParties = (c: Conn, kind?: string) =>
-  c.query<any>(`SELECT p.*, (SELECT coalesce(sum(total_minor-paid_minor),0) FROM invoices i
+  c.query<any>(`SELECT p.*, (SELECT coalesce(sum(balance_minor),0) FROM invoices i
      WHERE i.party_id=p.id AND i.status IN ('issued','part_paid')) AS outstanding_minor
      FROM parties p WHERE ($1::text IS NULL OR kind=$1) ORDER BY lower(name)`, [kind ?? null]).then((r) => r.rows);
 

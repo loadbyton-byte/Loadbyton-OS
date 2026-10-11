@@ -77,7 +77,7 @@ export async function getQuote(c: Conn, id: string) {
 
 async function openReceivable(c: Conn, partyId: string) {
   const r = await c.query<{ n: string | number }>(
-    `SELECT coalesce(sum(total_minor-paid_minor),0) n FROM invoices WHERE party_id=$1 AND status IN ('issued','part_paid')`, [partyId]);
+    `SELECT coalesce(sum(balance_minor),0) n FROM invoices WHERE party_id=$1 AND status IN ('issued','part_paid')`, [partyId]);
   return Number(r.rows[0].n);
 }
 

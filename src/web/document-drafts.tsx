@@ -1,9 +1,9 @@
 import {Hono} from 'hono';
 import {randomUUID} from 'node:crypto';
-import {DRAFT_FORMS,documentDraftWorkspace,generateDocumentDraft,getDocumentDraft,publishDocumentTemplate} from '../ops/document-drafts.js';
+import {DRAFT_FORMS,diffTemplates,documentDraftWorkspace,generateDocumentDraft,getDocumentDraft,publishDocumentTemplate,republishTemplate,templateStatus} from '../ops/document-drafts.js';
 import {must,recordId} from '../ops/common.js';
 import {act,appPage,can,PageHead,withT} from './appkit.js';
-import {Csrf,Table} from './ui.js';
+import {Badge,Csrf,Table} from './ui.js';
 import {formBody,type Env} from './mw.js';
 export const documentDrafts=new Hono<Env>();const url='/app/document-drafts';
 documentDrafts.get(url,async c=>{
@@ -13,6 +13,16 @@ documentDrafts.get(url,async c=>{
  <h2>Published templates</h2><Table head={['Document','Version','Footer','']} empty={d.templates.length?undefined:'An owner must publish the reviewed template versions before generation.'}>{d.templates.map(t=><tr><td>{t.title}</td><td>{t.version}</td><td>{t.footer}</td><td>{can(c,'doc.write')&&can(c,'job.write')?<a class="btn sm" href={`${url}/new/${t.id}`}>Prepare draft</a>:null}</td></tr>)}</Table>
  {can(c,'settings.manage')?<form class="card" method="post" action={`${url}/templates`}><Csrf t={csrf}/><input type="hidden" name="reference" value={randomUUID()}/><h2>Publish a reviewed template version</h2><label for="template-kind">Document kind</label><select id="template-kind" name="kind">{Object.entries(DRAFT_FORMS).map(([kind,x])=><option value={kind}>{x.name}</option>)}</select><label for="template-title">Title</label><input id="template-title" name="title" required maxlength={200}/><label for="template-footer">Reviewed company footer and document-use terms</label><textarea id="template-footer" name="footer" required maxlength={1000}/><button class="btn">Publish immutable version</button></form>:null}</>);
 });
+documentDrafts.get(`${url}/versions`,async c=>{
+ const d=await withT(c,async(cn,ctx)=>({status:await templateStatus(cn,ctx),diff:c.req.query('from')&&c.req.query('to')?await diffTemplates(cn,ctx,c.req.query('from')!,c.req.query('to')!):null})),csrf=c.get('csrf');
+ return appPage(c,'Template versions',<><PageHead title="Template versions" sub="Each published version is immutable. A draft can only be generated from the newest version whose fields match the current standard form."/>
+ {d.status.map(k=><section class="card"><h2>{k.name}</h2>{!k.latest?<p>Not published yet.</p>:<><p>Newest: v{k.latest.version} — {k.latest.title}. {k.outdated?<Badge s="warn" label="fields changed since this version"/>:<Badge s="ok" label="matches current form"/>}</p>
+  <Table head={['Version','Drafts generated','State','Compare']}>{k.versions.map((v,i)=><tr><td>v{v.version}</td><td>{v.drafts}</td><td>{v.superseded?'Superseded':'Newest'}</td><td>{k.versions[i+1]?<a href={`${url}/versions?from=${k.versions[i+1].id}&to=${v.id}`}>vs v{k.versions[i+1].version}</a>:'—'}</td></tr>)}</Table>
+  {k.outdated&&can(c,'settings.manage')?<form method="post" action={`${url}/versions/republish`}><Csrf t={csrf}/><input type="hidden" name="kind" value={k.kind}/><input type="hidden" name="reference" value={randomUUID()}/><label class="check"><input type="checkbox" name="confirm_reviewed" value="1" required/>I re-read the reviewed footer against the changed fields</label><button class="btn sm">Republish as v{k.latest.version+1}</button></form>:null}</>}</section>)}
+ {d.diff?<section class="card"><h2>{d.diff.kind.replace(/_/g,' ')}: v{d.diff.from} → v{d.diff.to}</h2><p>Title {d.diff.title_changed?'changed':'unchanged'} · footer {d.diff.footer_changed?'changed':'unchanged'}</p><p>Added fields: {d.diff.added.join(', ')||'none'} · removed: {d.diff.removed.join(', ')||'none'} · changed: {d.diff.changed.join(', ')||'none'}</p></section>:null}
+ <p><a href={url}>Back to document drafts</a></p></>);
+});
+documentDrafts.post(`${url}/versions/republish`,async c=>{const f=await formBody(c);return act(c,`${url}/versions`,async()=>{await withT(c,(cn,ctx)=>republishTemplate(cn,ctx,f));return {to:`${url}/versions`,ok:'Republished as a new immutable version.'};});});
 documentDrafts.post(`${url}/templates`,async c=>{const f=await formBody(c);return act(c,url,async()=>{await withT(c,(cn,ctx)=>publishDocumentTemplate(cn,ctx,f));return {to:url,ok:'Reviewed template version published. Changes require a new version.'};});});
 documentDrafts.get(`${url}/new/:template`,async c=>{
  const d=await withT(c,async(cn,ctx)=>{const workspace=await documentDraftWorkspace(cn,ctx);const template=await must(cn.query<any>(`SELECT * FROM document_templates WHERE id=$1`,[recordId(c.req.param('template'))]),'Published template');return {...workspace,template};});

@@ -23,6 +23,8 @@
     "create-staff": "tsx scripts/create-staff.ts",
     "seed-demo": "tsx scripts/seed-demo.ts",
     "verify": "tsx scripts/verify-invariants.ts",
+    "readiness": "tsx scripts/readiness.ts",
+    "audit:brand": "tsx scripts/audit-brand-domain.ts",
     "e2e": "tsx scripts/e2e.ts",
     "e2e:transport": "tsx scripts/e2e-transport.ts"
   },

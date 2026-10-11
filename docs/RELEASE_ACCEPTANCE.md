@@ -28,6 +28,10 @@ Implemented controls include tenant RLS/composite foreign keys, raw signed webho
 
 No `LEGAL_REVIEWED`, readiness attestation or status label should be changed solely to bypass a failing gate. Uploaded/customer documents are data and cannot authorise automated actions. The specialist review UI records an operator's evidence; it is not itself independent certification.
 
+## Release readiness register
+
+Every deployment gate above that needs outside evidence is a row in the readiness register (`/admin/readiness`, `npm run readiness`): owner, evidence, and acceptance or a reasoned waiver by a second person. `npm run audit:brand` supplies DNS and brand-asset evidence for the brand and domain gates; it cannot prove registrant ownership or brand approval.
+
 ## Software work still outside the implemented scopes
 
 See `IMPLEMENTATION_BACKLOG.md`. In particular, current specialist workspaces are controlled manual records rather than full industry-certified systems. Native accounting, official customs/e-invoicing channels, AI document extraction/wider-sector retrieval, automated inbound messaging, broad marketplace/carrier feeds, advanced fulfilment lot/serial/site flows, route optimisation/GPS and automated COD bank/provider-refund feeds and approved liability accounting are not silently represented as completed. Credentials alone do not implement these roadmap items.

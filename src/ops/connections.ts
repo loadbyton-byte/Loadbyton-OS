@@ -22,3 +22,10 @@ export async function disconnectAccounting(c:Conn,ctx:Ctx) {
  await c.query(`UPDATE accounting_connections SET status='disconnected',config='{}' WHERE tenant_id=$1`,[ctx.tenantId]);
  await audit(c,ctx.tenantId,actorOf(ctx),'accounting.disconnected','connection',ctx.tenantId);
 }
+/** Payments have no draft state in the ledger, so posting receipts there is an explicit owner decision (off by default; reconnecting resets it). */
+export async function setReceiptPosting(c:Conn,ctx:Ctx,enabled:boolean) {
+ require(ctx,'settings.manage');
+ const r=await c.query(`UPDATE accounting_connections SET config=config||$2::jsonb WHERE tenant_id=$1 AND status IN ('connected','validating','live') RETURNING tenant_id`,[ctx.tenantId,JSON.stringify({post_receipts:!!enabled})]);
+ if(!r.rows.length)throw badRequest('Connect the accounting system first.');
+ await audit(c,ctx.tenantId,actorOf(ctx),'accounting.receipt_posting',"connection",ctx.tenantId,{enabled:!!enabled});
+}
