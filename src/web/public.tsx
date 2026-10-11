@@ -1,7 +1,8 @@
 import { HomeExperience } from "./home-experience.js";
 import { Icon } from "./experience.js";
 import { Hono } from "hono";
-import { currentPlans, INTEGRATIONS, PLAN_SEEDS, PRODUCTS, recommendBundle, SECTORS, sectorBySlug, type PlanVersion } from "../platform/catalog.js";
+import { currentPlans, INTEGRATIONS, PLAN_SEEDS, PRODUCTS, recommendBundle, SECTORS, withLiveAvailability, type PlanVersion } from "../platform/catalog.js";
+import { releasedSectors } from "../platform/readiness.js";
 import { HttpError, badRequest, fmtMoney } from "../lib/util.js";
 import { arr, formBody, str, type Env } from "./mw.js";
 import { Badge, Csrf, PublicShell, type Page } from "./ui.js";
@@ -47,7 +48,8 @@ pub.get("/enterprise", (c) => c.html(
   </PublicShell>
 ));
 
-pub.get("/sectors", (c) => {
+pub.get("/sectors", async (c) => {
+  const SECTORS = withLiveAvailability(await releasedSectors(c.get("db")));
   const p = pg(c, "Sectors", { description: "18 configurable logistics sector profiles. Combine them in one company account." });
   return c.html(
     <PublicShell p={p}>
@@ -68,8 +70,8 @@ pub.get("/sectors", (c) => {
   );
 });
 
-pub.get("/sectors/:slug", (c) => {
-  const s = sectorBySlug(c.req.param("slug"));
+pub.get("/sectors/:slug", async (c) => {
+  const s = withLiveAvailability(await releasedSectors(c.get("db"))).find((x) => x.slug === c.req.param("slug"));
   if (!s) throw new HttpError(404, "Sector not found");
   const rec = recommendBundle([s.slug]);
   const p = pg(c, s.name);
@@ -80,7 +82,9 @@ pub.get("/sectors/:slug", (c) => {
         <h1>{s.name} <AvailBadge s={s.availability} /></h1>
         <h2>Specialist workflow and required controls</h2>
         <p>{s.workflow}.</p>
-        {s.availability === "planned"
+        {s.availability === "available"
+          ? <div class="alert info">This sector pack has passed its release gate: reviewed, run on live cases and owned by a named support lead.</div>
+          : s.availability === "planned"
           ? <div class="alert info">This sector pack is <strong>planned</strong>, not yet released. Registering records your interest and shapes our interview and acceptance work; it does not buy functionality that does not exist yet.</div>
           : <div class="alert warn">This workflow is in <strong>pilot</strong> with design partners. Expect rapid change and hands-on support.</div>}
         {s.specialist ? <div class="alert err">Specialist profile: requires subject-matter review. This software is not a certification to handle regulated cargo.</div> : null}
@@ -112,6 +116,8 @@ pub.get("/find-my-bundle", async (c) => {
   const q = new URL(c.req.url).searchParams.getAll("sector");
   const rec = recommendBundle(q);
   const plans = await currentPlans(c.get("db"));
+  const SECTORS = withLiveAvailability(await releasedSectors(c.get("db")));
+  const picked = SECTORS.filter((s) => q.includes(s.slug));
   const plan = plans.find((x) => x.plan_code === rec.plan) as PlanVersion;
   const p = pg(c, "Find my bundle");
   return c.html(
@@ -141,7 +147,7 @@ pub.get("/find-my-bundle", async (c) => {
                   <strong>{fmtMoney(plan.monthly_minor)}</strong> / month + <strong>{fmtMoney(plan.setup_minor)}</strong> one-off setup. Excludes applicable VAT and third-party pass-through charges; checkout shows the actual tax treatment and payable total.
                 </p>
               )}
-            {rec.picked.some((s) => s.availability === "planned") ? <p class="alert info">Sectors marked Planned are not yet released. Start free with a sector that is in pilot today ({SECTORS.filter((x) => x.availability !== "planned").map((x) => x.name).join(", ")}); we will tell you when your other sectors reach pilot.</p> : null}
+            {picked.some((s) => s.availability === "planned") ? <p class="alert info">Sectors marked Planned are not yet released. Start free with a sector that is in pilot today ({SECTORS.filter((x) => x.availability !== "planned").map((x) => x.name).join(", ")}); we will tell you when your other sectors reach pilot.</p> : null}
             <a class="btn red" href={`/start?${q.map((s) => `sector=${encodeURIComponent(s)}`).join("&")}`}>Start free with these sectors</a>
           </div>
         ) : null}

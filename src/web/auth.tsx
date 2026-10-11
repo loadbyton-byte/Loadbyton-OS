@@ -6,7 +6,8 @@ import type { Db } from "../db/client.js";
 import { config } from "../config.js";
 import { HttpError, badRequest } from "../lib/util.js";
 import { registerCompany } from "../platform/tenants.js";
-import { SECTORS } from "../platform/catalog.js";
+import { withLiveAvailability } from "../platform/catalog.js";
+import { releasedSectors } from "../platform/readiness.js";
 import { completeMfa, endSession, login, newSession } from "../platform/auth.js";
 import { acceptInvite, inviteInfo } from "../ops/team.js";
 import { buildMockEvent, processPaymentEvent, signPayload, verifySignature, type PaymentEvent } from "../platform/billing.js";
@@ -28,7 +29,8 @@ const Alerts = ({ p }: { p: Page }) => (<>
 const EMIRATES = ["Abu Dhabi", "Dubai", "Sharjah", "Ajman", "Umm Al Quwain", "Ras Al Khaimah", "Fujairah"];
 const GOALS = ["Stop losing margin on jobs", "Get quotes and enquiries out of WhatsApp and spreadsheets", "Invoice faster and chase collections", "Control supplier costs", "Give customers a portal", "Just exploring"];
 
-auth.get("/start", (c) => {
+auth.get("/start", async (c) => {
+  const SECTORS = withLiveAvailability(await releasedSectors(c.get("db")));
   const p = pg(c, "Start free");
   const pre = new URL(c.req.url).searchParams.getAll("sector");
   const plan = c.req.query("plan") ?? "";
@@ -57,7 +59,7 @@ auth.get("/start", (c) => {
           <fieldset class="sector-picker"><legend>Sectors you operate in</legend>
             <p class="hint">Free includes one sector. Pick more and we will record your interest. Sectors marked Planned are not released yet.</p>
             <div class="checks">{SECTORS.map((s) => (
-              <label class="check"><input type="checkbox" name="sector" value={s.slug} checked={pre.includes(s.slug) || (!pre.length && s.slug === "freight-forwarding")} /><span>{s.name}<br /><span class="small mute">{s.availability === "planned" ? "Planned" : "Pilot"}</span></span></label>
+              <label class="check"><input type="checkbox" name="sector" value={s.slug} checked={pre.includes(s.slug) || (!pre.length && s.slug === "freight-forwarding")} /><span>{s.name}<br /><span class="small mute">{s.availability === "planned" ? "Planned" : s.availability === "available" ? "Available" : "Pilot"}</span></span></label>
             ))}</div>
           </fieldset>
           <div class="field"><label for="goal">What do you most want to fix first?</label><select id="goal" name="goal">{GOALS.map((g) => <option>{g}</option>)}</select></div>
