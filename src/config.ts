@@ -91,6 +91,17 @@ export const config = {
   /** Bearer token for GET /metrics (Prometheus text). Unset = the endpoint does not exist. */
   metricsToken: text("METRICS_TOKEN"),
 
+  // ── UAE e-invoicing: the accredited service provider (ASP) the customer has contracted. Paths and vocabulary are the provider's own.
+  einvoiceAsp: {
+    name: text("EINVOICE_ASP_NAME").toLowerCase(), baseUrl: text("EINVOICE_ASP_BASE_URL"), apiKey: text("EINVOICE_ASP_API_KEY"),
+    authScheme: (text("EINVOICE_ASP_AUTH") || "bearer").toLowerCase(), authHeader: text("EINVOICE_ASP_AUTH_HEADER") || "x-api-key",
+    tenantId: text("EINVOICE_ASP_TENANT_ID"), tenantHeader: text("EINVOICE_ASP_TENANT_HEADER") || "x-tenant-id",
+    bodyFormat: (text("EINVOICE_ASP_BODY") || "json").toLowerCase(),
+    submitPath: text("EINVOICE_ASP_SUBMIT_PATH") || "/documents", statusPath: text("EINVOICE_ASP_STATUS_PATH") || "/documents/{ref}",
+    referenceField: text("EINVOICE_ASP_REFERENCE_FIELD") || "id", statusField: text("EINVOICE_ASP_STATUS_FIELD") || "status", reasonsField: text("EINVOICE_ASP_REASONS_FIELD") || "errors",
+    acceptedValues: list(env.EINVOICE_ASP_ACCEPTED_VALUES ?? "accepted,delivered,cleared,approved"), rejectedValues: list(env.EINVOICE_ASP_REJECTED_VALUES ?? "rejected,invalid,failed_validation"), errorValues: list(env.EINVOICE_ASP_ERROR_VALUES ?? "error"),
+  },
+
   storageDir: path.resolve(env.STORAGE_DIR ?? "data/files"),
   /** "fs" (local disk, default) or "s3" (any S3-compatible store: Oracle Object Storage, Cloudflare R2, MinIO, AWS). */
   storage: {
@@ -137,6 +148,14 @@ export function validateConfig(c = config, production = isProd) {
   if (c.mail.provider === "resend") {
     if (!c.mail.resendApiKey.startsWith("re_")) problems.push("RESEND_API_KEY must be a Resend API key (re_…)");
     if (!/^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$|<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(c.mail.from)) problems.push('MAIL_FROM must be an address on a domain verified in Resend, e.g. "LOAD|BY|TON <noreply@yourdomain>"');
+  }
+  const asp = c.einvoiceAsp;
+  if (asp.name || asp.baseUrl || asp.apiKey) {
+    if (!/^[a-z0-9_-]{2,40}$/.test(asp.name) || asp.name === "sandbox") problems.push("EINVOICE_ASP_NAME must be 2–40 characters (letters, digits, - _) and not “sandbox”");
+    if (!/^https:\/\//.test(asp.baseUrl)) problems.push("EINVOICE_ASP_BASE_URL must be an https URL");
+    if (!asp.apiKey) problems.push("EINVOICE_ASP_API_KEY is required when an e-invoicing provider is configured");
+    if (!["bearer", "header"].includes(asp.authScheme)) problems.push('EINVOICE_ASP_AUTH must be "bearer" or "header"');
+    if (!["json", "xml"].includes(asp.bodyFormat)) problems.push('EINVOICE_ASP_BODY must be "json" or "xml"');
   }
   if (production && !/^https:\/\//.test(c.baseUrl)) problems.push("PUBLIC_BASE_URL must be https in production");
   if (production && c.databaseSsl === "no-verify") problems.push("DATABASE_SSL=no-verify is not permitted in production (use require)");
