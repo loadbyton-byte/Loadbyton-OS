@@ -5,6 +5,7 @@ import { HttpError, badRequest, forbidden } from "../lib/util.js";
 import { assertWritable, consumeQuota } from "../platform/entitlements.js";
 import { must, nextNumber, optStr, reqStr } from "./common.js";
 import { charge } from "./fulfil-billing.js";
+import { allocatableLots, applyLotMove, ensureLot, findLot, lotBlocked, planLots, recordDecision, releaseLot, reserveLot, skuMode } from "./fulfil-lots.js";
 import { parseCsv, type ImportReport } from "./importer.js";
 import { dubaiToIso } from "./transport.js";
 import {canReadFulfilmentRecipient,redactFulfilmentRecipient,listPage} from '../lib/data-policy.js';
@@ -32,6 +33,11 @@ const nonNegInt = (v: unknown, label: string, max = 1_000_000) => {
 const tokenOf = (v: unknown) => {
   const t = String(v ?? "");
   if (!/^[A-Za-z0-9_-]{8,80}$/.test(t)) throw badRequest("This form has expired. Reload the page and try again.");
+  return t;
+};
+const oneOf = (v: unknown, allowed: string[], dflt: string, label: string) => {
+  const t = v === undefined || v === null || String(v) === "" ? dflt : String(v);
+  if (!allowed.includes(t)) throw badRequest(`${label} must be one of ${allowed.join(", ")}.`);
   return t;
 };
 const lockStock = (c: Conn, tenantId: string) => c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`${tenantId}:stock`]);
@@ -87,8 +93,9 @@ export async function createSku(c: Conn, ctx: Ctx, f: Record<string, any>) {
   const code = reqStr(f.code, "SKU code", 60).toUpperCase();
   try {
     const r = await c.query<{ id: string }>(
-      `INSERT INTO skus(tenant_id,party_id,code,name,barcode,unit_weight_g,reorder_point) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [ctx.tenantId, f.party_id, code, reqStr(f.name, "Product name", 200), optStr(f.barcode, 60), f.unit_weight_g ? posInt(f.unit_weight_g, "Unit weight (g)", 500_000) : null, nonNegInt(f.reorder_point, "Reorder point")]);
+      `INSERT INTO skus(tenant_id,party_id,code,name,barcode,unit_weight_g,reorder_point,tracking,rotation,min_shelf_days) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [ctx.tenantId, f.party_id, code, reqStr(f.name, "Product name", 200), optStr(f.barcode, 60), f.unit_weight_g ? posInt(f.unit_weight_g, "Unit weight (g)", 500_000) : null, nonNegInt(f.reorder_point, "Reorder point"),
+       oneOf(f.tracking, ["none", "lot", "serial"], "none", "Tracking"), oneOf(f.rotation, ["fifo", "fefo"], "fifo", "Rotation"), nonNegInt(f.min_shelf_days, "Minimum shelf days", 3650)]);
     await audit(c, ctx.tenantId, actorOf(ctx), "sku.created", "sku", r.rows[0].id, { code });
     return r.rows[0].id;
   } catch (e: any) {
@@ -106,8 +113,12 @@ export async function updateSku(c: Conn, ctx: Ctx, id: string, f: Record<string,
     const demand = await c.query(`SELECT 1 FROM fulfil_order_lines l JOIN fulfil_orders o ON o.id=l.order_id WHERE l.sku_id=$1 AND o.status NOT IN ('shipped','cancelled') LIMIT 1`, [id]);
     if (demand.rows.length) throw badRequest("Open orders still use this SKU. Ship or cancel them first.");
   }
-  await c.query(`UPDATE skus SET name=$2, reorder_point=$3, active=$4 WHERE id=$1`,
-    [id, f.name !== undefined ? reqStr(f.name, "Product name", 200) : s.name, f.reorder_point !== undefined ? nonNegInt(f.reorder_point, "Reorder point") : s.reorder_point, active]);
+  const tracking = oneOf(f.tracking, ["none", "lot", "serial"], s.tracking, "Tracking"), rotation = oneOf(f.rotation, ["fifo", "fefo"], s.rotation, "Rotation");
+  if ((tracking !== s.tracking || rotation !== s.rotation) && (await c.query(`SELECT 1 FROM stock_movements WHERE sku_id=$1 LIMIT 1`, [id])).rows.length)
+    throw badRequest("Tracking and rotation cannot change once the SKU has stock history.");
+  await c.query(`UPDATE skus SET name=$2, reorder_point=$3, active=$4, tracking=$5, rotation=$6, min_shelf_days=$7 WHERE id=$1`,
+    [id, f.name !== undefined ? reqStr(f.name, "Product name", 200) : s.name, f.reorder_point !== undefined ? nonNegInt(f.reorder_point, "Reorder point") : s.reorder_point, active,
+     tracking, rotation, f.min_shelf_days !== undefined ? nonNegInt(f.min_shelf_days, "Minimum shelf days", 3650) : s.min_shelf_days]);
   await audit(c, ctx.tenantId, actorOf(ctx), "sku.updated", "sku", id);
 }
 
@@ -172,11 +183,15 @@ async function resolveSkus(c: Conn, partyId: string, lines: { code: string; qty:
 }
 
 // ───────────────────────── stock engine
-interface Move { skuId: string; locationId: string; delta: number; kind: string; refType?: string; refId?: string; note?: string; fromReserved?: boolean }
+interface Move { skuId: string; locationId: string; delta: number; kind: string; refType?: string; refId?: string; note?: string; fromReserved?: boolean; lotId?: string | null }
 
 /** The only code path that changes on_hand: guarded update + one immutable ledger row. */
 async function moveStock(c: Conn, ctx: Ctx, m: Move) {
   if (!m.delta) return;
+  const mode = await skuMode(c, m.skuId);
+  if (mode.tracked && !m.lotId) throw badRequest("This SKU is lot, serial or expiry tracked: name the lot for every stock movement.");
+  if (!mode.tracked && m.lotId) throw badRequest("This SKU is not lot tracked.");
+  if (mode.tracking === "serial" && Math.abs(m.delta) !== 1) throw badRequest("Serial-tracked movements contain exactly one unit.");
   if (m.delta > 0) {
     await c.query(
       `INSERT INTO stock_levels(tenant_id,sku_id,location_id,on_hand) VALUES ($1,$2,$3,$4)
@@ -190,9 +205,22 @@ async function moveStock(c: Conn, ctx: Ctx, m: Move) {
       [ctx.tenantId, m.skuId, m.locationId, q, m.fromReserved ? q : 0]);
     if (!r.rows.length) throw badRequest("Not enough unreserved stock at that location for this movement.");
   }
+  if (m.lotId) {
+    await applyLotMove(c, ctx, m.skuId, m.locationId, m.lotId, m.delta, !!m.fromReserved);
+    if (mode.tracking === "serial") {
+      const held = Number((await c.query<any>(`SELECT coalesce(sum(on_hand),0) n FROM stock_lot_levels WHERE lot_id=$1`, [m.lotId])).rows[0].n);
+      if (held > 1) throw badRequest("That serial number is already in custody.");
+    }
+  }
   await c.query(
-    `INSERT INTO stock_movements(tenant_id,sku_id,location_id,delta,kind,ref_type,ref_id,note,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [ctx.tenantId, m.skuId, m.locationId, m.delta, m.kind, m.refType ?? null, m.refId ?? null, m.note ?? null, ctx.userId]);
+    `INSERT INTO stock_movements(tenant_id,sku_id,location_id,delta,kind,ref_type,ref_id,note,created_by,lot_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [ctx.tenantId, m.skuId, m.locationId, m.delta, m.kind, m.refType ?? null, m.refId ?? null, m.note ?? null, ctx.userId, m.lotId ?? null]);
+}
+
+/** Free `qty` reserved units at a bin (and its lot, when the allocation named one). */
+async function releaseReserved(c: Conn, tenantId: string, skuId: string, locationId: string, lotId: string | null, qty: number) {
+  await c.query(`UPDATE stock_levels SET reserved = reserved - $4 WHERE tenant_id=$1 AND sku_id=$2 AND location_id=$3 AND reserved >= $4`, [tenantId, skuId, locationId, qty]);
+  if (lotId) await releaseLot(c, tenantId, skuId, locationId, lotId, qty);
 }
 
 /** Best fit: one bin that covers the need (smallest sufficient); otherwise greedy from the fullest bins. */
@@ -233,15 +261,20 @@ async function allocateInternal(c: Conn, ctx: Ctx, orderId: string) {
   if (!LIVE.includes(o.status)) throw badRequest(`Order is ${o.status}.`);
   const lines = (await c.query<any>(
     `SELECT l.*, s.code FROM fulfil_order_lines l JOIN skus s ON s.id=l.sku_id WHERE l.order_id=$1 ORDER BY s.code`, [orderId])).rows;
-  const plans: { l: any; need: number; picks: { location_id: string; qty: number }[]; total: number }[] = [];
+  const plans: { l: any; need: number; picks: { location_id: string; qty: number; lot_id?: string }[]; total: number }[] = [];
   let short = false, outstanding = 0;
   for (const l of lines) {
     const need = l.qty - l.closed_qty - l.allocated_qty;
     if (need <= 0) continue;
-    const bins = (await c.query<any>(
-      `SELECT sl.location_id, (sl.on_hand - sl.reserved)::int AS avail FROM stock_levels sl JOIN wh_locations loc ON loc.id=sl.location_id
-       WHERE sl.sku_id=$1 AND loc.kind='bin' AND loc.active AND sl.on_hand - sl.reserved > 0 ORDER BY loc.code`, [l.sku_id])).rows;
-    const p = planBins(bins, need);
+    const mode = await skuMode(c, l.sku_id);
+    let p: { picks: { location_id: string; qty: number; lot_id?: string }[]; total: number };
+    if (mode.tracked) p = planLots(await allocatableLots(c, l.sku_id, mode), need);
+    else {
+      const bins = (await c.query<any>(
+        `SELECT sl.location_id, (sl.on_hand - sl.reserved)::int AS avail FROM stock_levels sl JOIN wh_locations loc ON loc.id=sl.location_id
+         WHERE sl.sku_id=$1 AND loc.kind='bin' AND loc.active AND sl.on_hand - sl.reserved > 0 ORDER BY loc.code`, [l.sku_id])).rows;
+      p = planBins(bins, need);
+    }
     plans.push({ l, need, ...p });
     outstanding += need;
     if (p.total < need) short = true;
@@ -260,7 +293,8 @@ async function allocateInternal(c: Conn, ctx: Ctx, orderId: string) {
         `UPDATE stock_levels SET reserved = reserved + $4 WHERE tenant_id=$1 AND sku_id=$2 AND location_id=$3 AND on_hand - reserved >= $4 RETURNING reserved`,
         [ctx.tenantId, p.l.sku_id, pick.location_id, pick.qty]);
       if (!r.rows.length) throw new HttpError(409, "Stock changed while allocating; please try again.", "conflict");
-      await c.query(`INSERT INTO stock_allocations(tenant_id,line_id,sku_id,location_id,qty) VALUES ($1,$2,$3,$4,$5)`, [ctx.tenantId, p.l.id, p.l.sku_id, pick.location_id, pick.qty]);
+      if (pick.lot_id) await reserveLot(c, ctx.tenantId, p.l.sku_id, pick.location_id, pick.lot_id, pick.qty);
+      await c.query(`INSERT INTO stock_allocations(tenant_id,line_id,sku_id,location_id,qty,lot_id) VALUES ($1,$2,$3,$4,$5,$6)`, [ctx.tenantId, p.l.id, p.l.sku_id, pick.location_id, pick.qty, pick.lot_id ?? null]);
       allocated += pick.qty;
     }
     const got = p.picks.reduce((a, x) => a + x.qty, 0);
@@ -412,29 +446,31 @@ export async function pickOrder(c: Conn, ctx: Ctx, orderId: string, entries?: Re
   if (!["allocated", "picking"].includes(o.status)) throw badRequest(`Order is ${o.status}; only allocated orders can be picked.`);
   const stage = await systemLocation(c, ctx.tenantId, "staging");
   const open = (await c.query<any>(
-    `SELECT a.*, l.id AS line_id2, loc.code AS loc_code, s.code AS sku_code FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id
-     JOIN wh_locations loc ON loc.id=a.location_id JOIN skus s ON s.id=a.sku_id
-     WHERE l.order_id=$1 AND a.qty > a.picked_qty ORDER BY loc.code, s.code FOR UPDATE OF a`, [orderId])).rows;
+    `SELECT a.*, l.id AS line_id2, loc.code AS loc_code, s.code AS sku_code, lot.lot AS lot_code, lot.hold AS lot_hold, lot.expires_at AS lot_expires
+     FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id
+     JOIN wh_locations loc ON loc.id=a.location_id JOIN skus s ON s.id=a.sku_id LEFT JOIN fulfil_lots lot ON lot.id=a.lot_id
+     WHERE l.order_id=$1 AND a.qty > a.picked_qty ORDER BY loc.code, s.code, lot.lot FOR UPDATE OF a`, [orderId])).rows;
   let picked = 0, shorts = 0;
   for (const a of open) {
     const remaining = a.qty - a.picked_qty;
-    const q = entries ? entries[a.id] : remaining;
+    const blocked = !!a.lot_id && lotBlocked({ hold: a.lot_hold, expires_at: a.lot_expires });
+    const q = blocked ? 0 : entries ? entries[a.id] : remaining;   // held / expired lots are never picked: the reservation is released
     if (q === undefined) continue;
     if (!Number.isInteger(q) || q < 0 || q > remaining) throw badRequest(`Picked quantity for ${a.sku_code} at ${a.loc_code} must be between 0 and ${remaining}.`);
     if (q > 0) {
-      await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: -q, kind: "pick_out", refType: "fulfil_order", refId: orderId, fromReserved: true });
-      await moveStock(c, ctx, { skuId: a.sku_id, locationId: stage, delta: q, kind: "stage_in", refType: "fulfil_order", refId: orderId });
+      await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: -q, kind: "pick_out", refType: "fulfil_order", refId: orderId, fromReserved: true, lotId: a.lot_id });
+      await moveStock(c, ctx, { skuId: a.sku_id, locationId: stage, delta: q, kind: "stage_in", refType: "fulfil_order", refId: orderId, lotId: a.lot_id });
       await c.query(`UPDATE stock_allocations SET picked_qty = picked_qty + $2 WHERE id=$1`, [a.id, q]);
       await c.query(`UPDATE fulfil_order_lines SET picked_qty = picked_qty + $2 WHERE id=$1`, [a.line_id, q]);
       picked += q;
     }
     if (q < remaining) {
       const s = remaining - q;
-      await c.query(`UPDATE stock_levels SET reserved = reserved - $4 WHERE tenant_id=$1 AND sku_id=$2 AND location_id=$3 AND reserved >= $4`, [ctx.tenantId, a.sku_id, a.location_id, s]);
+      await releaseReserved(c, ctx.tenantId, a.sku_id, a.location_id, a.lot_id, s);
       if (a.qty - s === 0) await c.query(`DELETE FROM stock_allocations WHERE id=$1`, [a.id]); else await c.query(`UPDATE stock_allocations SET qty = qty - $2 WHERE id=$1`, [a.id, s]);
       await c.query(`UPDATE fulfil_order_lines SET allocated_qty = allocated_qty - $2 WHERE id=$1`, [a.line_id, s]);
       await c.query(`INSERT INTO job_exceptions(tenant_id,title,detail,owner_id,due_at) VALUES ($1,$2,$3,$4, now() + interval '4 hours')`,
-        [ctx.tenantId, `Short pick ${o.no}: ${a.sku_code} at ${a.loc_code}`, `Expected ${remaining}, found ${q}. Count ${a.loc_code} and raise an adjustment; the order was released for re-allocation.`, o.created_by]);
+        [ctx.tenantId, `Short pick ${o.no}: ${a.sku_code} at ${a.loc_code}`, blocked ? `Lot ${a.lot_code} at ${a.loc_code} is on hold or expired; ${s} unit(s) were released for re-allocation from another lot.` : `Expected ${remaining}, found ${q}. Count ${a.loc_code}${a.lot_code ? ` (lot ${a.lot_code})` : ""} and raise an adjustment; the order was released for re-allocation.`, o.created_by]);
       shorts++;
     }
   }
@@ -451,9 +487,20 @@ export async function packScan(c: Conn, ctx: Ctx, orderId: string, f: { code: st
   if (!["picking", "picked", "packed"].includes(o.status)) throw badRequest(`Order is ${o.status}; nothing has been picked to pack yet.`);
   const code = reqStr(f.code, "Scanned code", 80);
   const qty = f.qty === undefined || f.qty === "" ? 1 : posInt(f.qty, "Quantity", 10_000);
-  const l = (await c.query<any>(
-    `SELECT l.*, s.code FROM fulfil_order_lines l JOIN skus s ON s.id=l.sku_id WHERE l.order_id=$1 AND (s.barcode=$2 OR upper(s.code)=upper($2)) FOR UPDATE OF l`, [orderId, code])).rows[0];
+  const serialHit = (await c.query<any>(
+    `SELECT l.*, s.code, lot.id AS lot_id FROM fulfil_order_lines l JOIN skus s ON s.id=l.sku_id
+       JOIN stock_allocations a ON a.line_id=l.id AND a.picked_qty>0 JOIN fulfil_lots lot ON lot.id=a.lot_id AND lot.serial_ref IS NOT NULL
+     WHERE l.order_id=$1 AND upper(lot.serial_ref)=upper($2) FOR UPDATE OF l`, [orderId, code])).rows[0];
+  if (serialHit) {
+    if (qty !== 1) throw badRequest("Scan each serial number once.");
+    const dup = await c.query(`SELECT 1 FROM fulfil_pack_serials WHERE line_id=$1 AND lot_id=$2`, [serialHit.id, serialHit.lot_id]);
+    if (dup.rows.length) throw badRequest(`Serial ${code.toUpperCase()} is already packed on this order.`);
+    await c.query(`INSERT INTO fulfil_pack_serials(tenant_id,line_id,lot_id,scanned_by) VALUES ($1,$2,$3,$4)`, [ctx.tenantId, serialHit.id, serialHit.lot_id, ctx.userId]);
+  }
+  const l = serialHit ?? (await c.query<any>(
+    `SELECT l.*, s.code, s.tracking FROM fulfil_order_lines l JOIN skus s ON s.id=l.sku_id WHERE l.order_id=$1 AND (s.barcode=$2 OR upper(s.code)=upper($2)) FOR UPDATE OF l`, [orderId, code])).rows[0];
   if (!l) throw badRequest(`“${code}” is not on this order. Wrong item — put it back.`);
+  if (!serialHit && (await skuMode(c, l.sku_id)).tracking === "serial") throw badRequest(`${l.code} is serial tracked: scan each unit's serial number.`);
   if (l.packed_qty + qty > l.picked_qty) throw badRequest(`${l.code}: ${l.picked_qty} picked, ${l.packed_qty} already packed — cannot pack ${qty} more.`);
   await c.query(`UPDATE fulfil_order_lines SET packed_qty = packed_qty + $2 WHERE id=$1`, [l.id, qty]);
   const st = await refreshStatus(c, orderId);
@@ -465,6 +512,7 @@ export async function resetPacking(c: Conn, ctx: Ctx, orderId: string) {
   require(ctx, "wh.floor");
   const o = await must(c.query<any>(`SELECT * FROM fulfil_orders WHERE id=$1 FOR UPDATE`, [orderId]), "Order");
   if (!["picking", "picked", "packed"].includes(o.status)) throw badRequest(`Order is ${o.status}.`);
+  await c.query(`DELETE FROM fulfil_pack_serials WHERE line_id IN (SELECT id FROM fulfil_order_lines WHERE order_id=$1)`, [orderId]);
   await c.query(`UPDATE fulfil_order_lines SET packed_qty=0 WHERE order_id=$1`, [orderId]);
   await refreshStatus(c, orderId);
   await audit(c, ctx.tenantId, actorOf(ctx), "fulfil_order.pack_reset", "fulfil_order", orderId);
@@ -487,7 +535,14 @@ export async function shipOrder(c: Conn, ctx: Ctx, orderId: string, f: Record<st
   if (dup.rows.length) throw new HttpError(409, `Tracking number ${tracking} is already used on ${dup.rows[0].no}.`, "conflict");
   const stage = await systemLocation(c, ctx.tenantId, "staging");
   for (const l of lines) if (l.packed_qty > 0) {
-    await moveStock(c, ctx, { skuId: l.sku_id, locationId: stage, delta: -l.packed_qty, kind: "ship", refType: "fulfil_order", refId: orderId });
+    const lots = (await c.query<any>(
+      `SELECT a.lot_id, sum(a.picked_qty)::int AS qty, lot.lot, lot.hold, lot.expires_at FROM stock_allocations a JOIN fulfil_lots lot ON lot.id=a.lot_id
+       WHERE a.line_id=$1 AND a.picked_qty>0 GROUP BY a.lot_id, lot.lot, lot.hold, lot.expires_at ORDER BY lot.lot`, [l.id])).rows;
+    if (lots.length) {
+      const bad = lots.find((x) => lotBlocked(x));
+      if (bad) throw badRequest(`${l.code}: lot ${bad.lot} is on hold or expired and cannot ship. Cancel the order to return the units to stock, then re-allocate.`);
+      for (const x of lots) await moveStock(c, ctx, { skuId: l.sku_id, locationId: stage, delta: -x.qty, kind: "ship", refType: "fulfil_order", refId: orderId, lotId: x.lot_id });
+    } else await moveStock(c, ctx, { skuId: l.sku_id, locationId: stage, delta: -l.packed_qty, kind: "ship", refType: "fulfil_order", refId: orderId });
     await c.query(`UPDATE fulfil_order_lines SET shipped_qty = packed_qty WHERE id=$1`, [l.id]);
   }
   await c.query(`INSERT INTO fulfil_shipments(tenant_id,order_id,carrier,tracking_no,cartons,weight_g,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -523,12 +578,13 @@ export async function cancelFulfilOrder(c: Conn, ctx: Ctx, orderId: string) {
   const allocs = (await c.query<any>(`SELECT a.* FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id WHERE l.order_id=$1 FOR UPDATE OF a`, [orderId])).rows;
   for (const a of allocs) {
     const rem = a.qty - a.picked_qty;
-    if (rem > 0) await c.query(`UPDATE stock_levels SET reserved = reserved - $4 WHERE tenant_id=$1 AND sku_id=$2 AND location_id=$3 AND reserved >= $4`, [ctx.tenantId, a.sku_id, a.location_id, rem]);
+    if (rem > 0) await releaseReserved(c, ctx.tenantId, a.sku_id, a.location_id, a.lot_id, rem);
     if (a.picked_qty > 0) {
-      await moveStock(c, ctx, { skuId: a.sku_id, locationId: stage, delta: -a.picked_qty, kind: "cancel_out", refType: "fulfil_order", refId: orderId });
-      await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: a.picked_qty, kind: "cancel_return", refType: "fulfil_order", refId: orderId });
+      await moveStock(c, ctx, { skuId: a.sku_id, locationId: stage, delta: -a.picked_qty, kind: "cancel_out", refType: "fulfil_order", refId: orderId, lotId: a.lot_id });
+      await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: a.picked_qty, kind: "cancel_return", refType: "fulfil_order", refId: orderId, lotId: a.lot_id });
     }
   }
+  await c.query(`DELETE FROM fulfil_pack_serials WHERE line_id IN (SELECT id FROM fulfil_order_lines WHERE order_id=$1)`, [orderId]);
   await c.query(`DELETE FROM stock_allocations WHERE id = ANY($1::uuid[])`, [allocs.map((a) => a.id)]);
   await c.query(`UPDATE fulfil_order_lines SET allocated_qty=0, picked_qty=0, packed_qty=0, closed_qty=qty WHERE order_id=$1`, [orderId]);
   await c.query(`UPDATE fulfil_orders SET status='cancelled', cancelled_at=now() WHERE id=$1`, [orderId]);
@@ -567,10 +623,35 @@ export async function receiveInbound(c: Conn, ctx: Ctx, inboundId: string, f: Re
   if (good > 0 && !(loc.active && ["bin", "receiving"].includes(loc.kind))) throw badRequest("Good stock is received into a bin or the receiving area.");
   const total = line.received_qty + line.damaged_qty + good + damaged;
   if (total > line.expected_qty && f.accept_over !== "1") throw badRequest(`This brings ${line.code} to ${total} against ${line.expected_qty} expected. Tick “accept over-receipt” only if the extra units really arrived.`);
-  const rec = await c.query<{ id: string }>(`INSERT INTO inbound_receipts(tenant_id,line_id,good_qty,damaged_qty,location_id,token,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [ctx.tenantId, line.id, good, damaged, f.location_id, token, ctx.userId]);
-  if (good) await moveStock(c, ctx, { skuId: line.sku_id, locationId: f.location_id, delta: good, kind: "receive", refType: "inbound", refId: inboundId });
-  if (damaged) await moveStock(c, ctx, { skuId: line.sku_id, locationId: await systemLocation(c, ctx.tenantId, "quarantine"), delta: damaged, kind: "receive_damaged", refType: "inbound", refId: inboundId, note: "Damaged on arrival" });
+  const mode = await skuMode(c, line.sku_id);
+  // tracked SKUs: one lot per receipt, or one serial per unit (good serials, then damaged serials)
+  const serialsOf = (v: unknown) => String(v ?? "").split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+  let goodLots: { id: string; qty: number }[] = [], damagedLots: { id: string; qty: number }[] = [], receiptLot: string | null = null;
+  if (mode.tracked) {
+    if (mode.tracking === "serial") {
+      const gs = serialsOf(f.serials), ds = serialsOf(f.damaged_serials);
+      if (gs.length !== good || ds.length !== damaged) throw badRequest(`Enter exactly ${good} good and ${damaged} damaged serial number(s), one per unit.`);
+      if (new Set([...gs, ...ds].map((x) => x.toUpperCase())).size !== gs.length + ds.length) throw badRequest("A serial number appears twice in this receipt.");
+      for (const sn of gs) goodLots.push({ id: (await ensureLot(c, ctx, line.sku_id, { ...f, lot: sn })).id, qty: 1 });
+      for (const sn of ds) damagedLots.push({ id: (await ensureLot(c, ctx, line.sku_id, { ...f, lot: sn })).id, qty: 1 });
+    } else {
+      const lot = await ensureLot(c, ctx, line.sku_id, f);
+      receiptLot = lot.id;
+      if (good) goodLots = [{ id: lot.id, qty: good }];
+      if (damaged) damagedLots = [{ id: lot.id, qty: damaged }];
+    }
+  }
+  const rec = await c.query<{ id: string }>(`INSERT INTO inbound_receipts(tenant_id,line_id,good_qty,damaged_qty,location_id,token,created_by,lot_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [ctx.tenantId, line.id, good, damaged, f.location_id, token, ctx.userId, receiptLot]);
+  if (good) {
+    if (!mode.tracked) await moveStock(c, ctx, { skuId: line.sku_id, locationId: f.location_id, delta: good, kind: "receive", refType: "inbound", refId: inboundId });
+    else for (const x of goodLots) await moveStock(c, ctx, { skuId: line.sku_id, locationId: f.location_id, delta: x.qty, kind: "receive", refType: "inbound", refId: inboundId, lotId: x.id });
+  }
+  if (damaged) {
+    const q = await systemLocation(c, ctx.tenantId, "quarantine");
+    if (!mode.tracked) await moveStock(c, ctx, { skuId: line.sku_id, locationId: q, delta: damaged, kind: "receive_damaged", refType: "inbound", refId: inboundId, note: "Damaged on arrival" });
+    else for (const x of damagedLots) await moveStock(c, ctx, { skuId: line.sku_id, locationId: q, delta: x.qty, kind: "receive_damaged", refType: "inbound", refId: inboundId, note: "Damaged on arrival", lotId: x.id });
+  }
   await c.query(`UPDATE inbound_lines SET received_qty = received_qty + $2, damaged_qty = damaged_qty + $3 WHERE id=$1`, [line.id, good, damaged]);
   const open = (await c.query<any>(`SELECT count(*)::int n FROM inbound_lines WHERE inbound_id=$1 AND received_qty + damaged_qty < expected_qty`, [inboundId])).rows[0].n;
   await c.query(`UPDATE inbound_shipments SET status=$2 WHERE id=$1`, [inboundId, open ? "receiving" : "received"]);
@@ -626,8 +707,10 @@ export async function transferStock(c: Conn, ctx: Ctx, f: Record<string, any>) {
   if (from.kind === "staging" || to.kind === "staging") throw badRequest("Staging is managed by picking and shipping.");
   if (!to.active) throw badRequest(`${to.code} is switched off.`);
   const sku = await must(c.query<any>(`SELECT id, code FROM skus WHERE id=$1`, [f.sku_id]), "SKU");
-  await moveStock(c, ctx, { skuId: sku.id, locationId: from.id, delta: -qty, kind: "transfer_out", note: `to ${to.code}` });
-  await moveStock(c, ctx, { skuId: sku.id, locationId: to.id, delta: qty, kind: "transfer_in", note: `from ${from.code}` });
+  const tmode = await skuMode(c, sku.id);
+  const tlot = tmode.tracked ? (await findLot(c, sku.id, f.lot)).id : null;
+  await moveStock(c, ctx, { skuId: sku.id, locationId: from.id, delta: -qty, kind: "transfer_out", note: `to ${to.code}`, lotId: tlot });
+  await moveStock(c, ctx, { skuId: sku.id, locationId: to.id, delta: qty, kind: "transfer_in", note: `from ${from.code}`, lotId: tlot });
   await audit(c, ctx.tenantId, actorOf(ctx), "stock.transferred", "sku", sku.id, { from: from.code, to: to.code, qty });
   const alloc = to.kind === "bin" ? await allocateWaitingInternal(c, ctx) : { orders: 0, units: 0 };
   return { allocated: alloc };
@@ -643,16 +726,18 @@ export async function requestAdjustment(c: Conn, ctx: Ctx, f: Record<string, any
   const sku = await must(c.query<any>(`SELECT id, code FROM skus WHERE id=$1`, [f.sku_id]), "SKU");
   const loc = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.location_id]), "Location");
   if (loc.kind === "staging") throw badRequest("Staging stock belongs to open orders; count it by finishing or cancelling those orders.");
-  const sys = Number((await c.query<any>(`SELECT on_hand FROM stock_levels WHERE sku_id=$1 AND location_id=$2`, [sku.id, loc.id])).rows[0]?.on_hand ?? 0);
+  const amode = await skuMode(c, sku.id);
+  const alot = amode.tracked ? (await findLot(c, sku.id, f.lot)).id : null;
+  const sys = Number((await c.query<any>(alot ? `SELECT on_hand FROM stock_lot_levels WHERE sku_id=$1 AND location_id=$2 AND lot_id=$3` : `SELECT on_hand FROM stock_levels WHERE sku_id=$1 AND location_id=$2 AND $3::uuid IS NULL`, [sku.id, loc.id, alot])).rows[0]?.on_hand ?? 0);
   if (counted === sys) {
     await audit(c, ctx.tenantId, actorOf(ctx), "stock.count_verified", "sku", sku.id, { location: loc.code, qty: sys });
     return { verified: true as const };
   }
-  const dupe = await c.query(`SELECT 1 FROM stock_adjustments WHERE sku_id=$1 AND location_id=$2 AND status='pending'`, [sku.id, loc.id]);
+  const dupe = await c.query(`SELECT 1 FROM stock_adjustments WHERE sku_id=$1 AND location_id=$2 AND status='pending' AND lot_id IS NOT DISTINCT FROM $3::uuid`, [sku.id, loc.id, alot]);
   if (dupe.rows.length) throw badRequest("An adjustment for this SKU and location is already waiting for approval.");
   const r = await c.query<{ id: string }>(
-    `INSERT INTO stock_adjustments(tenant_id,sku_id,location_id,system_qty,counted_qty,reason,requested_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [ctx.tenantId, sku.id, loc.id, sys, counted, reqStr(f.reason, "Reason for the difference", 300), ctx.userId]);
+    `INSERT INTO stock_adjustments(tenant_id,sku_id,location_id,system_qty,counted_qty,reason,requested_by,lot_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [ctx.tenantId, sku.id, loc.id, sys, counted, reqStr(f.reason, "Reason for the difference", 300), ctx.userId, alot]);
   await audit(c, ctx.tenantId, actorOf(ctx), "stock.adjustment_requested", "sku", sku.id, { location: loc.code, system: sys, counted });
   return { verified: false as const, id: r.rows[0].id, variance: counted - sys };
 }
@@ -668,7 +753,8 @@ export async function decideAdjustment(c: Conn, ctx: Ctx, id: string, approve: b
     return { status: "rejected" as const };
   }
   if (a.requested_by === ctx.userId && !ctx.roles.includes("owner")) throw forbidden("A count adjustment cannot be approved by the person who counted.");
-  const cur = (await c.query<any>(`SELECT on_hand, reserved FROM stock_levels WHERE sku_id=$1 AND location_id=$2 FOR UPDATE`, [a.sku_id, a.location_id])).rows[0];
+  await c.query(`SELECT 1 FROM stock_levels WHERE sku_id=$1 AND location_id=$2 FOR UPDATE`, [a.sku_id, a.location_id]);
+  const cur = (await c.query<any>(a.lot_id ? `SELECT on_hand, reserved FROM stock_lot_levels WHERE sku_id=$1 AND location_id=$2 AND lot_id=$3 FOR UPDATE` : `SELECT on_hand, reserved FROM stock_levels WHERE sku_id=$1 AND location_id=$2 AND $3::uuid IS NULL FOR UPDATE`, [a.sku_id, a.location_id, a.lot_id])).rows[0];
   const onHand = Number(cur?.on_hand ?? 0);
   if (onHand !== a.system_qty) {
     // stock moved since the count: applying the old delta would be wrong, so the count is voided and must be repeated
@@ -681,19 +767,19 @@ export async function decideAdjustment(c: Conn, ctx: Ctx, id: string, approve: b
     // fewer units than reserved: free the newest reservations at this bin; those orders re-allocate or wait
     const need = Number(cur.reserved) - a.counted_qty;
     const allocs = (await c.query<any>(
-      `SELECT a.*, l.order_id FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id WHERE a.sku_id=$1 AND a.location_id=$2 AND a.qty > a.picked_qty ORDER BY a.created_at DESC, a.id FOR UPDATE OF a`, [a.sku_id, a.location_id])).rows;
+      `SELECT a.*, l.order_id FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id WHERE a.sku_id=$1 AND a.location_id=$2 AND a.lot_id IS NOT DISTINCT FROM $3::uuid AND a.qty > a.picked_qty ORDER BY a.created_at DESC, a.id FOR UPDATE OF a`, [a.sku_id, a.location_id, a.lot_id])).rows;
     const touched = new Set<string>();
     for (const al of allocs) {
       if (released >= need) break;
       const take = Math.min(al.qty - al.picked_qty, need - released);
-      await c.query(`UPDATE stock_levels SET reserved = reserved - $4 WHERE tenant_id=$1 AND sku_id=$2 AND location_id=$3 AND reserved >= $4`, [ctx.tenantId, a.sku_id, a.location_id, take]);
+      await releaseReserved(c, ctx.tenantId, a.sku_id, a.location_id, a.lot_id, take);
       if (al.qty - take === 0) await c.query(`DELETE FROM stock_allocations WHERE id=$1`, [al.id]); else await c.query(`UPDATE stock_allocations SET qty = qty - $2 WHERE id=$1`, [al.id, take]);
       await c.query(`UPDATE fulfil_order_lines SET allocated_qty = allocated_qty - $2 WHERE id=$1`, [al.line_id, take]);
       touched.add(al.order_id); released += take;
     }
     for (const oid of touched) await refreshStatus(c, oid);
   }
-  await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: a.counted_qty - onHand, kind: "adjust", refType: "adjustment", refId: id, note: a.reason });
+  await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: a.counted_qty - onHand, kind: "adjust", refType: "adjustment", refId: id, note: a.reason, lotId: a.lot_id });
   await c.query(`UPDATE stock_adjustments SET status='applied', decided_by=$2, decided_at=now(), decision_note=$3 WHERE id=$1`, [id, ctx.userId, optStr(note, 300)]);
   await audit(c, ctx.tenantId, actorOf(ctx), "stock.adjustment_applied", "sku", a.sku_id, { location: a.loc_code, from: onHand, to: a.counted_qty, reservationsReleased: released });
   const alloc = await allocateWaitingInternal(c, ctx);
@@ -748,15 +834,28 @@ export async function receiveReturn(c: Conn, ctx: Ctx, returnId: string, f: Reco
   const left = line.expected_qty - line.restocked_qty - line.quarantined_qty - line.disposed_qty;
   if (qty > left) throw badRequest(`${line.code}: only ${left} unit(s) still expected on this return.`);
   let locId: string | null = null;
+  // tracked SKUs: the returned unit must be identified, and a returned lot must really have shipped on the linked order
+  const rmode = await skuMode(c, line.sku_id);
+  let rlot: any = null;
+  if (rmode.tracked) {
+    rlot = await findLot(c, line.sku_id, f.lot);
+    if (rmode.tracking === "serial" && qty !== 1) throw badRequest("Return serial-tracked units one at a time.");
+    if (ret.order_id) {
+      const shipped = Number((await c.query<any>(`SELECT coalesce(sum(a.picked_qty),0) n FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id WHERE l.order_id=$1 AND a.lot_id=$2`, [ret.order_id, rlot.id])).rows[0].n);
+      const back = Number((await c.query<any>(`SELECT coalesce(sum(r.qty),0) n FROM fulfil_return_receipts r JOIN fulfil_return_lines rl ON rl.id=r.line_id JOIN fulfil_returns x ON x.id=rl.return_id WHERE x.order_id=$1 AND r.lot_id=$2`, [ret.order_id, rlot.id])).rows[0].n);
+      if (back + qty > shipped) throw badRequest(`Lot ${rlot.lot} shipped ${shipped} unit(s) on this order and ${back} already came back.`);
+    }
+    if (disposition === "restock" && lotBlocked(rlot)) throw badRequest(`Lot ${rlot.lot} is on hold or expired: quarantine or dispose of the units.`);
+  }
   if (disposition === "restock") {
     const loc = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.location_id]), "Location");
     if (!(loc.active && ["bin", "receiving"].includes(loc.kind))) throw badRequest("Restock into a bin or the receiving area.");
     locId = loc.id;
   } else if (disposition === "quarantine") locId = await systemLocation(c, ctx.tenantId, "quarantine");
-  const rec = await c.query<{ id: string }>(`INSERT INTO fulfil_return_receipts(tenant_id,line_id,qty,disposition,location_id,token,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [ctx.tenantId, line.id, qty, disposition, locId, token, ctx.userId]);
-  if (disposition === "restock") await moveStock(c, ctx, { skuId: line.sku_id, locationId: locId!, delta: qty, kind: "return_restock", refType: "return", refId: returnId });
-  if (disposition === "quarantine") await moveStock(c, ctx, { skuId: line.sku_id, locationId: locId!, delta: qty, kind: "return_quarantine", refType: "return", refId: returnId });
+  const rec = await c.query<{ id: string }>(`INSERT INTO fulfil_return_receipts(tenant_id,line_id,qty,disposition,location_id,token,created_by,lot_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [ctx.tenantId, line.id, qty, disposition, locId, token, ctx.userId, rlot?.id ?? null]);
+  if (disposition === "restock") await moveStock(c, ctx, { skuId: line.sku_id, locationId: locId!, delta: qty, kind: "return_restock", refType: "return", refId: returnId, lotId: rlot?.id });
+  if (disposition === "quarantine") await moveStock(c, ctx, { skuId: line.sku_id, locationId: locId!, delta: qty, kind: "return_quarantine", refType: "return", refId: returnId, lotId: rlot?.id });
   const col = disposition === "restock" ? "restocked_qty" : disposition === "quarantine" ? "quarantined_qty" : "disposed_qty";
   await c.query(`UPDATE fulfil_return_lines SET ${col} = ${col} + $2 WHERE id=$1`, [line.id, qty]);
   const open = (await c.query<any>(`SELECT count(*)::int n FROM fulfil_return_lines WHERE return_id=$1 AND restocked_qty + quarantined_qty + disposed_qty < expected_qty`, [returnId])).rows[0].n;
@@ -869,4 +968,37 @@ export async function fulfilmentOverview(c: Conn) {
     unbilled: await n(`SELECT coalesce(sum(qty*unit_minor),0) n FROM fulfil_charges WHERE invoice_id IS NULL`),
     low,
   };
+}
+
+/**
+ * Quality hold or release of a lot. A hold frees every open reservation of the lot (orders re-allocate from other lots or wait);
+ * units already picked to staging stay put but cannot ship. Releasing needs a second person unless an owner decides.
+ */
+export async function holdFulfilLot(c: Conn, ctx: Ctx, lotId: string, hold: boolean, reason: string) {
+  require(ctx, "wh.approve");
+  await assertWritable(c, ctx.tenantId);
+  await lockStock(c, ctx.tenantId);
+  const lot = await must(c.query<any>(`SELECT * FROM fulfil_lots WHERE id=$1 FOR UPDATE`, [lotId]), "Lot");
+  if (lot.hold === hold) throw badRequest(hold ? "This lot is already on hold." : "This lot is not on hold.");
+  if (!hold) {
+    const last = (await c.query<any>(`SELECT decided_by FROM fulfil_lot_decisions WHERE lot_id=$1 AND hold ORDER BY decided_at DESC LIMIT 1`, [lotId])).rows[0];
+    if (last?.decided_by === ctx.userId && !ctx.roles.includes("owner")) throw forbidden("A lot hold must be released by someone other than the person who placed it.");
+    if (lot.expires_at && new Date(lot.expires_at).toISOString().slice(0, 10) <= new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 10)) throw badRequest("An expired lot cannot be released.");
+  }
+  await recordDecision(c, ctx, lotId, hold, reason);
+  let released = 0;
+  if (hold) {
+    const allocs = (await c.query<any>(`SELECT a.*, l.order_id FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id WHERE a.lot_id=$1 AND a.qty > a.picked_qty FOR UPDATE OF a`, [lotId])).rows;
+    const touched = new Set<string>();
+    for (const al of allocs) {
+      const take = al.qty - al.picked_qty;
+      await releaseReserved(c, ctx.tenantId, al.sku_id, al.location_id, lotId, take);
+      if (al.qty - take === 0) await c.query(`DELETE FROM stock_allocations WHERE id=$1`, [al.id]); else await c.query(`UPDATE stock_allocations SET qty = qty - $2 WHERE id=$1`, [al.id, take]);
+      await c.query(`UPDATE fulfil_order_lines SET allocated_qty = allocated_qty - $2 WHERE id=$1`, [al.line_id, take]);
+      touched.add(al.order_id); released += take;
+    }
+    for (const oid of touched) await refreshStatus(c, oid);
+  }
+  const alloc = await allocateWaitingInternal(c, ctx);
+  return { released, reallocated: alloc };
 }
