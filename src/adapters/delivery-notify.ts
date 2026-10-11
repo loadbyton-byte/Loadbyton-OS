@@ -31,13 +31,37 @@ export function twilioSms(cfg = config.sms, fetchImpl: Fetch = fetch): SmsSender
 }
 export const defaultSms = (): SmsSender => (config.sms.provider === "twilio" ? twilioSms() : logSms);
 
+// ───────────────────────── WhatsApp (Meta Cloud API) — pre-approved templates only
+export interface WhatsAppSender { sendTemplate(to: string, template: string, language: string, params: string[]): Promise<{ id?: string }> }
+export const logWhatsApp: WhatsAppSender = { async sendTemplate(to) { if (process.env.NODE_ENV !== "test") console.log(`[whatsapp:log] to=${to.slice(0, 7)}*****`); return {}; } };
+export function cloudWhatsApp(cfg = config.whatsapp, fetchImpl: Fetch = fetch): WhatsAppSender {
+  return {
+    async sendTemplate(to, template, language, params) {
+      let res: Response;
+      try {
+        res = await fetchImpl(`${cfg.apiBase}/${cfg.apiVersion}/${cfg.phoneNumberId}/messages`, {
+          method: "POST", headers: { authorization: `Bearer ${cfg.accessToken}`, "content-type": "application/json" }, signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({ messaging_product: "whatsapp", to: to.replace(/^\+/, ""), type: "template",
+            template: { name: template, language: { code: language }, components: [{ type: "body", parameters: params.map((text) => ({ type: "text", text: text.replace(/[\r\n\t]+/g, " ").slice(0, 1000) })) }] } }),
+        });
+      } catch (e) { throw new Error(`whatsapp provider unreachable: ${(e as Error).message}`); }
+      const out: any = await res.json().catch(() => ({}));
+      if (res.status >= 500 || res.status === 429) throw new Error(`whatsapp provider ${res.status}`);
+      // 4xx: bad template/parameters, number not on WhatsApp, or the recipient cannot be messaged — retrying does not help
+      if (!res.ok) throw new Permanent(`whatsapp provider rejected the message (${res.status}${out?.error?.code ? ` code ${out.error.code}` : ""})`);
+      return { id: out?.messages?.[0]?.id };
+    },
+  };
+}
+export const defaultWhatsApp = (): WhatsAppSender => (config.whatsapp.provider === "cloud" ? cloudWhatsApp() : logWhatsApp);
+
 // ───────────────────────── merchant webhooks
 export const signWebhook = (secret: string, body: string, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=${crypto.createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`;
 
-export interface NotifyDeps { sms?: SmsSender; post?: (url: string, body: string, headers: Record<string, string>, o?: PostOptions) => Promise<PostResult>; postOptions?: PostOptions }
+export interface NotifyDeps { sms?: SmsSender; whatsapp?: WhatsAppSender; post?: (url: string, body: string, headers: Record<string, string>, o?: PostOptions) => Promise<PostResult>; postOptions?: PostOptions }
 
 export function deliveryNotifyHandlers(db: Db, deps: NotifyDeps = {}): OutboxHandlers {
-  const sms = deps.sms ?? defaultSms(), post = deps.post ?? postJson;
+  const sms = deps.sms ?? defaultSms(), whatsapp = deps.whatsapp ?? defaultWhatsApp(), post = deps.post ?? postJson;
   return {
     async "merchant.webhook"(row) {
       const p = row.payload;
@@ -53,6 +77,12 @@ export function deliveryNotifyHandlers(db: Db, deps: NotifyDeps = {}): OutboxHan
       }
       if (res.status === 410) throw new Permanent("the endpoint answered 410 Gone");
       if (res.status < 200 || res.status >= 300) throw new Error(`webhook endpoint answered ${res.status}`);
+    },
+    async whatsapp(row) {
+      const { to, template, language, params } = row.payload ?? {};
+      if (!to || !template || !Array.isArray(params)) throw new Permanent("whatsapp row has no recipient or template");
+      const r = await whatsapp.sendTemplate(String(to), String(template), String(language || config.whatsapp.templateLanguage), params.map(String));
+      return { externalId: r.id };
     },
     async sms(row) {
       const { to, body } = row.payload ?? {};

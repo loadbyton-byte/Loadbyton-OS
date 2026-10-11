@@ -35,4 +35,4 @@ These are brand-generation and UI checks, not a rerun or certification of the en
 
 Owner artwork acceptance; native Arabic copy review; qualified legal/tax review; trademark clearance if needed; domain registrar proof; actual customer/business economics and named governance/support owners; printer ICC/PDF/X conversion and physical proof.
 
-The assets do not validate official UAE UBL, implement an accredited e-invoicing adapter or Mirsal access, supply live bank/card/fuel feeds or approved WhatsApp/telephony accounts, or implement foreign-currency customer invoicing, a general ledger, scanned-document OCR or remaining sector device feeds.
+The assets do not validate official UAE UBL, supply accreditation with an e-invoicing provider or Mirsal access, or supply live provider accounts (bank, card, fuel, WhatsApp, telephony, OCR). Those integrations are configured at deployment; see `DEPLOYMENT.md`.

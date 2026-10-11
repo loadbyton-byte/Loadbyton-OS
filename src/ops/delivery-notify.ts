@@ -1,4 +1,5 @@
 import type { Conn, Db } from "../db/client.js";
+import { config } from "../config.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
 import { seal } from "../lib/seal.js";
@@ -48,7 +49,7 @@ export async function authenticateApiKey(db: Db, raw: string): Promise<ApiPrinci
 
 // ───────────────────────── per-merchant webhook endpoint and SMS opt-in
 export const listMerchantSettings = (c: Conn) => c.query<any>(
-  `SELECT p.id AS merchant_id, p.name, coalesce(s.webhook_url,'') AS webhook_url, coalesce(s.webhook_active,false) AS webhook_active, coalesce(s.notify_sms,false) AS notify_sms
+  `SELECT p.id AS merchant_id, p.name, coalesce(s.webhook_url,'') AS webhook_url, coalesce(s.webhook_active,false) AS webhook_active, coalesce(s.notify_sms,false) AS notify_sms, coalesce(s.notify_whatsapp,false) AS notify_whatsapp
    FROM parties p LEFT JOIN dlv_merchant_settings s ON s.merchant_id=p.id WHERE p.kind='customer' ORDER BY p.name`).then((r) => r.rows);
 
 /** Set (or replace) the endpoint. A new secret is generated the first time and whenever `rotate` is set; it is returned once and stored sealed. */
@@ -76,6 +77,13 @@ export async function setNotifySms(c: Conn, ctx: Ctx, merchantId: string, on: bo
   await c.query(`INSERT INTO dlv_merchant_settings(tenant_id,merchant_id,notify_sms) VALUES ($1,$2,$3) ON CONFLICT (tenant_id,merchant_id) DO UPDATE SET notify_sms=$3, updated_at=now()`, [ctx.tenantId, merchantId, on]);
   await audit(c, ctx.tenantId, actorOf(ctx), "dlv_sms.set", "party", merchantId, { on });
 }
+export async function setNotifyWhatsApp(c: Conn, ctx: Ctx, merchantId: string, on: boolean) {
+  require(ctx, "settings.manage");
+  await must(c.query(`SELECT id FROM parties WHERE id=$1 AND kind='customer'`, [merchantId]), "Merchant");
+  if (on && (config.whatsapp.provider !== "cloud")) throw badRequest("WhatsApp is not connected on this installation. Set the WhatsApp provider credentials and approved templates first.");
+  await c.query(`INSERT INTO dlv_merchant_settings(tenant_id,merchant_id,notify_whatsapp) VALUES ($1,$2,$3) ON CONFLICT (tenant_id,merchant_id) DO UPDATE SET notify_whatsapp=$3, updated_at=now()`, [ctx.tenantId, merchantId, on]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "dlv_whatsapp.set", "party", merchantId, { on });
+}
 export async function sendTestWebhook(c: Conn, ctx: Ctx, merchantId: string) {
   require(ctx, "settings.manage");
   const s = (await c.query<any>(`SELECT webhook_active FROM dlv_merchant_settings WHERE merchant_id=$1`, [merchantId])).rows[0];
@@ -97,7 +105,7 @@ export const PARCEL_EVENTS = ["parcel.out_for_delivery", "parcel.delivered", "pa
 const SMS_EVENTS = new Set(["parcel.out_for_delivery", "parcel.attempt_failed"]);
 
 export async function emitParcelEvent(c: Conn, tenantId: string, s: EventShipment, type: (typeof PARCEL_EVENTS)[number], status: string, data: Record<string, unknown> = {}) {
-  const set = (await c.query<any>(`SELECT webhook_active, notify_sms FROM dlv_merchant_settings WHERE merchant_id=$1`, [s.merchant_id])).rows[0];
+  const set = (await c.query<any>(`SELECT webhook_active, notify_sms, notify_whatsapp FROM dlv_merchant_settings WHERE merchant_id=$1`, [s.merchant_id])).rows[0];
   if (!set) return;
   const uniq = `${s.id}:${type}:${s.attempts}:${status}`;
   if (set.webhook_active) {
@@ -112,6 +120,16 @@ export async function emitParcelEvent(c: Conn, tenantId: string, s: EventShipmen
       ? `${names.company}: your parcel ${s.no} from ${names.merchant} is out for delivery today.${cod ? ` Please have AED ${(cod / 100).toFixed(2)} ready (cash on delivery).` : ""}${s.require_code ? ` Delivery code: ${s.delivery_code}.` : ""} Track: ${link}`
       : `${names.company}: we could not deliver parcel ${s.no} from ${names.merchant}. We will contact you to arrange another attempt. Track: ${link}`;
     await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'sms',$2,$3) ON CONFLICT (key) DO NOTHING`, [tenantId, `sms:${uniq}`, JSON.stringify({ to, body })]);
+  }
+  const wa = set.notify_whatsapp && SMS_EVENTS.has(type) && config.whatsapp.provider === "cloud" ? normalizeUaeMobile(s.consignee_phone) : null;
+  if (wa) {
+    const names = (await c.query<any>(`SELECT (SELECT name FROM tenants WHERE id=$1) AS company, (SELECT name FROM parties WHERE id=$2) AS merchant`, [tenantId, s.merchant_id])).rows[0];
+    const link = `${baseUrl()}/t/${s.track_token}`, cod = Number(s.cod_minor);
+    // template variables, in order — the approved template body must use exactly these: out for delivery {{1}} company {{2}} waybill {{3}} merchant {{4}} cash due {{5}} delivery code {{6}} tracking link; attempt failed {{1}} company {{2}} waybill {{3}} merchant {{4}} tracking link
+    const out = type === "parcel.out_for_delivery";
+    const params = out ? [names.company, s.no, names.merchant, cod ? `AED ${(cod / 100).toFixed(2)}` : "none", s.require_code ? String(s.delivery_code) : "not required", link] : [names.company, s.no, names.merchant, link];
+    await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'whatsapp',$2,$3) ON CONFLICT (key) DO NOTHING`,
+      [tenantId, `wa:${uniq}`, JSON.stringify({ to: wa, template: out ? config.whatsapp.templateOutForDelivery : config.whatsapp.templateAttemptFailed, language: config.whatsapp.templateLanguage, params })]);
   }
 }
 void optStr;

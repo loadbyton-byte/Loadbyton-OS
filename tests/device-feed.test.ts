@@ -149,3 +149,34 @@ describe("advisory identifier checks", () => {
     expect(identifierChecks("cold-chain", {})).toEqual([]);
   });
 });
+
+describe("yard scanner feeds (automotive logistics)", () => {
+  it("turns signed scans into yard-movement events on a bound automotive case, keeps every scan, and keeps sectors apart", async () => {
+    resetThrottle();
+    const t = await newTenant(db, undefined, ["automotive-logistics"]);
+    const run = <T>(fn: (c: Conn) => Promise<T>) => db.tenant(t.tenantId, fn);
+    const party = await run((c) => createParty(c, t.ctx, { kind: "customer", name: "Dealer" }));
+    const doc = await run((c) => uploadDocument(c, t.ctx, { kind: "other", title: "Reviewed evidence", issuer: "Qualified reviewer", filename: "e.pdf", data: Buffer.from("%PDF-1.4 evidence") }));
+    await run((c) => approveSpecialistReview(c, t.ctx, "automotive-logistics", "Qualified reviewer", doc, future()));
+    const k = await run((c) => createSpecialistCase(c, t.ctx, "automotive-logistics", { party_id: party, external_ref: "VEH-1", subject_ref: "WVWZZZ1JZXW000001", fee: "0", tax_code: "SR5", vin: "WVWZZZ1JZXW000001", initial_yard: "Gate" }));
+    await run((c) => recordSpecialistEvent(c, t.ctx, k.id, "evidence", { evidence_kind: "release_authority" }, "Verified evidence", "ev-1", doc));
+    await run((c) => transitionSpecialistCase(c, t.ctx, k.id, "ready", "Approved by responsible operator"));
+    const dev = await run((c) => registerDevice(c, t.ctx, { label: "Gate A scanner", serial: "YS-1", interval_minutes: 5, sector: "automotive-logistics" }));
+    await expect(run((c) => registerDevice(c, t.ctx, { label: "x", serial: "YS-2", sector: "marine-agency" }))).rejects.toThrow(/Choose cold chain or automotive/);
+    await expect(run((c) => registerDevice(c, t.ctx, { label: "Cold logger", serial: "CL-1" }))).rejects.toThrow(/cold-chain sector is not selected/);   // only the sectors this workspace uses
+    await run((c) => bindDevice(c, t.ctx, dev.id, k.id, iso(60)));
+    const body = { readings: [{ id: "s1", at: iso(30), location: "Bay C4" }, { id: "s2", at: iso(20), location: "Bay D1" }, { id: "bad", at: iso(10) }, { id: "s1", at: iso(30), location: "Bay C4" }] };
+    const res = await push(dev.url, dev.secret, body);
+    expect(await res.json()).toMatchObject({ received: 4, ingested: 2, rejected: 1, duplicates: 1 });
+    const events = (await db.query<any>(`SELECT kind, attributes, note FROM specialist_events WHERE case_id=$1 AND kind='yard' ORDER BY created_at`, [k.id])).rows;
+    expect(events.map((e) => e.attributes.location)).toEqual(["Bay C4", "Bay D1"]);
+    const kept = (await db.query<any>(`SELECT outcome, detail, celsius FROM device_readings WHERE device_id=$1 ORDER BY id`, [dev.id])).rows;
+    expect(kept).toHaveLength(3); expect(kept.every((r) => r.celsius === null)).toBe(true); expect(kept.filter((r) => r.outcome === "rejected")[0].detail).toBe("");
+    // a CSV download uses a location column and is idempotent
+    const csv = "time,location\n" + `${iso(5)},Bay E2\n`;
+    const first = await importLoggerCsv(db, t.ctx, dev.id, csv); expect(first).toMatchObject({ rows: 1, ingested: 1 });
+    expect(await importLoggerCsv(db, t.ctx, dev.id, csv)).toMatchObject({ ingested: 0, duplicates: 1 });
+    await expect(importLoggerCsv(db, t.ctx, dev.id, "time,celsius\n2026-01-01T00:00:00Z,4")).rejects.toThrow(/location column/);
+    expect(await verifyInvariants(db)).toEqual([]);
+  });
+});

@@ -47,6 +47,13 @@ export interface PostOptions {
  * inside the connection's own lookup**, so DNS changing between a check and the connect (rebinding) cannot redirect us. Redirects are never followed.
  */
 export function postJson(url: string, body: string, headers: Record<string, string>, o: PostOptions = {}): Promise<PostResult> {
+  return safeRequest("POST", url, body, headers, o);
+}
+/** GET with the same address protections as postJson (used for customer-configured statement feeds). */
+export function getJson(url: string, headers: Record<string, string>, o: PostOptions = {}): Promise<PostResult> {
+  return safeRequest("GET", url, null, headers, { maxBodyBytes: 2_000_000, timeoutMs: 20_000, ...o });
+}
+function safeRequest(method: "GET" | "POST", url: string, body: string | null, headers: Record<string, string>, o: PostOptions): Promise<PostResult> {
   return new Promise((resolve, reject) => {
     let u: URL;
     try { u = o.allowHttp ? new URL(url) : validateWebhookUrl(url); } catch (e) { return reject(Object.assign(new Error((e as Error).message), { permanent: true })); }
@@ -60,7 +67,7 @@ export function postJson(url: string, body: string, headers: Record<string, stri
       });
     }) as any;
     const mod = u.protocol === "http:" ? http : https;
-    const req = mod.request(u, { method: "POST", lookup, timeout: o.timeoutMs ?? 10_000, headers: { ...headers, "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) } }, (res) => {
+    const req = mod.request(u, { method, lookup, timeout: o.timeoutMs ?? 10_000, headers: body === null ? { accept: "application/json", ...headers } : { ...headers, "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) } }, (res) => {
       const chunks: Buffer[] = []; let n = 0; const max = o.maxBodyBytes ?? 4096;
       res.on("data", (d: Buffer) => { n += d.length; if (n <= max) chunks.push(d); });
       res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
@@ -68,6 +75,6 @@ export function postJson(url: string, body: string, headers: Record<string, stri
     });
     req.on("timeout", () => req.destroy(new Error("the endpoint did not answer in time")));
     req.on("error", reject);
-    req.end(body);
+    req.end(body ?? undefined);
   });
 }

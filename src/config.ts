@@ -75,6 +75,19 @@ export const config = {
   // ── SMS to consignees (opt-in per merchant): "log" (default) or "twilio"
   sms: { provider: (text("SMS_PROVIDER").toLowerCase() || "log"), accountSid: text("TWILIO_ACCOUNT_SID"), authToken: text("TWILIO_AUTH_TOKEN"), from: text("TWILIO_FROM"), apiBase: env.TWILIO_API_BASE ?? "https://api.twilio.com" },
 
+  // ── WhatsApp Business (Meta Cloud API) for delivery notices: "log" (default) or "cloud". Notices go out only as templates Meta has approved.
+  whatsapp: {
+    provider: (text("WHATSAPP_PROVIDER").toLowerCase() || "log"), accessToken: text("WHATSAPP_ACCESS_TOKEN"), phoneNumberId: text("WHATSAPP_PHONE_NUMBER_ID"),
+    apiBase: env.WHATSAPP_API_BASE ?? "https://graph.facebook.com", apiVersion: text("WHATSAPP_API_VERSION") || "v21.0",
+    templateLanguage: text("WHATSAPP_TEMPLATE_LANGUAGE") || "en", templateOutForDelivery: text("WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY"), templateAttemptFailed: text("WHATSAPP_TEMPLATE_ATTEMPT_FAILED"),
+  },
+
+  // ── live statement feeds (bank / card settlement / fuel card / Salik). A workspace may only point a feed at a host listed here; its credentials are its own.
+  liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
+
+  // ── OCR for scanned documents: "none" (default) or "google-vision". Document content is sent to the provider, so its processing must be reviewed first.
+  ocr: { provider: (text("OCR_PROVIDER").toLowerCase() || "none"), apiKey: text("OCR_API_KEY"), apiBase: (env.OCR_API_BASE ?? "https://vision.googleapis.com").replace(/\/$/, ""), maxPages: Number(env.OCR_MAX_PAGES ?? 5), reviewed: flag("OCR_DATA_PROCESSING_REVIEWED") },
+
   // ── tax and seller identity shown at checkout (set from your own registrations; have an accountant confirm the treatment)
   vatBps: Number(env.CHECKOUT_VAT_BPS ?? 500),
   checkoutTaxNote: text("CHECKOUT_TAX_NOTE"),
@@ -90,6 +103,17 @@ export const config = {
   trustProxy: text("TRUST_PROXY").toLowerCase(),
   /** Bearer token for GET /metrics (Prometheus text). Unset = the endpoint does not exist. */
   metricsToken: text("METRICS_TOKEN"),
+
+  // ── UAE e-invoicing: the accredited service provider (ASP) the customer has contracted. Paths and vocabulary are the provider's own.
+  einvoiceAsp: {
+    name: text("EINVOICE_ASP_NAME").toLowerCase(), baseUrl: text("EINVOICE_ASP_BASE_URL"), apiKey: text("EINVOICE_ASP_API_KEY"),
+    authScheme: (text("EINVOICE_ASP_AUTH") || "bearer").toLowerCase(), authHeader: text("EINVOICE_ASP_AUTH_HEADER") || "x-api-key",
+    tenantId: text("EINVOICE_ASP_TENANT_ID"), tenantHeader: text("EINVOICE_ASP_TENANT_HEADER") || "x-tenant-id",
+    bodyFormat: (text("EINVOICE_ASP_BODY") || "json").toLowerCase(),
+    submitPath: text("EINVOICE_ASP_SUBMIT_PATH") || "/documents", statusPath: text("EINVOICE_ASP_STATUS_PATH") || "/documents/{ref}",
+    referenceField: text("EINVOICE_ASP_REFERENCE_FIELD") || "id", statusField: text("EINVOICE_ASP_STATUS_FIELD") || "status", reasonsField: text("EINVOICE_ASP_REASONS_FIELD") || "errors",
+    acceptedValues: list(env.EINVOICE_ASP_ACCEPTED_VALUES ?? "accepted,delivered,cleared,approved"), rejectedValues: list(env.EINVOICE_ASP_REJECTED_VALUES ?? "rejected,invalid,failed_validation"), errorValues: list(env.EINVOICE_ASP_ERROR_VALUES ?? "error"),
+  },
 
   storageDir: path.resolve(env.STORAGE_DIR ?? "data/files"),
   /** "fs" (local disk, default) or "s3" (any S3-compatible store: Oracle Object Storage, Cloudflare R2, MinIO, AWS). */
@@ -133,10 +157,34 @@ export function validateConfig(c = config, production = isProd) {
     if (!c.sms.authToken) problems.push("TWILIO_AUTH_TOKEN is required");
     if (!c.sms.from) problems.push("TWILIO_FROM is required (a number in E.164 format, or an approved alphanumeric sender ID)");
   }
+  if (!["log", "cloud"].includes(c.whatsapp.provider)) problems.push(`WHATSAPP_PROVIDER must be "log" or "cloud" (got "${c.whatsapp.provider}")`);
+  if (c.whatsapp.provider === "cloud") {
+    if (!c.whatsapp.accessToken) problems.push("WHATSAPP_ACCESS_TOKEN is required when WHATSAPP_PROVIDER=cloud");
+    if (!/^\d{5,20}$/.test(c.whatsapp.phoneNumberId)) problems.push("WHATSAPP_PHONE_NUMBER_ID must be the numeric phone number ID from Meta");
+    for (const [k, v] of [["WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY", c.whatsapp.templateOutForDelivery], ["WHATSAPP_TEMPLATE_ATTEMPT_FAILED", c.whatsapp.templateAttemptFailed]] as const)
+      if (!/^[a-z0-9_]{1,512}$/.test(v)) problems.push(`${k} must be the name of a template Meta has approved (lower-case letters, digits, underscores)`);
+    if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(c.whatsapp.templateLanguage)) problems.push("WHATSAPP_TEMPLATE_LANGUAGE must be a language code such as en or ar");
+  }
+  if (c.liveFeeds.allowedHosts.some((h) => !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(h))) problems.push("FEED_ALLOWED_HOSTS must be a comma list of public host names (no schemes, ports or paths)");
+  if (!Number.isInteger(c.liveFeeds.intervalMinutes) || c.liveFeeds.intervalMinutes < 15 || c.liveFeeds.intervalMinutes > 1440) problems.push("FEED_PULL_INTERVAL_MINUTES must be a whole number between 15 and 1440");
+  if (!["none", "google-vision"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none" or "google-vision" (got "${c.ocr.provider}")`);
+  if (c.ocr.provider === "google-vision") {
+    if (!c.ocr.apiKey) problems.push("OCR_API_KEY is required when OCR_PROVIDER=google-vision");
+    if (!c.ocr.reviewed) problems.push("OCR sends document content to the provider: set OCR_DATA_PROCESSING_REVIEWED=true once that processing has been reviewed");
+    if (!Number.isInteger(c.ocr.maxPages) || c.ocr.maxPages < 1 || c.ocr.maxPages > 5) problems.push("OCR_MAX_PAGES must be 1–5 (the provider's limit for inline PDFs)");
+  }
   if (!["log", "resend"].includes(c.mail.provider)) problems.push(`MAIL_PROVIDER must be "log" or "resend" (got "${c.mail.provider}")`);
   if (c.mail.provider === "resend") {
     if (!c.mail.resendApiKey.startsWith("re_")) problems.push("RESEND_API_KEY must be a Resend API key (re_…)");
     if (!/^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$|<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(c.mail.from)) problems.push('MAIL_FROM must be an address on a domain verified in Resend, e.g. "LOAD|BY|TON <noreply@yourdomain>"');
+  }
+  const asp = c.einvoiceAsp;
+  if (asp.name || asp.baseUrl || asp.apiKey) {
+    if (!/^[a-z0-9_-]{2,40}$/.test(asp.name) || asp.name === "sandbox") problems.push("EINVOICE_ASP_NAME must be 2–40 characters (letters, digits, - _) and not “sandbox”");
+    if (!/^https:\/\//.test(asp.baseUrl)) problems.push("EINVOICE_ASP_BASE_URL must be an https URL");
+    if (!asp.apiKey) problems.push("EINVOICE_ASP_API_KEY is required when an e-invoicing provider is configured");
+    if (!["bearer", "header"].includes(asp.authScheme)) problems.push('EINVOICE_ASP_AUTH must be "bearer" or "header"');
+    if (!["json", "xml"].includes(asp.bodyFormat)) problems.push('EINVOICE_ASP_BODY must be "json" or "xml"');
   }
   if (production && !/^https:\/\//.test(c.baseUrl)) problems.push("PUBLIC_BASE_URL must be https in production");
   if (production && c.databaseSsl === "no-verify") problems.push("DATABASE_SSL=no-verify is not permitted in production (use require)");

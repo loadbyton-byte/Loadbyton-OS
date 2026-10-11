@@ -3,7 +3,7 @@ import type { Db } from "../src/db/client.js";
 import { freshDb, newTenant, ctxFor, convertedJob } from "./helpers.js";
 import { invoiceJob } from "../src/ops/finance.js";
 import { draftCreditNote, issueCreditNote } from "../src/ops/finance-bridge.js";
-import { buildUbl, FORMAT_LABEL, generateEInvoice, getSettings, previewReadiness, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../src/ops/einvoice.js";
+import { refreshEInvoice, buildUbl, FORMAT_LABEL, generateEInvoice, getSettings, previewReadiness, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../src/ops/einvoice.js";
 import { PROVIDERS, sandboxAdapter } from "../src/adapters/einvoice.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 
@@ -107,5 +107,27 @@ describe("e-invoice groundwork", () => {
     const ok = buildUbl({ kind: "invoice", number: "X-1", issuedAt: new Date(), currency: "AED", subtotal: 100, tax: 5, total: 105, lines: [{ description: "d", qty: 1, unit_minor: 100, net_minor: 100, tax_minor: 5, tax_code: "SR5" }] },
       { name: "S", legal_name: "S", tax_id: "100000000000003", address_line: "a", city: "c", country: "AE" }, { name: "B", tax_id: null, country: "AE" }, {});
     expect((await adapter.submit({ reference: "B", kind: "invoice", xml: ok })).status).toBe("accepted");
+  });
+
+  it("a submitted document is decided later through a status refresh, and a refresh never moves it backwards", async () => {
+    const t = await newTenant(db);
+    const j = await convertedJob(db, t, 50000, 30000);
+    const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
+    await db.tenant(t.tenantId, async (c) => {
+      await c.query(`UPDATE entities SET legal_name='Third Logistics LLC'`);
+      await updateEntityDetails(c, t.ctx, { tax_id: "100111222333004", address_line: "x", city: "Dubai", emirate: "Dubai", einvoice_scheme: "S", einvoice_endpoint: "E" });
+      await updatePartyDetails(c, t.ctx, j.customerId, { address_line: "y", city: "Dubai", country: "AE" });
+    });
+    let answer: "submitted" | "accepted" = "submitted";
+    PROVIDERS["slow-asp"] = () => ({ name: "slow-asp", submit: async () => ({ providerRef: "S1", status: "submitted", reasons: [] }), status: async (r) => ({ providerRef: r, status: answer, reasons: [] }) });
+    await db.tenant(t.tenantId, (c) => saveSettings(c, t.ctx, { mode: "live", provider: "slow-asp", customization_id: "C", profile_id: "P" }));
+    const doc = await db.tenant(t.tenantId, (c) => generateEInvoice(c, t.ctx, "invoice", inv.id));
+    expect((await db.tenant(t.tenantId, (c) => submitEInvoice(c, t.ctx, doc.id))).status).toBe("submitted");
+    expect((await db.tenant(t.tenantId, (c) => refreshEInvoice(c, t.ctx, doc.id))).status).toBe("submitted");   // still undecided
+    answer = "accepted";
+    const done = await db.tenant(t.tenantId, (c) => refreshEInvoice(c, t.ctx, doc.id));
+    expect(done.status).toBe("accepted"); expect(done.decided_at).not.toBeNull();
+    expect((await db.tenant(t.tenantId, (c) => refreshEInvoice(c, t.ctx, doc.id))).status).toBe("accepted");
+    delete PROVIDERS["slow-asp"];
   });
 });
