@@ -36,6 +36,8 @@ Source: user-uploaded **LOAD_BY_TON.store — Master Blueprint (1).pdf**, extrac
 
 - Privacy and security operations (migration 035): owner-set retention policies with an hourly bounded minimisation worker for fulfilment recipients and delivery consignees, immutable legal holds, counts-only run evidence, a two-person platform erasure plan with execution-time blocker re-checks, per-field authorisation for parties, consignees and drivers in exports, and dual-key session-secret, webhook-secret and backup-key rotation procedures with re-seal/re-encrypt tooling.
 
+- COD cash controls (migration 036): owner-set unsettled-cash and offline-window limits (new runs are held with a recorded supervisor override, late-synced events raise supervisor checks), bank statement CSV import with exact document-number/amount auto-matching of handover deposits and merchant payouts, manual match/classify/unmatch with separation of duties, unconfirmed deposit/payout reconciliation, and proposal/approval of cash-shortage write-offs with an owner threshold, a liability report and an accountant CSV. Automatic bank or card-provider *feeds* (API connections) are not built: statements, including refund lines classified as refunds, arrive by CSV; posting write-offs to the books remains an accountant's act.
+
 ## External acceptance — code is present; deployment evidence remains
 
 `RELEASE_ACCEPTANCE.md` lists merchant/provider credentials, live payment and wallet eligibility, actual regions/private buckets/tunnel, SMTP delivery, provider failover/PITR/restore, alert delivery, legal/tax/retention review, controller acceptance, specialist reviews and real pilot customers. These are not obtainable by inventing credentials, certifications or customer evidence.
@@ -48,7 +50,7 @@ These remain real work, not items that merely need environment variables:
 |---|---|
 | Freight commercial depth | Richer opportunities/tenders/rate tiers and supplier contract restrictions; integrated forwarding master/house operations and authoritative issuer integration |
 | Transport | Offline first-open/service-worker strategy, GPS/route optimisation, fuel-card/Salik provider feeds |
-| Delivery/COD | Offline parcel/cash policy, automated bank matching/provider refund feeds and approved liability/write-off accounting |
+| Delivery/COD | Live bank/card-provider API feeds (statements import by CSV today) and posting write-offs into an accounting system |
 | Fulfilment | Scheduled personal-data minimisation (see Legal/data operations); everything else in the former row is implemented |
 | Custody warehouse | Backorder/return policy, approved bonded/liability boundary, richer scanner/printer/RF integrations; the new traceability controls require real quality/sector review |
 | Specialist profiles | Full sector-specific advanced interfaces/provider feeds, automated physical/device evidence and industry validation beyond the tested manual workflows |

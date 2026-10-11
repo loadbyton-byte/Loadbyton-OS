@@ -8,6 +8,7 @@ import { must, nextNumber, optNum, optStr, reqStr } from "./common.js";
 import { issueInvoice, recordReceipt } from "./finance.js";
 import { parseCsv, type ImportReport } from "./importer.js";
 import { emitParcelEvent } from "./delivery-notify.js";
+import { cashHoldReason, getCashPolicy, riderExposure } from "./delivery-finance.js";
 import { dubaiToIso } from "./transport.js";
 
 /** Company day in UTC+4 (no DST). */
@@ -240,7 +241,7 @@ export async function removeFromRun(c: Conn, ctx: Ctx, runId: string, shipmentId
   await logEvent(c, ctx, shipmentId, runId, "unassigned");
 }
 
-export async function startRun(c: Conn, ctx: Ctx, runId: string) {
+export async function startRun(c: Conn, ctx: Ctx, runId: string, override?: string) {
   require(ctx, "dlv.write");
   const run = await must(c.query<any>(`SELECT * FROM dlv_runs WHERE id=$1 FOR UPDATE`, [runId]), "Run");
   if (run.status !== "planned") throw badRequest(`Run is ${run.status}.`);
@@ -248,6 +249,13 @@ export async function startRun(c: Conn, ctx: Ctx, runId: string) {
   if (!n) throw badRequest("Add at least one parcel before sending the rider out.");
   const login = await c.query(`SELECT 1 FROM memberships WHERE driver_id=$1 AND active`, [run.driver_id]);
   if (!login.rows.length) throw badRequest("The rider has no login yet. Invite the rider so they can record deliveries on their phone.");
+  const hold = await cashHoldReason(c, run.driver_id);
+  if (hold) {
+    // a supervisor may release a cash hold with a recorded reason; otherwise cash must be counted in first
+    if (!override?.trim()) throw badRequest(`${hold} Count the rider's cash at the cash desk before sending them out.`);
+    require(ctx, "dlv.approve");
+    await audit(c, ctx.tenantId, actorOf(ctx), "dlv_run.cash_hold_overridden", "dlv_run", runId, { reason: reqStr(override, "Override reason", 300), hold });
+  }
   const busy = (await c.query<any>(`SELECT no FROM dlv_runs WHERE driver_id=$1 AND status='out' AND id<>$2 LIMIT 1`, [run.driver_id, runId])).rows[0];
   if (busy) throw badRequest(`This rider is still out on ${busy.no}. Close it first.`);
   await c.query(`UPDATE dlv_runs SET status='out', started_at=now() WHERE id=$1`, [runId]);
@@ -321,6 +329,10 @@ export async function applyRiderEvent(c: Conn, ctx: Ctx, ev: RiderEvent): Promis
   if (raw > now + MAX_SKEW_MS) { eff = now; notes.push("device clock ahead of server; server time used"); }
   else if (raw < now - 14 * 86400_000) { eff = now; notes.push("device time implausibly old; server time used"); }
   const effIso = new Date(eff).toISOString();
+  const policy = await getCashPolicy(c);
+  const lateHours = Math.floor((now - raw) / 3600_000);
+  const lateSync = ev.kind !== "note" && lateHours >= policy.max_offline_hours;
+  if (lateSync) notes.push(`synced ${lateHours}h after it happened (offline window ${policy.max_offline_hours}h); supervisor check raised`);
   const p = ev.payload ?? {};
   let applied = false, resolution: string | null = null;
   const refuse = (why: string) => { applied = false; resolution = why; };
@@ -348,6 +360,16 @@ export async function applyRiderEvent(c: Conn, ctx: Ctx, ev: RiderEvent): Promis
           [ctx.tenantId, s.id, run.driver_id, s.cod_minor, effIso, id]);
       }
       await accrueDelivery(c, ctx.tenantId, s, dubaiDay(new Date(eff)));
+      if (Number(s.cod_minor) > 0 && run.driver_id) {
+        const ex = await riderExposure(c, run.driver_id);
+        if (ex.amount_minor > policy.max_unsettled_minor) {
+          const name = (await c.query<any>(`SELECT name FROM drivers WHERE id=$1`, [run.driver_id])).rows[0]?.name ?? "Rider";
+          const title = `Cash limit exceeded: ${name}`;
+          if (!(await c.query(`SELECT 1 FROM job_exceptions WHERE title=$1 AND status='open' AND created_at > now() - interval '24 hours'`, [title])).rows.length)
+            await c.query(`INSERT INTO job_exceptions(tenant_id,title,detail,owner_id,due_at) VALUES ($1,$2,$3,$4, now() + interval '4 hours')`,
+              [ctx.tenantId, title, `${name} holds AED ${aed(ex.amount_minor)} of uncounted cash (limit AED ${aed(policy.max_unsettled_minor)}). Count the cash in before the next run.`, s.created_by]);
+        }
+      }
       await emitParcelEvent(c, ctx.tenantId, { ...s, attempts: s.attempts + 1 }, "parcel.delivered", "delivered", { delivered_at: effIso, received_by: name, cod_collected_minor: Number(s.cod_minor) });
       applied = true;
     }
@@ -370,6 +392,10 @@ export async function applyRiderEvent(c: Conn, ctx: Ctx, ev: RiderEvent): Promis
     applied = true;
   }
 
+  if (lateSync && (applied || ev.kind !== "note")) {
+    await c.query(`INSERT INTO job_exceptions(tenant_id,title,detail,owner_id,due_at) VALUES ($1,$2,$3,$4, now() + interval '24 hours')`,
+      [ctx.tenantId, `Late offline sync: parcel ${s.no}`, `A ${ev.kind} event reached the server ${lateHours} hours after it happened (offline window ${policy.max_offline_hours}h). Confirm it with the rider${applied ? "; it was applied" : "; it was not applied"}.`, s.created_by]);
+  }
   const resolutionText = [resolution, ...notes].filter(Boolean).join("; ") || null;
   const stored = ev.kind === "deliver" && applied ? { name: p.name, cash_minor: Number(s.cod_minor) } : p;
   // never keep the delivery code in the event log
