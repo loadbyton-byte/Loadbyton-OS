@@ -14,7 +14,9 @@ import {formBody,str,arr,type Env} from './mw.js';
 
 type ApiEnv=Env;
 export const api=new Hono<ApiEnv>();
+const TENANT_API=/^\/api\/v1\/(parties|invoices|enquiries|specialists|assistant)(\/|$)/;
 api.use('/api/v1/*',async(c,next)=>{
+ if(!TENANT_API.test(c.req.path))return next();   // merchant delivery keys (api-delivery.ts) authenticate themselves
  const trace=randomUUID();c.set('traceId',trace);c.header('X-Trace-Id',trace);
  try {
   const auth=c.req.header('authorization')??'';if(!auth.startsWith('Bearer lbt_'))throw new HttpError(401,'Bearer API key required');

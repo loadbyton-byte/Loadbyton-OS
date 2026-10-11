@@ -10,7 +10,7 @@ import {verifyInvariants} from '../src/platform/invariants.js';
 import {buildApp} from '../src/app.js';
 import {newSession} from '../src/platform/auth.js';
 import {SESSION_COOKIE} from '../src/web/mw.js';
-import {RuntimeMetrics} from '../src/platform/metrics.js';
+import {RuntimeMetrics} from '../src/platform/runtime-metrics.js';
 import {collectQueueMetrics} from '../src/platform/health.js';
 let db:Db;beforeAll(async()=>{db=await freshDb();});
 async function fixture(){

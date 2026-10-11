@@ -14,9 +14,8 @@ const TABLES = ["parties", "enquiries", "rates", "quotes", "quote_versions", "qu
   "fulfil_returns", "fulfil_return_lines", "fulfil_return_receipts", "stock_adjustments", "fulfil_rates", "fulfil_charges", "fulfil_storage_contracts", "fulfil_storage_days", "fulfil_storage_automation",
   "warehouses", "warehouse_locations", "wh_skus", "wh_stock", "wh_movements", "wh_inbound",
   "wh_inbound_lines", "wh_outbound", "wh_outbound_lines", "wh_allocations", "wh_counts", "wh_count_lines",
-  "wh_rates", "wh_billing_runs", "wh_charges", "wh_count_schedules", "wh_count_schedule_runs", "delivery_parcels", "delivery_attempts", "delivery_cash_receipts",
-  "delivery_cod_decisions", "delivery_remittances", "delivery_cash_adjustments", "delivery_cash_adjustment_decisions",
-  "customs_cases", "customs_evidence", "customs_events", "customs_deposit_entries", "data_requests", "setup_orders", "specialist_reviews", "specialist_cases", "specialist_events", "business_calendars", "conversations", "conversation_messages", "migration_batches", "wh_lots", "weight_rules", "weight_assessments", "document_templates", "generated_documents"];
+  "wh_rates", "wh_billing_runs", "wh_charges", "wh_count_schedules", "wh_count_schedule_runs", "dlv_runs", "dlv_shipments", "dlv_events", "dlv_settlements", "dlv_remittances", "dlv_collections", "dlv_rates", "dlv_billing_runs", "dlv_charges",
+  "cus_cases", "cus_lines", "cus_checklist", "cus_inspections", "cus_queries", "cus_events", "cus_deposits", "cus_payments", "cus_deposit_apps", "cus_charges", "data_requests", "setup_orders", "specialist_reviews", "specialist_cases", "specialist_events", "business_calendars", "conversations", "conversation_messages", "migration_batches", "wh_lots", "weight_rules", "weight_assessments", "document_templates", "generated_documents"];
 
 /** Data export is available on every plan (including Free and after downgrade): depth is charged, retrieval is not. */
 export async function exportTenantData(c: Conn, ctx: Ctx) {

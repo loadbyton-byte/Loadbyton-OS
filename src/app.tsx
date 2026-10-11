@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import type { Db } from "./db/client.js";
 import { config } from "./config.js";
-import { RuntimeMetrics } from "./platform/metrics.js";
+import { RuntimeMetrics } from "./platform/runtime-metrics.js";
 import { HttpError, safeEqual } from "./lib/util.js";
 import { csrfMw, dbMw, securityHeaders, sessionMw, type Env } from "./web/mw.js";
 import { pub } from "./web/public.js";
@@ -13,45 +13,53 @@ import { ops } from "./web/app-ops.js";
 import { transport } from "./web/app-transport.js";
 import { fulfil } from "./web/app-fulfil.js";
 import { warehouse } from "./web/app-warehouse.js";
+import { delivery, deliveryPublic } from "./web/app-delivery.js";
 import { customs } from "./web/app-customs.js";
-import { delivery } from "./web/app-delivery.js";
+import { deliveryApi } from "./web/api-delivery.js";
 import { driver } from "./web/app-driver.js";
 import { admin } from "./web/admin.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
-import {connections} from './web/connections.js';
-import {privacy} from './web/privacy.js';
-import {service} from './web/service.js';
-import {api} from './web/api.js';
-import {workspace} from './web/workspace.js';
-import {specialists} from './web/app-specialists.js';
-import {weight} from './web/chargeable-weight.js';
-import {schedule} from './web/count-schedules.js';
-import {assistant} from './web/assistant.js';
-import {fulfilStorage} from './web/fulfil-storage.js';
-import {documentDrafts} from './web/document-drafts.js';
-import {bodyLimit} from 'hono/body-limit';
-import {collectQueueMetrics} from './platform/health.js';
-import {routePath} from 'hono/route';
+import { connections } from "./web/connections.js";
+import { privacy } from "./web/privacy.js";
+import { service } from "./web/service.js";
+import { api } from "./web/api.js";
+import { workspace } from "./web/workspace.js";
+import { specialists } from "./web/app-specialists.js";
+import { weight } from "./web/chargeable-weight.js";
+import { schedule } from "./web/count-schedules.js";
+import { assistant } from "./web/assistant.js";
+import { fulfilStorage } from "./web/fulfil-storage.js";
+import { documentDrafts } from "./web/document-drafts.js";
+import { bodyLimit } from "hono/body-limit";
+import { routePath } from "hono/route";
+import { collectQueueMetrics } from "./platform/health.js";
+import { collectMetrics, workersStatus } from "./platform/metrics.js";
 
 export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsToken?: string } = {}) {
   const app = new Hono<Env>();
   app.use("*", securityHeaders);
   app.use('*',bodyLimit({maxSize:config.maxUploadBytes+262144,onError:c=>c.text('Request too large',413)}));
   const metrics = options.metrics ?? new RuntimeMetrics();
-  const metricsToken = options.metricsToken ?? config.metricsToken;
   app.use("*", metrics.middleware());
-  app.get("/metrics", async (c) => {
-    if (metricsToken.length < 32) return c.notFound();
-    if (!safeEqual(c.req.header("authorization") ?? "", `Bearer ${metricsToken}`)) return c.text("Not authorised", 401);
-    await collectQueueMetrics(db,metrics);
-    c.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-    return c.body(metrics.render());
-  });
   app.use("/assets/*", async (c, next) => { await next(); c.header("Cache-Control", "public, max-age=300"); });
   app.use("/assets/*", serveStatic({ root: "./public" }));
   app.use("/brand/*", serveStatic({ root: "./public" }));
   app.get("/healthz", async (c) => { await db.query("SELECT 1"); return c.json({ ok: true }); });
+  // Readiness (for load balancers / uptime checks): the database answers AND the background workers have run recently.
+  app.get("/readyz", async (c) => {
+    try { await db.query("SELECT 1"); } catch { return c.json({ ok: false, problem: "database unreachable" }, 503); }
+    const w = config.runWorkers ? workersStatus() : { ok: true, stale: [] as string[] };
+    return c.json({ ok: w.ok, workers: w.ok ? "ok" : w.stale }, w.ok ? 200 : 503);
+  });
+  // Operational metrics for a scraper. Disabled unless METRICS_TOKEN is set; aggregate counts only.
+  app.get("/metrics", async (c) => {
+    const tok = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const metricsToken = options.metricsToken ?? config.metricsToken;
+    if (!metricsToken || !tok || !safeEqual(tok, metricsToken)) return c.notFound();
+    await collectQueueMetrics(db, metrics);
+    return c.body((await collectMetrics(db)) + metrics.render(), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8", "cache-control": "no-store" });
+  });
   app.use("*", dbMw(db));
   app.use("*", sessionMw);
   app.use("*", csrfMw);
@@ -70,9 +78,11 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", transport);
   app.route("/", fulfil);
   app.route("/", warehouse);
-  app.route("/", driver);
   app.route("/", delivery);
+  app.route("/", deliveryPublic);
+  app.route("/", deliveryApi);
   app.route("/", customs);
+  app.route("/", driver);
   app.route("/", specialists);
   app.route("/", weight);
   app.route("/", schedule);

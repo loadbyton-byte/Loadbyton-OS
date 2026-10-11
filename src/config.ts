@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import path from "node:path";
 
 const env = process.env;
@@ -9,74 +10,150 @@ function secret(name: string, dev: string): string {
   if (isProd) throw new Error(`${name} must be set (min 32 chars) in production`);
   return dev;
 }
+const list = (v: string | undefined) => (v ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+const text = (name: string) => (env[name] ?? "").trim();
+const flag = (name: string) => ["1", "true", "yes"].includes(text(name).toLowerCase());
+
+const paymentProviders = list(env.PAYMENT_PROVIDERS ?? env.PAYMENT_PROVIDER ?? "mock");
+const KNOWN_PROVIDERS = ["mock", "stripe", "razorpay"];
 
 export const config = {
   isProd,
-  metricsToken: env.METRICS_TOKEN ?? "",
   port: Number(env.PORT ?? 3000),
   baseUrl: env.PUBLIC_BASE_URL ?? "http://localhost:3000",
   rootDomain: (env.ROOT_DOMAIN ?? "").toLowerCase(),
+
+  // ── database (PGlite when empty; Neon / Supabase / any PostgreSQL otherwise)
   databaseUrl: env.DATABASE_URL ?? "",
-  migrateOnStart: (env.MIGRATE_ON_START ?? (isProd ? 'false' : 'true')) === 'true',
+  /** Direct (non-pooled) URL used only for migrations. Neon/Supabase poolers are fine for the app, but DDL belongs on a direct connection. */
+  migrationDatabaseUrl: env.MIGRATION_DATABASE_URL ?? "",
+  /** "" = driver default · "require" = TLS with certificate verification · "no-verify" = TLS without verification (not for production) · "disable" */
+  databaseSsl: text("DATABASE_SSL").toLowerCase(),
+  databaseCa: text("DATABASE_CA"),
+  databasePoolMax: Number(env.DATABASE_POOL_MAX ?? 10),
+  migrateOnStart: (env.MIGRATE_ON_START ?? (isProd ? "false" : "true")) === "true",
   pgliteDir: env.PGLITE_DIR ?? path.resolve("data/pg"),
+
   sessionSecret: secret("SESSION_SECRET", "dev-session-secret-dev-session-secret-0000"),
+  /** Encrypts company-user MFA seeds, accounting connection secrets and queued invitation tokens. MFA_ENCRYPTION_PREVIOUS_KEY enables dual-key reads during rotation. */
   encryptionSecret: secret("MFA_ENCRYPTION_KEY", "dev-mfa-encryption-dev-mfa-encryption-0000"),
   previousEncryptionSecret: env.MFA_ENCRYPTION_PREVIOUS_KEY ?? "",
-  webhookSecret: isProd?'':secret("PAYMENT_WEBHOOK_SECRET", "dev-webhook-secret-dev-webhook-secret-0000"),
-  paymentProvider: env.PAYMENT_PROVIDER ?? "mock",
-  vatBps: Number(env.CHECKOUT_VAT_BPS ?? (isProd ? NaN : 500)),
-  taxLabel: env.CHECKOUT_TAX_LABEL ?? "Tax",
-  taxNote: env.CHECKOUT_TAX_NOTE ?? "Tax treatment is configured by the service provider for this transaction.",
-  merchant: { legalName: env.MERCHANT_LEGAL_NAME ?? "", country: env.MERCHANT_COUNTRY ?? "IN", address: env.MERCHANT_ADDRESS ?? "", taxId: env.MERCHANT_TAX_ID ?? "", supportEmail: env.SUPPORT_EMAIL ?? "" },
-  stripe: { key: env.STRIPE_SECRET_KEY ?? "", webhookSecret: env.STRIPE_WEBHOOK_SECRET ?? "" },
-  razorpay: { keyId: env.RAZORPAY_KEY_ID ?? "", keySecret: env.RAZORPAY_KEY_SECRET ?? "", webhookSecret: env.RAZORPAY_WEBHOOK_SECRET ?? "" },
-  razorpayPresentment: {currency:env.RAZORPAY_PRESENTMENT_CURRENCY??'AED',aedToInr:Number(env.RAZORPAY_AED_TO_INR??0),note:env.RAZORPAY_FX_NOTE??''},
-  enabledPaymentProviders: (env.PAYMENT_PROVIDERS ?? env.PAYMENT_PROVIDER ?? "mock").split(",").map(x => x.trim()).filter(Boolean),
-  storageProvider: env.STORAGE_PROVIDER ?? "local",
-  supabase: { url: env.SUPABASE_URL ?? "", key: env.SUPABASE_SERVICE_ROLE_KEY ?? "", bucket: env.SUPABASE_STORAGE_BUCKET ?? "documents" },
-  clamav: { host: env.CLAMAV_HOST ?? "", port: Number(env.CLAMAV_PORT ?? 3310) },
-  upstash: { url: env.UPSTASH_REDIS_REST_URL ?? "", token: env.UPSTASH_REDIS_REST_TOKEN ?? "" },
-  cloudflare: { token: env.CLOUDFLARE_API_TOKEN ?? "", zoneId: env.CLOUDFLARE_ZONE_ID ?? "", origin: env.CLOUDFLARE_ORIGIN_HOSTNAME ?? "" },
   companyMfaRequired: (env.REQUIRE_COMPANY_MFA ?? (isProd ? "true" : "false")) === "true",
-  legalReviewed: env.LEGAL_REVIEWED === 'true',
+  legalReviewed: env.LEGAL_REVIEWED === "true",
   retentionDays: Number(env.DATA_RETENTION_DAYS ?? 90),
-  deploymentRegion: env.DEPLOYMENT_REGION ?? 'Development environment',
-  smtp: { url: env.SMTP_URL ?? "", from: env.EMAIL_FROM ?? "" },
-  assistant: { enabled:env.AI_PROVIDER==='openai',key:env.OPENAI_API_KEY??'',model:env.AI_MODEL??'gpt-4.1-mini',reviewed:env.AI_DATA_PROCESSING_REVIEWED==='true',inputMicroUsd:Number(env.AI_INPUT_MICRO_USD_PER_TOKEN??0),outputMicroUsd:Number(env.AI_OUTPUT_MICRO_USD_PER_TOKEN??0),monthlyBudget:Number(env.AI_MONTHLY_BUDGET_MICRO_USD??0),pricingNote:env.AI_PRICING_NOTE??'' },
+  retentionExplicit: !!env.DATA_RETENTION_DAYS,
+  regionExplicit: !!env.DEPLOYMENT_REGION,
+  deploymentRegion: env.DEPLOYMENT_REGION ?? "Development environment",
+  clamav: { host: env.CLAMAV_HOST ?? "", port: Number(env.CLAMAV_PORT ?? 3310) },
+  cloudflare: { token: env.CLOUDFLARE_API_TOKEN ?? "", zoneId: env.CLOUDFLARE_ZONE_ID ?? "", origin: env.CLOUDFLARE_ORIGIN_HOSTNAME ?? "" },
+  razorpayPresentment: { currency: env.RAZORPAY_PRESENTMENT_CURRENCY ?? "AED", aedToInr: Number(env.RAZORPAY_AED_TO_INR ?? 0), note: env.RAZORPAY_FX_NOTE ?? "" },
+  assistant: { enabled: env.AI_PROVIDER === "openai", key: env.OPENAI_API_KEY ?? "", model: env.AI_MODEL ?? "gpt-4.1-mini", reviewed: env.AI_DATA_PROCESSING_REVIEWED === "true", inputMicroUsd: Number(env.AI_INPUT_MICRO_USD_PER_TOKEN ?? 0), outputMicroUsd: Number(env.AI_OUTPUT_MICRO_USD_PER_TOKEN ?? 0), monthlyBudget: Number(env.AI_MONTHLY_BUDGET_MICRO_USD ?? 0), pricingNote: env.AI_PRICING_NOTE ?? "" },
+
+  /** Signs the simulated-provider webhook (mock only). Real providers use their own signing secrets below. */
+  webhookSecret: isProd && !(env.PAYMENT_WEBHOOK_SECRET && env.PAYMENT_WEBHOOK_SECRET.length >= 32)
+    ? crypto.randomBytes(32).toString("hex") : secret("PAYMENT_WEBHOOK_SECRET", "dev-webhook-secret-dev-webhook-secret-0000"),
+
+  // ── payments: several providers can be enabled at once; the first is the default at checkout
+  /** Rehearse on the production server with TEST keys (smoke test). Turn it off before taking real payments. */
+  allowTestPaymentKeys: flag("ALLOW_TEST_PAYMENT_KEYS"),
+  paymentProviders,
+  paymentProvider: paymentProviders[0] ?? "mock",
+  stripe: {
+    secretKey: text("STRIPE_SECRET_KEY"), webhookSecret: text("STRIPE_WEBHOOK_SECRET"), apiBase: env.STRIPE_API_BASE ?? "https://api.stripe.com",
+    /** Optional comma list (e.g. "card"). Empty = Stripe's dynamic payment methods from the dashboard (cards, Google Pay, Apple Pay, Link…). */
+    paymentMethods: list(env.STRIPE_PAYMENT_METHODS),
+  },
+  razorpay: {
+    keyId: text("RAZORPAY_KEY_ID"), keySecret: text("RAZORPAY_KEY_SECRET"), webhookSecret: text("RAZORPAY_WEBHOOK_SECRET"), apiBase: env.RAZORPAY_API_BASE ?? "https://api.razorpay.com",
+  },
+
+  // ── transactional email: "log" (default; prints a line, invitations stay visible as links in the UI) or "resend" (Resend REST API)
+  mail: { provider: (text("MAIL_PROVIDER").toLowerCase() || "log"), resendApiKey: text("RESEND_API_KEY"), from: text("MAIL_FROM"), apiBase: env.RESEND_API_BASE ?? "https://api.resend.com" },
+
+  // ── SMS to consignees (opt-in per merchant): "log" (default) or "twilio"
+  sms: { provider: (text("SMS_PROVIDER").toLowerCase() || "log"), accountSid: text("TWILIO_ACCOUNT_SID"), authToken: text("TWILIO_AUTH_TOKEN"), from: text("TWILIO_FROM"), apiBase: env.TWILIO_API_BASE ?? "https://api.twilio.com" },
+
+  // ── tax and seller identity shown at checkout (set from your own registrations; have an accountant confirm the treatment)
+  vatBps: Number(env.CHECKOUT_VAT_BPS ?? 500),
+  checkoutTaxNote: text("CHECKOUT_TAX_NOTE"),
+  seller: {
+    legalName: text("SELLER_LEGAL_NAME"), tradeName: text("SELLER_TRADE_NAME"), gstin: text("SELLER_GSTIN"), pan: text("SELLER_PAN"),
+    address: text("SELLER_ADDRESS"), email: text("SELLER_SUPPORT_EMAIL"), lutNote: text("SELLER_LUT_NOTE"),
+    sac: text("SELLER_SAC"), supplyNote: text("SELLER_SUPPLY_NOTE"),
+  },
+
+  // ── shared rate limiting (Upstash Redis REST); in-memory per process when unset
+  upstash: { url: text("UPSTASH_REDIS_REST_URL").replace(/\/$/, ""), token: text("UPSTASH_REDIS_REST_TOKEN") },
+  /** Which header carries the real client IP: "cloudflare" (CF-Connecting-IP) or "xff" (first X-Forwarded-For hop). Empty = trust nothing. */
+  trustProxy: text("TRUST_PROXY").toLowerCase(),
+  /** Bearer token for GET /metrics (Prometheus text). Unset = the endpoint does not exist. */
+  metricsToken: text("METRICS_TOKEN"),
+
   storageDir: path.resolve(env.STORAGE_DIR ?? "data/files"),
+  /** "fs" (local disk, default) or "s3" (any S3-compatible store: Oracle Object Storage, Cloudflare R2, MinIO, AWS). */
+  storage: {
+    driver: (text("STORAGE_DRIVER").toLowerCase() || "fs"),
+    s3: { endpoint: text("S3_ENDPOINT"), region: text("S3_REGION") || "auto", bucket: text("S3_BUCKET"), accessKeyId: text("S3_ACCESS_KEY_ID"), secretAccessKey: text("S3_SECRET_ACCESS_KEY"),
+      pathStyle: (text("S3_PATH_STYLE") || "true") !== "false" },
+  },
   runWorkers: (env.RUN_WORKERS ?? "true") === "true",
   maxUploadBytes: 10 * 1024 * 1024,
 };
 
-if (isProd && config.paymentProvider === "mock") {
-  throw new Error("PAYMENT_PROVIDER=mock is not permitted in production");
-}
-
-if (!config.enabledPaymentProviders.length || config.enabledPaymentProviders.some(p => !["mock", "stripe", "razorpay"].includes(p)) || !config.enabledPaymentProviders.includes(config.paymentProvider)) {
-  throw new Error("Unsupported payment provider configuration. Choose stripe, razorpay or development-only mock.");
-}
-if(env.AI_PROVIDER&&!['none','openai'].includes(env.AI_PROVIDER))throw new Error('Unsupported AI provider');
-if(config.assistant.enabled&&(!config.assistant.key||!config.assistant.reviewed||!config.assistant.pricingNote||![config.assistant.inputMicroUsd,config.assistant.outputMicroUsd].every(x=>Number.isFinite(x)&&x>0&&x<=10000)||!Number.isSafeInteger(config.assistant.monthlyBudget)||config.assistant.monthlyBudget<1||config.assistant.monthlyBudget>1000000000||!/^[a-zA-Z0-9._-]{1,100}$/.test(config.assistant.model)))throw new Error('AI requires reviewed data processing, credentials, model, explicit token pricing and a bounded monthly budget');
-if(!Number.isInteger(config.retentionDays)||config.retentionDays<1)throw new Error('DATA_RETENTION_DAYS must be a positive integer');
-if(!['local','supabase'].includes(config.storageProvider))throw new Error('Unsupported storage provider');
-if(config.previousEncryptionSecret&&(config.previousEncryptionSecret.length<32||config.previousEncryptionSecret===config.encryptionSecret))throw new Error('MFA_ENCRYPTION_PREVIOUS_KEY must be a distinct key of at least 32 characters');
-if(!['AED','INR'].includes(config.razorpayPresentment.currency)||config.razorpayPresentment.currency==='INR'&&(!Number.isFinite(config.razorpayPresentment.aedToInr)||config.razorpayPresentment.aedToInr<=0||config.razorpayPresentment.aedToInr>10000||!config.razorpayPresentment.note))throw new Error('INR checkout requires a reviewed positive AED/INR rate and RAZORPAY_FX_NOTE');
-if (isProd) {
-  if (config.enabledPaymentProviders.includes("mock")) throw new Error("Mock payments are not permitted in production");
-  if (!config.databaseUrl) throw new Error("DATABASE_URL is required in production (Neon PostgreSQL)");
-  if (!Number.isInteger(config.vatBps) || config.vatBps < 0 || config.vatBps > 10000 || !env.CHECKOUT_TAX_NOTE) throw new Error("Set CHECKOUT_VAT_BPS and CHECKOUT_TAX_NOTE to the approved merchant tax treatment");
-  if (!config.merchant.legalName || !config.merchant.address || !config.merchant.supportEmail) throw new Error("Merchant legal name, address and support email are required in production");
-  for (const p of config.enabledPaymentProviders) {
-    if (p === "stripe" && (!config.stripe.key || !config.stripe.webhookSecret)) throw new Error("Stripe credentials are required");
-    if (p === "razorpay" && (!config.razorpay.keyId || !config.razorpay.keySecret || !config.razorpay.webhookSecret)) throw new Error("Razorpay credentials are required");
+/** Fail fast in production: a half-configured payment provider must stop the process, not fail at the first customer checkout. */
+export function validateConfig(c = config, production = isProd) {
+  const problems: string[] = [];
+  if (!c.paymentProviders.length) problems.push("PAYMENT_PROVIDERS is empty");
+  for (const p of c.paymentProviders) {
+    if (!KNOWN_PROVIDERS.includes(p)) problems.push(`unknown payment provider “${p}” (known: ${KNOWN_PROVIDERS.join(", ")})`);
+    if (p === "mock" && production) problems.push("PAYMENT_PROVIDER=mock is not permitted in production");
+    if (p === "stripe") {
+      if (!/^sk_(live|test)_|^rk_(live|test)_/.test(c.stripe.secretKey)) problems.push("STRIPE_SECRET_KEY must be a Stripe secret (sk_…) or restricted (rk_…) key");
+      if (!c.stripe.webhookSecret.startsWith("whsec_")) problems.push("STRIPE_WEBHOOK_SECRET must be the endpoint signing secret (whsec_…)");
+      if (production && !c.allowTestPaymentKeys && c.stripe.secretKey.includes("_test_")) problems.push("STRIPE_SECRET_KEY is a test key but NODE_ENV=production (set ALLOW_TEST_PAYMENT_KEYS=true only for a smoke test)");
+    }
+    if (p === "razorpay") {
+      if (!c.razorpay.keyId.startsWith("rzp_")) problems.push("RAZORPAY_KEY_ID must look like rzp_live_… or rzp_test_…");
+      if (!c.razorpay.keySecret) problems.push("RAZORPAY_KEY_SECRET is required");
+      if (c.razorpay.webhookSecret.length < 8) problems.push("RAZORPAY_WEBHOOK_SECRET is required (the secret you typed when creating the webhook)");
+      if (production && !c.allowTestPaymentKeys && c.razorpay.keyId.startsWith("rzp_test_")) problems.push("RAZORPAY_KEY_ID is a test key but NODE_ENV=production (set ALLOW_TEST_PAYMENT_KEYS=true only for a smoke test)");
+    }
   }
-  if (!config.baseUrl.startsWith("https://")) throw new Error("PUBLIC_BASE_URL must use HTTPS in production");
-  if (config.storageProvider !== "supabase" || !config.supabase.url || !config.supabase.key) throw new Error("Private Supabase storage credentials are required in production");
-  for(const url of [config.supabase.url,config.upstash.url])if(new URL(url).protocol!=='https:')throw new Error('Storage and rate-limit providers require HTTPS');
-  if (!config.clamav.host) throw new Error("CLAMAV_HOST is required for production upload scanning");
-  if (!config.upstash.url || !config.upstash.token) throw new Error("Upstash shared rate limiting is required in production");
-  if (!config.smtp.url || !config.smtp.from) throw new Error("SMTP_URL and EMAIL_FROM are required for production notifications");
-  if (!config.cloudflare.token||!config.cloudflare.zoneId||!config.cloudflare.origin||!config.rootDomain) throw new Error('Cloudflare routing credentials and ROOT_DOMAIN are required in production');
-  if (!config.companyMfaRequired) throw new Error('Sensitive company roles must require MFA in production');
-  if (!config.legalReviewed || !env.DATA_RETENTION_DAYS || !env.DEPLOYMENT_REGION) throw new Error('Set reviewed legal, retention and deployment region configuration before production release');
+  if (c.metricsToken && c.metricsToken.length < 24) problems.push("METRICS_TOKEN must be at least 24 characters (openssl rand -hex 24)");
+  if (!["fs", "s3"].includes(c.storage.driver)) problems.push(`STORAGE_DRIVER must be "fs" or "s3" (got "${c.storage.driver}")`);
+  if (c.storage.driver === "s3") {
+    if (!/^https:\/\//.test(c.storage.s3.endpoint)) problems.push("S3_ENDPOINT must be an https URL");
+    for (const [k, v] of [["S3_BUCKET", c.storage.s3.bucket], ["S3_ACCESS_KEY_ID", c.storage.s3.accessKeyId], ["S3_SECRET_ACCESS_KEY", c.storage.s3.secretAccessKey]] as const) if (!v) problems.push(`${k} is required when STORAGE_DRIVER=s3`);
+  }
+  if (!["log", "twilio"].includes(c.sms.provider)) problems.push(`SMS_PROVIDER must be "log" or "twilio" (got "${c.sms.provider}")`);
+  if (c.sms.provider === "twilio") {
+    if (!/^AC[0-9a-f]{32}$/i.test(c.sms.accountSid)) problems.push("TWILIO_ACCOUNT_SID must look like AC…(32 hex)");
+    if (!c.sms.authToken) problems.push("TWILIO_AUTH_TOKEN is required");
+    if (!c.sms.from) problems.push("TWILIO_FROM is required (a number in E.164 format, or an approved alphanumeric sender ID)");
+  }
+  if (!["log", "resend"].includes(c.mail.provider)) problems.push(`MAIL_PROVIDER must be "log" or "resend" (got "${c.mail.provider}")`);
+  if (c.mail.provider === "resend") {
+    if (!c.mail.resendApiKey.startsWith("re_")) problems.push("RESEND_API_KEY must be a Resend API key (re_…)");
+    if (!/^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$|<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(c.mail.from)) problems.push('MAIL_FROM must be an address on a domain verified in Resend, e.g. "LOAD|BY|TON <noreply@yourdomain>"');
+  }
+  if (production && !/^https:\/\//.test(c.baseUrl)) problems.push("PUBLIC_BASE_URL must be https in production");
+  if (production && c.databaseSsl === "no-verify") problems.push("DATABASE_SSL=no-verify is not permitted in production (use require)");
+  if (!!c.upstash.url !== !!c.upstash.token) problems.push("set both UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, or neither");
+  if (c.vatBps < 0 || c.vatBps > 2500 || !Number.isInteger(c.vatBps)) problems.push("CHECKOUT_VAT_BPS must be a whole number of basis points between 0 and 2500");
+  if (env.AI_PROVIDER && !["none", "openai"].includes(env.AI_PROVIDER)) problems.push("AI_PROVIDER must be none or openai");
+  const a = c.assistant;
+  if (a.enabled && (!a.key || !a.reviewed || !a.pricingNote || ![a.inputMicroUsd, a.outputMicroUsd].every((x) => Number.isFinite(x) && x > 0 && x <= 10000) || !Number.isSafeInteger(a.monthlyBudget) || a.monthlyBudget < 1 || a.monthlyBudget > 1_000_000_000 || !/^[a-zA-Z0-9._-]{1,100}$/.test(a.model)))
+    problems.push("AI requires reviewed data processing, credentials, model, explicit token pricing and a bounded monthly budget");
+  if (!Number.isInteger(c.retentionDays) || c.retentionDays < 1) problems.push("DATA_RETENTION_DAYS must be a positive integer");
+  if (c.previousEncryptionSecret && (c.previousEncryptionSecret.length < 32 || c.previousEncryptionSecret === c.encryptionSecret)) problems.push("MFA_ENCRYPTION_PREVIOUS_KEY must be a distinct key of at least 32 characters");
+  const rp = c.razorpayPresentment;
+  if (!["AED", "INR"].includes(rp.currency) || (rp.currency === "INR" && (!Number.isFinite(rp.aedToInr) || rp.aedToInr <= 0 || rp.aedToInr > 10000 || !rp.note))) problems.push("INR checkout requires a reviewed positive AED/INR rate and RAZORPAY_FX_NOTE");
+  if (production) {
+    if (!c.companyMfaRequired) problems.push("Sensitive company roles must require MFA in production (REQUIRE_COMPANY_MFA)");
+    if (!c.legalReviewed || !c.retentionExplicit || !c.regionExplicit) problems.push("Set LEGAL_REVIEWED, DATA_RETENTION_DAYS and DEPLOYMENT_REGION before production release");
+    if (!c.rootDomain || !c.cloudflare.token || !c.cloudflare.zoneId || !c.cloudflare.origin) problems.push("Cloudflare routing credentials and ROOT_DOMAIN are required in production");
+    if (!c.clamav.host) problems.push("CLAMAV_HOST is required for production upload scanning");
+  }
+  if (problems.length) throw new Error(`Invalid configuration:\n - ${problems.join("\n - ")}`);
 }
+validateConfig();

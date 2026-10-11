@@ -1,10 +1,10 @@
 import { serve } from "@hono/node-server";
-import { RuntimeMetrics } from "./platform/metrics.js";
+import { RuntimeMetrics } from "./platform/runtime-metrics.js";
 import { config } from "./config.js";
 import { openDb } from "./db/client.js";
 import { buildApp } from "./app.js";
 import { ensureCatalog } from "./platform/catalog.js";
-import {startWorkers} from './platform/workers.js';
+import { startWorkers } from './platform/workers.js';
 
 const db = await openDb();
 await db.system((c) => ensureCatalog(c));

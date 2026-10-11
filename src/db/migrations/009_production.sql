@@ -1,5 +1,4 @@
 -- Production adapters, immutable checkout snapshots and reviewable provider exceptions.
-ALTER TABLE orders ADD COLUMN checkout_url text;
 ALTER TABLE orders ADD COLUMN merchant_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
 CREATE FUNCTION protect_order_contract() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

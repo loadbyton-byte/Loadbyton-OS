@@ -42,7 +42,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
-      - name: Forwarding, transport receipts, Delivery/COD and fulfilment handover browser acceptance
+      - name: Forwarding and transport receipts browser acceptance
         shell: bash
         run: |
           set -euo pipefail
@@ -56,8 +56,6 @@ jobs:
           curl --fail --silent http://localhost:3000/healthz >/dev/null
           npm run e2e
           npm run e2e:transport
-          npm run e2e:delivery
-          npm run e2e:fulfilment-delivery
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

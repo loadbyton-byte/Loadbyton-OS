@@ -22,7 +22,7 @@ export function need(c: C, perm: Perm) { requirePerm(ctxOf(c), perm); }
 export function navFor(c: C): NavItem[] {
   const ctx = ctxOf(c);
   if (ctx.roles.length === 1 && ctx.roles[0] === "portal") return [{ href: "/app/portal", label: "My shipments" }];
-  if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return [{ href: "/app/driver", label: "My trips" }];
+  if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return [{ href: "/app/driver", label: "My work" }];
   const t = c.get("tenant");
   const fwd = t?.sectors.includes("freight-forwarding");
   const n: NavItem[] = [{ href: "/app", label: "Overview" }];
@@ -49,6 +49,17 @@ export function navFor(c: C): NavItem[] {
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
   }
   for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
+  if (t?.sectors.includes("courier-last-mile")) {
+    const w = (href: string, label: string) => n.push({ href, label, section: "Delivery" });
+    w("/app/delivery", "Delivery board"); w("/app/delivery/shipments", "Parcels"); w("/app/delivery/runs", "Runs"); w("/app/delivery/riders", "Riders"); w("/app/delivery/cash", "Cash desk");
+    if (ctx.perms.has("dlv.bill")) w("/app/delivery/billing", "Rates & billing");
+    if (ctx.perms.has("settings.manage")) w("/app/delivery/integrations", "Integrations");
+  }
+  if (t?.sectors.includes("customs-brokerage")) {
+    const w = (href: string, label: string) => n.push({ href, label, section: "Customs" });
+    w("/app/customs", "Customs board"); w("/app/customs/cases", "Cases");
+    if (ctx.perms.has("cus.cash")) w("/app/customs/deposits", "Deposits & guarantees");
+  }
   n.push({ href: "/app/parties", label: "Customers & suppliers", section: "Sell" });
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });

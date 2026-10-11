@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {deliveryMoney} from './delivery.js';
+import {deliveryMoney} from '../lib/money.js';
 export interface Field {key:string;label:string;type:'text'|'money'|'number'|'date'|'datetime';options?:string[]}
 export interface EventSpec {label:string;fields:Field[];evidence?:boolean;approval?:boolean}
 export interface Profile {fields:Field[];events:Record<string,EventSpec>;readyEvidence:string[];completionEvidence:string[]}

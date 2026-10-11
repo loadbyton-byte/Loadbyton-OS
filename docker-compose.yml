@@ -1,4 +1,4 @@
-# Local production-like stack: web + PostgreSQL. Secrets below are placeholders — set real ones via an env file.
+# Self-contained production-like stack: web + PostgreSQL in containers. For Neon/Supabase + Cloudflare on Oracle use docker-compose.prod.yml.
 services:
   db:
     image: postgres:16-alpine
@@ -16,9 +16,13 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://lbt:${DB_PASSWORD}@db:5432/loadbyton
       SESSION_SECRET: ${SESSION_SECRET:?min 32 chars}
-      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?min 32 chars}
-      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?configure a real provider adapter (mock is refused in production)}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      PAYMENT_PROVIDERS: ${PAYMENT_PROVIDERS:?set stripe and/or razorpay (mock is refused in production)}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost:3000}
       ROOT_DOMAIN: ${ROOT_DOMAIN:-}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
     volumes: [files:/app/data/files]

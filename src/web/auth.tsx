@@ -1,3 +1,4 @@
+import { getAdapter, WebhookSignatureError } from "../platform/payments/index.js";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getCookie } from "hono/cookie";
@@ -7,10 +8,9 @@ import { HttpError, badRequest } from "../lib/util.js";
 import { registerCompany } from "../platform/tenants.js";
 import { SECTORS } from "../platform/catalog.js";
 import { completeMfa, endSession, login, newSession } from "../platform/auth.js";
-import { paymentAdapter } from "../adapters/payments.js";
 import { acceptInvite, inviteInfo } from "../ops/team.js";
 import { buildMockEvent, processPaymentEvent, signPayload, verifySignature, type PaymentEvent } from "../platform/billing.js";
-import { SESSION_COOKIE, arr, clearSessionCookie, formBody, safeNext, setSessionCookie, str, type Env } from "./mw.js";
+import { SESSION_COOKIE, arr, clearSessionCookie, clientIp, formBody, safeNext, setSessionCookie, str, type Env } from "./mw.js";
 import { Csrf, PublicShell, type Page } from "./ui.js";
 
 export const auth = new Hono<Env>();
@@ -110,7 +110,7 @@ auth.post("/login", async (c) => {
   const b = await formBody(c);
   const db = c.get("db");
   try {
-    const r = await login(db, str(b.email), str(b.password), c.req.header("x-forwarded-for") ?? "");
+    const r = await login(db, str(b.email), str(b.password), clientIp(c));
     setSessionCookie(c, r.token);
     if (r.staff) return c.redirect("/admin/mfa");
     return c.redirect(safeNext(str(b.next), "/app"));
@@ -198,35 +198,37 @@ auth.post("/admin/mfa", async (c) => {
 // ── payment webhook (authenticated by signature, not by cookie/CSRF)
 const EventSchema = z.object({
   event_id: z.string().min(3).max(120),
-  type: z.enum(["payment.succeeded", "payment.failed", "payment.refunded", "payment.review"]),
+  type: z.enum(["payment.succeeded", "payment.failed", "payment.refunded"]),
   order_id: z.string().uuid(),
   reference: z.string().min(3).max(120),
   amount_minor: z.number().int().nonnegative(),
   currency: z.string().length(3),
-  provider_session: z.string().max(200).optional(),
 });
-export async function handlePaymentWebhook(db: Db, provider: string, raw: string, sigHeader: string | null | undefined, eventId?: string) {
-  if (raw.length > 256_000) return { status: 413, body: { error: 'payload too large' } };
-  let decoded: unknown;
-  if(provider==='mock') {
-    if(config.isProd || !verifySignature(raw,sigHeader)) return {status:401,body:{error:'invalid signature'}};
-    try { decoded=JSON.parse(raw); } catch { return {status:400,body:{error:'invalid payload'}}; }
-  } else {
-    try { decoded=await paymentAdapter(provider).decode(raw,sigHeader??'',eventId); }
-    catch(e) { return {status:e instanceof HttpError?e.status:e instanceof SyntaxError?400:503,body:{error:e instanceof HttpError&&e.status===401?'invalid signature':'provider event could not be verified'}}; }
-    if(decoded===null) return {status:200,body:{outcome:'ignored'}};
-  }
+export async function handlePaymentWebhook(db: Db, provider: string, raw: string, sigHeader: string | null | undefined) {
+  if (!verifySignature(raw, sigHeader)) return { status: 401, body: { error: "invalid signature" } };
   let parsed: PaymentEvent;
-  try { parsed = EventSchema.parse(decoded); } catch { return { status: 400, body: { error: "invalid payload" } }; }
+  try { parsed = EventSchema.parse(JSON.parse(raw)); } catch { return { status: 400, body: { error: "invalid payload" } }; }
   const r = await processPaymentEvent(db, provider, parsed);
   return { status: r.outcome === "rejected" ? 422 : 200, body: r };
 }
 auth.post("/webhooks/payments/:provider", async (c) => {
-  if (!config.enabledPaymentProviders.includes(c.req.param("provider"))) throw new HttpError(404, "Unknown provider");
+  const provider = c.req.param("provider");
+  if (!config.paymentProviders.includes(provider)) throw new HttpError(404, "Unknown provider");
   const raw = await c.req.text();
-  const p=c.req.param('provider');
-  const r = await handlePaymentWebhook(c.get("db"), p, raw, c.req.header(p==='stripe'?'stripe-signature':p==='razorpay'?'x-razorpay-signature':'x-lbt-signature'),c.req.header('x-razorpay-event-id'));
-  return c.json(r.body, r.status as any);
+  if (provider === "mock") {
+    const r = await handlePaymentWebhook(c.get("db"), provider, raw, c.req.header("x-lbt-signature"));
+    return c.json(r.body, r.status as any);
+  }
+  const adapter = getAdapter(provider);
+  if (!adapter) throw new HttpError(404, "Unknown provider");
+  let parsed;
+  try { parsed = adapter.parseWebhook(raw, (n) => c.req.header(n)); }
+  catch (e) { if (e instanceof WebhookSignatureError) return c.json({ error: e.message }, 400); throw e; }
+  if (!parsed.event) return c.json({ outcome: "ignored", reason: parsed.ignored }, 200);
+  // 200 for everything we understood, even a rejected event: providers retry non-2xx for days, and a rejection is permanent.
+  // Rejected successes are queued for staff review inside processPaymentEvent.
+  const r = await processPaymentEvent(c.get("db"), provider, parsed.event);
+  return c.json(r, 200);
 });
 
 export { buildMockEvent, signPayload };

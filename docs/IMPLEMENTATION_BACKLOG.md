@@ -24,10 +24,10 @@ Source: user-uploaded **LOAD_BY_TON.store — Master Blueprint (1).pdf**, extrac
 - Fulfilment-to-Delivery handover for committed Own fleet UAE shipments, one immutable parcel link, recipient/source lineage, explicit merchant fee/COD evidence, separate cash ledger and quota/idempotency safeguards.
 - Custody warehouse lot/expiry/serial registration, immutable supplier evidence, FEFO, quality holds, expired-stock refusal and single-unit serial custody. Fulfilment's separate inventory engine has not acquired these controls by implication.
 - Stripe/Razorpay hosted checkout, provider signatures/replay handling, reconciliation, refund/dispute review, renewal, downgrades, merchant/tax snapshots and optional explicit INR payment quotes. Gateway method eligibility is a release gate.
-- Oracle Terraform/cloud-init and web/worker/scanner/tunnel Compose; Neon verified PostgreSQL; private Supabase objects plus ClamAV; Upstash rate limits; Cloudflare wildcard/TLS and custom-hostname verification; SMTP notifications/reviewed replies.
+- Oracle Terraform/cloud-init and web/worker/scanner/tunnel Compose; Neon verified PostgreSQL; private S3-compatible objects plus ClamAV; Upstash rate limits (in-process fallback); Cloudflare wildcard/TLS and custom-hostname verification; Resend notifications/reviewed replies.
 - Company/staff MFA, current-password invitation acceptance, role/capacity protections, API scopes/trace IDs/idempotency and private document integrity.
 - Zoho Books encrypted tenant connection and find-before-create **draft invoice** bridge; CSV export remains separate from actual synchronization.
-- Shared staff-captured inbox, handover acceptance, configurable Dubai business calendar, priority/due queue, immutable reply drafts, owner approval, message allowances and explicit review after uncertain SMTP outcomes.
+- Shared staff-captured inbox, handover acceptance, configurable Dubai business calendar, priority/due queue, immutable reply drafts, owner approval, message allowances and explicit review after uncertain mail-provider outcomes.
 - Setup work orders, expiring appointments and independent customer acceptance; source-evidenced customer/supplier CSV staging, validation, cutover and unused-record rollback.
 - Privacy request/decision records, tenant operational exports, management reports, bilingual English/Arabic RTL invoice documents, queue/SLA metrics and ten alert rules.
 - Consistent encrypted database/object backups and isolated restore checks of files, all recorded table counts, financial/stock/platform invariants and tenant isolation.
@@ -56,3 +56,14 @@ These remain real work, not items that merely need environment variables:
 | Brand/business | Approved vector brand master/domain ownership, verified market/unit-economics/GTM evidence, assigned coverage/support/governance owners |
 
 The blueprint's release roadmap explicitly stages foundation → first paid workflow → commercial launch → supervised pilots → expansion. Public statuses preserve that distinction. This change closes many software gaps but does not claim that every future portfolio item above is complete.
+
+## Deferred when this branch was reconciled with main
+
+Delivery/COD and Customs on `main` (`dlv_*`, `cus_*`, migrations 005–008) replaced this branch's earlier parallel implementations. These features were built on the superseded `delivery_*` / `customs_*` tables and were **not** carried over; each needs a fresh design on the `main` schema:
+
+- Independent COD cash-adjustment ledger and cash-balance guards (old migrations 031–034), with its management-report and invariant coverage.
+- Fulfilment → Delivery hand-over of own-fleet shipments (old migration 018) and the linked parcel/COD view.
+- Customs service-fee finance link (`customs_cases` fee immutability, old migration 013) and customs deposit/evidence invariants.
+- Browser acceptance scripts `e2e:delivery` and `e2e:fulfilment-delivery`.
+
+Behaviour changes where `main` wins: payments, mail (Resend), object storage (fs/S3), shared rate limiting (fails over to in-process when Upstash is unreachable instead of failing closed), `/metrics` (404 without the exact bearer token), and Delivery/Customs. Plan versions 7–9 add specialist cases, reviewed messages and assistant drafts after main's versions 5 (parcels) and 6 (customs cases). Migrations from this branch were renumbered 009–030.
