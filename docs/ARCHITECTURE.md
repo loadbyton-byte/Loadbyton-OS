@@ -9,7 +9,7 @@
 - **Operating plane** — `src/ops/*`, `src/web/app-*.tsx`: tenant business records. Uses `db.tenant(tenantId, …)`, which opens a
   transaction, `SET LOCAL ROLE lbt_app`, and sets `app.tenant_id`; RLS policies do the rest.
 
-Modular monolith + background workers (`src/server.ts`). Domain modules take a `Conn` and a `Ctx`, so high-volume pieces
+Modular monolith + standalone production worker (`src/worker.ts`); `src/server.ts` can host in-process development workers. Domain modules take a `Conn` and a `Ctx`, so high-volume pieces
 (tracking, integrations) can be lifted into separate workers later without changing business logic.
 
 ## Tenant isolation
@@ -33,8 +33,7 @@ never grant access. Failed-after-success, duplicates, replays under new event id
 
 State: `information_pending → queued → provisioning → validation → ready → onboarding` (+`failed`/`cancelled`).
 Nine steps, each with a unique idempotency key; a retry skips completed steps and every step is itself idempotent.
-**Infrastructure adapters are simulated** (`simulatedAdapters`): DNS/routing and TLS must be implemented before advertising the
-24-hour target as a promise.
+Development uses `simulatedAdapters`; production verifies Cloudflare wildcard routing and branded HTTPS. Exclusive expiring job leases prevent competing workers from claiming the same activation. Real routing/provider acceptance remains required before advertising an activation SLA.
 
 ## Quoting → cash
 
@@ -48,17 +47,15 @@ Margin is shown three ways: quotation estimate, updated expected, actual reconci
 ## Accounting bridge (blueprint §17)
 
 `outbox(topic='accounting.invoice', key='invoice:<id>')` unique. The handler calls `adapter.find(reference)` **before**
-`create`, so a retry after a provider timeout reconciles instead of double-posting. Default adapter is a CSV/export stub; a real
-provider needs selection (decision §32) and connector acceptance tests.
+`create`, so a retry after a provider timeout reconciles instead of double-posting. The configured default is a tenant-specific Zoho Books draft-invoice adapter with encrypted credentials and explicit tax/currency mappings. CSV export never impersonates synchronization. Live controller acceptance, credit notes and bank/receipt reconciliation remain separate scope.
 
-## Known limitations
+## Production boundaries
 
-See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no delivery/COD or customs modules, no contract-3PL custody workflows, no marketplace or carrier connectors, no native ledger,
+The provider stack is Oracle/Cloudflare/Neon/Supabase/Upstash. Stripe and Razorpay use hosted checkout and provider-specific raw signatures; optional INR Razorpay quotes preserve both catalogue and charged money on immutable orders. MFA secrets/connectors are encrypted; company MFA and shared Redis limits are required in production. Supabase objects are private, upload scanning uses ClamAV INSTREAM and downloads validate prefix/hash. SMTP delivery requires TLS. Custom hostname activation requires TXT ownership and active Cloudflare routing/certificate/HTTPS; operator provisioning remains explicit.
 
-See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no delivery/customs modules, no native ledger,
-no Arabic/RTL, no e-invoicing adapter, rate limiting is in-memory, ClamAV scanning is a hook not an integration, and the `pg`
-(production) driver path is untested against a live PostgreSQL server in this repository's CI (PGlite is real Postgres but
-single-connection).
+New worker leases fence outbox/provisioning claims. Notification delivery is at least once; uncertain inbox SMTP attempts enter human delivery review and cannot automatically resend. Metrics include queue depth/age, dead letters, activation delay/failure and accounting failures. Backup/restore code authenticates encrypted archives and reconciles database/object evidence. PostgreSQL acceptance uses isolated databases and serialized queries on each transaction connection; idle connection failures have a bounded handler.
+
+Actual provider acceptance is pending secure credentials, region/private-bucket checks, restore/PITR/failover and real alert delivery. `IMPLEMENTATION_BACKLOG.md` lists additional software rather than describing these adapters as unbuilt.
 
 ## Transport (blueprint §14)
 
@@ -117,7 +114,7 @@ single-connection).
 
 ## Warehouse (blueprint §15)
 
-`src/ops/warehouse.ts` (+ `web/app-warehouse.tsx`, `migrations/003_warehouse.sql`). Sector slug `contract-warehouse-3pl`.
+`src/ops/warehouse.ts` (+ `web/app-warehouse.tsx`, `migrations/004_warehouse.sql`). Sector slug `contract-warehouse-3pl`.
 
 - **Owner separation is structural.** A SKU belongs to one customer (`wh_skus.owner_id`). Stock, movements and every order line carry
   `owner_id` and reference the SKU through the composite key `(tenant_id, owner_id, sku_id)`, so a row that mixes owners cannot be
@@ -139,7 +136,7 @@ single-connection).
   marked stale and goes back to the counters with a fresh snapshot — a count only proves the balance at the moment it was cut. An
   adjustment can never push stock below what is reserved. Stock found where the system expected none is added as a line.
 - **Billing unit:** the warehouse *order* (an inbound notice or a dispatch order; `wh_orders_per_month`, reference `wh_in:<id>` /
-  `wh_out:<id>`). Plan version 3 adds the key; v1/v2 subscriptions fall back to their jobs allowance.
+  `wh_out:<id>`). Plan version 4 adds the key; v1/v2/v3 subscriptions fall back to their jobs allowance.
 - **Money:** `accrue()` writes one `wh_charges` row per source event (`source_ref` unique): handling-in per receipt movement,
   handling-out per dispatched line, an outbound-order fee, and daily storage = end-of-day units from the ledger × rate for each
   *completed* company day (UTC+4), idempotent per owner-day, backfilled exactly. Rates are effective-dated per customer; a rate in
@@ -147,3 +144,43 @@ single-connection).
   (using the rate in effect on the day it happened) — it is never dropped and never invoiced at zero. Invoicing groups charges by
   (type, rate, tax) so a month of storage is one line, goes through the shared `issueInvoice`, and a void releases the charges.
 - **Customer portal:** portal users see their own on-hand/reserved/on-hold units only (`portalStock`), nothing else of the warehouse.
+
+## Delivery and COD
+
+`src/ops/delivery.ts`, `src/web/app-delivery.tsx`, `migrations/005_delivery.sql`.
+Parcels are customer-owned, tenant-scoped and metered with `delivery_parcels_per_month` (falls back to the existing jobs allowance until approved plan versions introduce a dedicated limit). Merchant references are idempotent; conflicting retries fail. Active driver logins are required for dispatch, and limited driver seats can act only on their assigned parcels. Route references are manually assigned groups, not optimised routes.
+
+Attempts, courier cash receipts, COD decisions and merchant remittances are immutable. Delivery needs recipient proof. Collection and cash handover retain actual amounts even when mismatched; a different finance approver must explain a mismatch. Remittances require reconciliation and cannot exceed the minimum of expected, collected and received cash less earlier remittances. Surpluses/shortages stay visible; a decision never manufactures cash or overwrites original evidence. Correction/recovery/refund entries for COD are still pending, so this is a limited pilot. Service-fee invoices use the shared invoice path and exclude customer-owned COD; authorised voids release the parcel fee for re-invoicing.
+
+## Customs handover
+
+`src/ops/customs.ts`, `src/web/app-customs.tsx`, `migrations/006_customs.sql`.
+A case moves draft → ready → handed_over → inspection/cleared. Readiness requires invoice, packing list and transport-document evidence. Handover requires an official/authorised-agent reference; clearance requires attached release evidence. Permit applicability and specialist review remain manual. Owner/customs roles approve controlled transitions; coordinators can prepare cases. Deposits are immutable receipt/refund entries; refunds require a closed case and cannot exceed receipts. Cleared cases can invoice an immutable agreed service fee, separate from deposits; permitted cases require issued goods-specific permit evidence. No authority submission, duty assessment or authority disbursement is implemented. `customs_cases_per_month` falls back to the jobs allowance until commercial limits are approved.
+
+## Monitoring
+
+The authenticated `/metrics` endpoint exposes HTTP counts/latency and worker runs/errors without tenant/user/URL identifiers. It is disabled unless `METRICS_TOKEN` is at least 32 characters. Prometheus scrape and alert templates live in `ops/monitoring`; production scraping, alert delivery and canaries must still be deployed and tested.
+
+## Specialist and shared workspaces
+
+`specialist-profiles.ts` defines twelve typed manual profiles; `specialists.ts` enforces each state/event model. Readiness reviews have evidence/expiry, contract details are immutable, monetary references are deduplicated, excursions/damage/incidents require another approver, stock cannot exceed allocations, stages follow sequence, repairs block gate-out, transit guarantees precede activation, and agent settlements/fees reconcile before financial closure. Every table has tenant RLS/composite foreign keys. Public releases remain Planned until real subject-matter acceptance.
+
+`workspace.ts` implements manual conversations, accepted handovers, Dubai working calendars, immutable reply versions, reviewed/consented SMTP delivery and staged source-file imports. Migration rollback only removes imported records unused by business foreign keys. Opening balances are not posted from unreviewed CSVs. `reports.ts` groups finance by currency and links reports to sources; sampling/stock-age limitations are displayed. `traceability.ts` adds immutable custody-lot/serial identity and expiry, FEFO and holds; serial movement/custody is one unit and mutations take the same tenant stock lock.
+
+Setup, privacy, connection and scoped API modules live beside the operating modules. Privacy deletion requests are evidence/approval records, not fabricated erasure. Arabic invoice documents have RTL layout and isolate money direction; the full application remains English.
+
+## Assistant draft boundary
+
+`ops/assistant.ts` retrieves a fixed set of accessible forwarding fields and snapshots them with a canonical SHA-256 hash. `assistant_drafts` has tenant RLS, source/author integrity guards and immutable final evidence. The committed reservation precedes the optional external request; completion does not repeat generation. Quotas are a separate plan-v7 unit. A failed/interrupted provider request retains its conservative cost ceiling. Only the author with current source permissions can read/recover/export the draft. The OpenAI adapter has a fixed HTTPS endpoint, bounded request/output, no tools, no action execution, citation checks and personal-number/email filtering. Deterministic templates remain available when the provider is disabled/unavailable. Document extraction, report explanation and wider-sector retrieval still need their own implementation and acceptance.
+
+## Daily fulfilment storage
+
+`fulfil-storage.ts` adds immutable contract/day evidence to the existing fulfilment engine. The explicit pilot basis is closing occupied location per merchant at Dubai midnight, reconstructed from immutable movements. Staging is excluded. New reviewed terms begin at future month boundaries and have fixed AED pricing/tax/source validity. The shared stock mutex serializes contract approval, daily accrual and monthly snapshot exclusion; each merchant/day accrues once. `fulfil_charges` now protects its financial fields/deletion and preserves an agreed entity for daily charges. Invoicing and voiding may only change the invoice link; the day and pricing remain intact. `fulfil_storage_automation` provides separate finance-controlled enable/pause state; the bounded storage worker rechecks current authority and company/source eligibility, catches missing closed days, audits as system and never invoices. Physical pallet/cbm/peak bases and amendments require separate implementations.
+
+### Generated document provenance and key maintenance
+
+Forwarding templates and generated draft records are separate immutable tenant tables. The six fixed field schemas require explicit verified particulars and issued evidence for the exact source job. Immutable snapshots carry canonical SHA-256 integrity, template versions and append-only draft versions. SQL guards reject mismatched source jobs/template kinds; outputs always remain drafts. Private uploads and generated payload bytes share the tenant storage allowance and serialization lock.
+
+MFA, accounting settings and invitation payloads share authenticated AES-256-GCM encryption. Optional dual-key readers support a bounded privileged maintenance migration in one locked transaction, with authenticated dry runs, rollback on any corrupt row and counts-only system audit. Secret rotation is never a tenant/API action or unattended worker job.
+
+COD cash adjustments use immutable proposal and decision tables separate from original collection, handover, reconciliation and remittance events. All finance writes use the shared tenant delivery mutex; SQL insert guards enforce current finance membership, separate requester/reviewer, issued parcel evidence and cash/remittance bounds. Recovery, refund and custody corrections change explicit cash aggregates; merchant entitlement never changes by implication. There is no payment executor or automatic write-off behind these records.

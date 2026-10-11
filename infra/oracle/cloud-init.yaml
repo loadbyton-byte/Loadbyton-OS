@@ -1,0 +1,8 @@
+#cloud-config
+package_update: true
+packages: [docker.io, docker-compose-v2, postgresql-client, unattended-upgrades]
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [install, -d, -m, '0700', /opt/loadbyton]
+# Cloudflare Tunnel is the public application path; no HTTP origin ports are opened.
+# Supply deployment secrets after boot, outside Terraform state.

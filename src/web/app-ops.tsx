@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { HttpError, formatDate, formatDay, fmtMoney, lineNet, taxFor } from "../lib/util.js";
 import { addCost, addExceptionItem, closeFinancially, completeOperationally, financialClosureBlockers, getJob, listJobs, planMilestone, reconcileCost, recordMilestone, resolveException, updateJobRefs } from "../ops/jobs.js";
 import { getInvoice, invoiceJob, listInvoices, recordReceipt, voidInvoice } from "../ops/finance.js";
-import { DOC_KINDS, listDocuments, readDocumentFile, setHold, signDownload, uploadDocument, verifyDownload } from "../ops/documents.js";
+import { DOC_KINDS, listDocuments, fetchDocumentFile, setHold, signDownload, uploadDocument, verifyDownload } from "../ops/documents.js";
 import { listParties } from "../ops/crm.js";
 import { listTeam } from "../ops/team.js";
 import { formBody, str, type Env } from "./mw.js";
@@ -166,6 +166,7 @@ ops.get("/app/documents", async (c) => {
     {can(c, "doc.write") ? <section class="card" style="margin-top:20px;max-width:760px"><h3>Upload a document</h3>
       <form method="post" action="/app/documents" enctype="multipart/form-data"><Csrf t={csrf} />
         <div class="row"><div class="field"><label>Title</label><input name="title" type="text" required /></div><div class="field"><label>Kind</label><select name="kind">{DOC_KINDS.map((k) => <option value={k}>{k.replace(/_/g, " ")}</option>)}</select></div></div>
+        <div class="field"><label for="external-issuer">Externally issued by</label><input id="external-issuer" name="issuer" type="text" maxlength={200}/><div class="hint">Name the actual external issuer shown on the source. Leave blank for a draft. This upload does not authorize or certify the document.</div></div>
         <div class="field"><label>File</label><input name="file" type="file" required /></div><button class="btn ghost sm" type="submit">Upload</button></form></section> : null}
   </>));
 });
@@ -186,10 +187,15 @@ ops.get("/app/documents/:id/download", async (c) => {
   const exp = Number(c.req.query("exp")), sig = c.req.query("sig");
   const doc = await withT(c, async (cn) => (await cn.query<any>(`SELECT d.*, j.party_id FROM documents d LEFT JOIN jobs j ON j.id=d.job_id WHERE d.id=$1`, [id])).rows[0]);
   if (!doc) throw new HttpError(404, "Document not found");
+  if(!ctx.perms.has('read')&&!ctx.partyId){
+    if(!ctx.perms.has('driver.act')||!ctx.driverId||!doc.trip_id)throw new HttpError(404,'Document not found');
+    const assigned=await withT(c,cn=>cn.query(`SELECT 1 FROM trips WHERE id=$1 AND driver_id=$2`,[doc.trip_id,ctx.driverId]));
+    if(!assigned.rows.length)throw new HttpError(404,'Document not found');
+  }
   if (ctx.partyId && !(doc.customer_visible && doc.party_id === ctx.partyId)) throw new HttpError(403, "Not permitted", "forbidden");
   if (!exp || !sig) { const s = signDownload(ctx.tenantId, id); return c.redirect(`/app/documents/${id}/download?exp=${s.exp}&sig=${s.sig}`); }
   if (!verifyDownload(ctx.tenantId, id, exp, sig)) throw new HttpError(403, "This download link has expired. Go back and open it again.", "forbidden");
-  const buf = readDocumentFile(doc.storage_key, ctx.tenantId);
+  const buf = await fetchDocumentFile(doc.storage_key, ctx.tenantId,doc.sha256);
   c.header("Content-Type", "application/octet-stream");
   c.header("Content-Disposition", `attachment; filename="${doc.filename.replace(/[^\w.\- ]/g, "_")}"`);
   c.header("Content-Security-Policy", "sandbox; default-src 'none'");
@@ -219,22 +225,23 @@ ops.get("/app/invoices/:id", async (c) => {
   if (ctx.partyId && d.inv.party_id !== ctx.partyId) throw new HttpError(403, "Not permitted", "forbidden");
   const csrf = c.get("csrf"), inv = d.inv;
   const out = Number(inv.total_minor) - Number(inv.paid_minor);
+  const arabic=c.req.query("lang")==="ar",label=(en:string,ar:string)=>arabic?ar:en;
   return appPage(c, inv.no, (<>
     <PageHead title={`Invoice ${inv.no}`} sub={`${inv.party_name}${inv.job_no ? ` · job ${inv.job_no}` : ""}`}>
-      <Badge s={inv.status} />{inv.job_id && !ctx.partyId ? <a class="btn ghost sm" href={J(inv.job_id)}>Open job</a> : null}<button class="btn ghost sm" data-print="1" type="button">Print</button>
+      <Badge s={inv.status} />{inv.job_id && !ctx.partyId ? <a class="btn ghost sm" href={J(inv.job_id)}>Open job</a> : null}<a class="btn ghost sm" href={`/app/invoices/${id}?lang=${arabic?"en":"ar"}`}>{arabic?"English":"العربية"}</a><button class="btn ghost sm" data-print="1" type="button">Print</button>
     </PageHead>
-    <div class="print-doc">
+    <div class="print-doc" lang={arabic?"ar":"en"} dir={arabic?"rtl":"ltr"}>
       <h2>{inv.legal_name ?? inv.entity_name}</h2>
-      <p class="small">{inv.entity_tax_id ? `Tax registration no. ${inv.entity_tax_id} · ` : ""}Invoice <strong>{inv.no}</strong> · Issued {formatDay(inv.issued_at)} · Due {formatDay(inv.due_at)}<br />Bill to: {inv.party_name}{inv.party_tax_id ? ` · Tax no. ${inv.party_tax_id}` : ""}</p>
-      <Table head={["Description", ["Qty", "num"], ["Unit", "num"], "Tax", ["Net", "num"], ["Tax", "num"]]}>
-        {d.lines.map((l: any) => <tr><td>{l.description}</td><td class="num">{Number(l.qty)}</td><td class="num"><Money v={l.unit_minor} /></td><td>{l.tax_code}</td><td class="num"><Money v={l.net_minor} cur={inv.currency} /></td><td class="num"><Money v={l.tax_minor} cur={inv.currency} /></td></tr>)}
-        <tr><td colspan={4} class="right">Subtotal</td><td class="num" colspan={2}><Money v={inv.subtotal_minor} cur={inv.currency} /></td></tr>
-        <tr><td colspan={4} class="right">Tax</td><td class="num" colspan={2}><Money v={inv.tax_minor} cur={inv.currency} /></td></tr>
-        <tr><th colspan={4} class="right">Total</th><th class="num" colspan={2}><Money v={inv.total_minor} cur={inv.currency} /></th></tr>
-        <tr><td colspan={4} class="right">Paid</td><td class="num" colspan={2}><Money v={inv.paid_minor} cur={inv.currency} /></td></tr>
-        <tr><th colspan={4} class="right">Outstanding</th><th class="num" colspan={2}><Money v={out} cur={inv.currency} /></th></tr>
+      <p class="small">{inv.entity_tax_id ? `Tax registration no. ${inv.entity_tax_id} · ` : ""}{label("Invoice","فاتورة")} <strong>{inv.no}</strong> · {label("Issued","تاريخ الإصدار")} {formatDay(inv.issued_at)} · {label("Due","تاريخ الاستحقاق")} {formatDay(inv.due_at)}<br />{label("Bill to","العميل")}: {inv.party_name}{inv.party_tax_id ? ` · Tax no. ${inv.party_tax_id}` : ""}</p>
+      <Table head={[label("Description","الوصف"), [label("Qty","الكمية"), "num"], [label("Unit","سعر الوحدة"), "num"], label("Tax","رمز الضريبة"), [label("Net","الصافي"), "num"], [label("Tax","الضريبة"), "num"]]}>
+        {d.lines.map((l: any) => <tr><td>{l.description}</td><td class="num">{Number(l.qty)}</td><td class="num"><Money v={l.unit_minor} cur={inv.currency} /></td><td>{l.tax_code}</td><td class="num"><Money v={l.net_minor} cur={inv.currency} /></td><td class="num"><Money v={l.tax_minor} cur={inv.currency} /></td></tr>)}
+        <tr><td colspan={4} class="right">{label("Subtotal","المجموع الفرعي")}</td><td class="num" colspan={2}><Money v={inv.subtotal_minor} cur={inv.currency} /></td></tr>
+        <tr><td colspan={4} class="right">{label("Tax","الضريبة")}</td><td class="num" colspan={2}><Money v={inv.tax_minor} cur={inv.currency} /></td></tr>
+        <tr><th colspan={4} class="right">{label("Total","الإجمالي")}</th><th class="num" colspan={2}><Money v={inv.total_minor} cur={inv.currency} /></th></tr>
+        <tr><td colspan={4} class="right">{label("Paid","المدفوع")}</td><td class="num" colspan={2}><Money v={inv.paid_minor} cur={inv.currency} /></td></tr>
+        <tr><th colspan={4} class="right">{label("Outstanding","الرصيد المستحق")}</th><th class="num" colspan={2}><Money v={out} cur={inv.currency} /></th></tr>
       </Table>
-      <p class="small mute">Operational invoice generated by LOAD|BY|TON. UAE e-invoicing is performed through an accredited service provider; synchronization status: {inv.sync_status.replace("_", " ")}{inv.external_id ? ` (${inv.external_id})` : ""}.</p>
+      <p class="small mute">{label("Operational invoice generated by LOAD|BY|TON. This document is not an accredited UAE e-invoice. Accounting bridge status:","فاتورة تشغيلية من LOAD|BY|TON. هذا المستند ليس فاتورة إلكترونية إماراتية معتمدة. حالة الربط المحاسبي:")} {inv.sync_status.replace("_", " ")}{inv.external_id ? ` (${inv.external_id})` : ""}.</p>
     </div>
     <h3 style="margin-top:22px" class="no-print">Receipts</h3>
     <div class="no-print">

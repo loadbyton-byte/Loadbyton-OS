@@ -12,6 +12,8 @@ export type Env = {
     db: Db; session: Session | null; ctx: Ctx | null; csrf: string; hostSlug: string | null;
     tenant: { name: string; slug: string; sectors: string[]; plan: string; planCode: string; subStatus: string } | null;
     memberships: { tenant_id: string; name: string }[];
+    apiAuth: Awaited<ReturnType<typeof import('../platform/api.js').apiContext>>;
+    traceId: string;
   };
 };
 export type C = Context<Env>;
@@ -49,7 +51,7 @@ export const csrfMw: MiddlewareHandler<Env> = async (c, next) => {
     const h = c.req.header("x-csrf-token") ?? "";
     if (!(c.req.header("content-type") ?? "").includes("application/json")) throw new HttpError(415, "Unsupported content type");
     if (!valid(h) || !safeEqual(h, tok!)) throw new HttpError(403, "Invalid CSRF token", "csrf");
-  } else if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/")) {
+  } else if (c.req.method === "POST" && !c.req.path.startsWith("/webhooks/") && !c.req.path.startsWith('/api/v1/')) {
     const ct = c.req.header("content-type") ?? "";
     if (!/form/.test(ct)) throw new HttpError(415, "Unsupported content type");
     const body = await c.req.parseBody({ all: true });
@@ -97,6 +99,9 @@ export const requireCtx: MiddlewareHandler<Env> = async (c, next) => {
     throw new HttpError(403, "You do not have access to a workspace. Ask an owner to invite you.", "forbidden");
   }
   c.set("ctx", ctx);
+  const mfa=(await c.get('db').query<any>(`SELECT enabled FROM user_mfa WHERE user_id=$1`,[s.userId])).rows[0]?.enabled;
+  const sensitive=ctx.roles.some(r=>['owner','finance','hr','customs','specialist','pricing','coordinator'].includes(r));
+  if(!s.companyMfaOk && !ctx.supportStaffId && (mfa||(config.companyMfaRequired&&sensitive)))return c.redirect('/account/security');
   await next();
 };
 

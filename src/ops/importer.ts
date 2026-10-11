@@ -16,6 +16,7 @@ export function parseCsv(text: string): string[][] {
     else if (ch === "\n" || ch === "\r") { if (ch === "\r" && t[i + 1] === "\n") i++; row.push(cur); cur = ""; if (row.some((x) => x.trim())) rows.push(row); row = []; }
     else cur += ch;
   }
+  if(q)throw badRequest("CSV has an unclosed quoted field.");
   row.push(cur); if (row.some((x) => x.trim())) rows.push(row);
   return rows;
 }

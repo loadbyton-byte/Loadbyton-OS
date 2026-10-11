@@ -4,3 +4,9 @@ data
 tests
 docs
 .env
+.env.*
+**/.env.production
+backups
+**/.terraform
+**/*.tfstate*
+**/terraform.tfvars

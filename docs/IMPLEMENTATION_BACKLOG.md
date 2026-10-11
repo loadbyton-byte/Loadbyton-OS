@@ -1,0 +1,58 @@
+# Blueprint implementation and remaining portfolio work
+
+Source: user-uploaded **LOAD_BY_TON.store — Master Blueprint (1).pdf**, extracted in `MASTER_BLUEPRINT_SOURCE.txt`. The document is available; earlier claims that it was absent are superseded. The user's selected hosting/payment/Indian merchant setup is captured in `DEPLOYMENT.md`. All current edits remain reviewable in the checkout; no upstream files were reset or production environment deployed.
+
+## Implemented
+
+- Manual COD recovery/refund/cash-correction ledger with exact-parcel issued evidence, one adjustment per evidence event, immutable proposals and independent active-finance decisions. Approved cash changes affect remittance bounds without changing original collection/handover/merchant entitlement; shortages and surplus stay visible. Delivery lists and management reports distinguish original handovers, approved cash changes, current received cash and outstanding expected merchant entitlement. Service and SQL guards serialize concurrent decisions and forbid negative balances or reversing already-remitted cash. This records verified external cash events, never transfers funds or writes off liability.
+
+- Six generated document draft types (commercial invoice, packing list, booking confirmation, transport document, delivery order and shipment instructions), reviewed immutable template versions, exact-job issued source evidence, frozen job/evidence snapshots and integrity hashes, printable PDF/browser output, JSON/tenant exports, storage quotas and role/tenant/subscription fences. Every generated output remains a draft and cannot substitute for externally issued authority/release evidence.
+- Dual-key authenticated readers and an atomic, bounded encryption-key migration for company MFA, accounting connections and invitation tokens. Dry run is the default; unknown/corrupted ciphertext aborts all changes. Counts-only system audit records and idempotent reruns support the maintenance runbook. This does not rotate gateway signing keys, session secrets or backup keys.
+
+- Driver/office expense receipt uploads and immutable evidence versions linked to the exact trip/expense. New approvals require the latest current issued evidence and another person, including owners. Approved expense amounts/provenance cannot be edited or deleted; pre-existing decisions remain explicitly marked for legacy evidence review. Limited driver downloads require current trip assignment.
+
+- Fulfilment daily storage accrual under issued, immutable, explicit AED closing-occupied-location contracts. Future month-boundary terms prevent invented historical pricing; historical closing balances come from immutable movements, including exact Dubai cutoff boundaries. Daily/monthly charging is mutually exclusive, zero-rate/zero-occupancy evidence persists, and accruals invoice/void/reissue without duplicating fees. Finance-controlled, pausable bounded workers now catch up missing closed days with system audit actors and no automatic invoices. Physical pallet/cbm/peak bases and contract amendments remain separate scope.
+
+- Forwarding assistant summary/reply/classification drafts with fixed structured tenant/role-scoped retrieval, excluded document/contact/free text, linked snapshot provenance, source-change warnings, per-author access, immutable human-review output, plan-v7 quotas, durable USD cost reservation/metering, optional reviewed OpenAI adapter, safe deterministic fallback and non-resending interruption recovery. Full document extraction, report explanations and wider-sector retrieval are not included.
+
+- Custody count policies with issued risk/value evidence, immutable tiers/frequency/scope, active named operators, Dubai due dates, manual count generation, overlap protection, immutable run history and authenticated due-count monitoring. Stock variances require a second person, including owner counters.
+
+- Reviewed, issued-provider chargeable-weight rules for air/road volumetric kg and ocean LCL weight/measure, explicit coefficients/minimums/rounding, restricted scope confirmation, immutable source-linked enquiry calculations and exports. Pricing remains a human-approved workflow.
+- Six scoped operational pilots: forwarding, transport/offline events, fulfilment, custody warehouse, Delivery/COD and Customs evidence handover/service fees.
+- Twelve controlled specialist manual profiles with review validity, issued evidence, role/subscription/sector fences, independent exception disposition, immutable contracts/history, metered cases, paginated UI/API, exports and shared service invoices/collections.
+- Fulfilment order/inbound/return pagination; server-side recipient name/phone/address restriction on operational views, packing slips and structured order exports; recipient-name search is unavailable to restricted roles. Merchant access is party-bound, and support grants do not expose these contacts. Wider document/free-text/legacy-module privacy and scheduled minimisation still need separate controls.
+- Fulfilment-to-Delivery handover for committed Own fleet UAE shipments, one immutable parcel link, recipient/source lineage, explicit merchant fee/COD evidence, separate cash ledger and quota/idempotency safeguards.
+- Custody warehouse lot/expiry/serial registration, immutable supplier evidence, FEFO, quality holds, expired-stock refusal and single-unit serial custody. Fulfilment's separate inventory engine has not acquired these controls by implication.
+- Stripe/Razorpay hosted checkout, provider signatures/replay handling, reconciliation, refund/dispute review, renewal, downgrades, merchant/tax snapshots and optional explicit INR payment quotes. Gateway method eligibility is a release gate.
+- Oracle Terraform/cloud-init and web/worker/scanner/tunnel Compose; Neon verified PostgreSQL; private Supabase objects plus ClamAV; Upstash rate limits; Cloudflare wildcard/TLS and custom-hostname verification; SMTP notifications/reviewed replies.
+- Company/staff MFA, current-password invitation acceptance, role/capacity protections, API scopes/trace IDs/idempotency and private document integrity.
+- Zoho Books encrypted tenant connection and find-before-create **draft invoice** bridge; CSV export remains separate from actual synchronization.
+- Shared staff-captured inbox, handover acceptance, configurable Dubai business calendar, priority/due queue, immutable reply drafts, owner approval, message allowances and explicit review after uncertain SMTP outcomes.
+- Setup work orders, expiring appointments and independent customer acceptance; source-evidenced customer/supplier CSV staging, validation, cutover and unused-record rollback.
+- Privacy request/decision records, tenant operational exports, management reports, bilingual English/Arabic RTL invoice documents, queue/SLA metrics and ten alert rules.
+- Consistent encrypted database/object backups and isolated restore checks of files, all recorded table counts, financial/stock/platform invariants and tenant isolation.
+
+## External acceptance — code is present; deployment evidence remains
+
+`RELEASE_ACCEPTANCE.md` lists merchant/provider credentials, live payment and wallet eligibility, actual regions/private buckets/tunnel, SMTP delivery, provider failover/PITR/restore, alert delivery, legal/tax/retention review, controller acceptance, specialist reviews and real pilot customers. These are not obtainable by inventing credentials, certifications or customer evidence.
+
+## Additional software in the blueprint's broader portfolio
+
+These remain real work, not items that merely need environment variables:
+
+| Area | Remaining scope |
+|---|---|
+| Freight commercial depth | Richer opportunities/tenders/rate tiers and supplier contract restrictions; integrated forwarding master/house operations and authoritative issuer integration |
+| Transport | Offline first-open/service-worker strategy, GPS/route optimisation, fuel-card/Salik provider feeds |
+| Delivery/COD | Offline parcel/cash policy, automated bank matching/provider refund feeds and approved liability/write-off accounting |
+| Fulfilment | Controlled lot/batch/expiry/serial/FEFO, multi-site transfers, scheduled personal-data minimisation, pallet/cbm/peak storage pricing and contract amendments, pagination of remaining stock/catalogue lists, kitting/cartonisation/wave/zone/batch picking |
+| Custody warehouse | Backorder/return policy, approved bonded/liability boundary, richer scanner/printer/RF integrations; the new traceability controls require real quality/sector review |
+| Specialist profiles | Full sector-specific advanced interfaces/provider feeds, automated physical/device evidence and industry validation beyond the tested manual workflows |
+| Communications/AI | Approved inbound email/WhatsApp/telephony connectors, verified identity/consent policy, AI document extraction, report explanations and wider-sector retrieval, versioned automated templates and safe deterministic fallback |
+| Finance | Receipt/credit-note/correction bridge, vendor payables and formally reconciled multi-currency books; native ledger only after its roadmap justification and controller review |
+| UAE readiness | Verified accredited e-invoicing ASP/Mirsal access and integration acceptance; full Arabic application/content localisation beyond invoice rendering |
+| Migration/service console | Reconciled stock/opening-balance migration, final-delta tooling, partner commission/refund ledger, rollout cohorts and richer SaaS cohort/contribution/churn reports |
+| Legal/data operations | Retention/anonymisation execution and independently reviewed tenant erasure procedure, provider/session/backup-key rotation procedures, finer per-field authorization across legacy modules |
+| Brand/business | Approved vector brand master/domain ownership, verified market/unit-economics/GTM evidence, assigned coverage/support/governance owners |
+
+The blueprint's release roadmap explicitly stages foundation → first paid workflow → commercial launch → supervised pilots → expansion. Public statuses preserve that distinction. This change closes many software gaps but does not claim that every future portfolio item above is complete.

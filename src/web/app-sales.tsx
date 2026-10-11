@@ -117,6 +117,7 @@ sales.get("/app/enquiries/:id", async (c) => {
     {["new", "qualified", "quoted"].includes(e.status) && can(c, "enquiry.write") ? (
       <form method="post" action={`/app/enquiries/${e.id}/lose`} class="inline-form" style="margin-top:16px"><Csrf t={csrf} /><input name="reason" type="text" placeholder="Lost reason" required /><button class="btn danger sm" type="submit">Mark lost</button></form>) : null}
     {e.lost_reason ? <p class="mute">Lost: {e.lost_reason}</p> : null}
+    {can(c,'quote.write')?<p><a href="/app/freight/weight">Calculate chargeable quantity with a reviewed provider rule</a></p>:null}
   </>));
 });
 sales.post("/app/enquiries/:id/lose", async (c) => {

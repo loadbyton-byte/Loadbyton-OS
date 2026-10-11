@@ -6,7 +6,7 @@ import { assertWritable } from "../platform/entitlements.js";
 import { must, nextNumber, reqStr, today } from "./common.js";
 
 export interface InvoiceSource {
-  entityId: string; partyId: string; jobId?: string | null; transportOrderId?: string | null; whRunId?: string | null;
+  entityId: string; partyId: string; jobId?: string | null; transportOrderId?: string | null; whRunId?: string | null; deliveryParcelId?: string | null; specialistCaseId?: string | null; customsCaseId?: string | null;
   lines: { id: string; description: string; qty: number | string; unit_minor: number | string; tax_code: string }[];
   /** called after the invoice row exists so the caller can mark its own charge rows as invoiced */
   markCharge: (chargeId: string, invoiceId: string) => Promise<void>;
@@ -28,9 +28,9 @@ export async function issueInvoice(c: Conn, ctx: Ctx, src: InvoiceSource, termsD
   const conn = (await c.query<any>(`SELECT status FROM accounting_connections`)).rows[0];
   const sync = conn && ["connected", "live", "validating"].includes(conn.status) ? "pending" : "not_connected";
   const inv = await c.query<{ id: string }>(
-    `INSERT INTO invoices(tenant_id,entity_id,no,party_id,job_id,transport_order_id,wh_run_id,currency,subtotal_minor,tax_minor,total_minor,due_at,sync_status,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now() + ($12 || ' days')::interval, $13,$14) RETURNING id`,
-    [ctx.tenantId, src.entityId, no, src.partyId, src.jobId ?? null, src.transportOrderId ?? null, src.whRunId ?? null, ent.currency, subtotal, tax, subtotal + tax, String(termsDays), sync, ctx.userId]);
+    `INSERT INTO invoices(tenant_id,entity_id,no,party_id,job_id,transport_order_id,wh_run_id,currency,subtotal_minor,tax_minor,total_minor,due_at,sync_status,created_by,delivery_parcel_id,specialist_case_id,customs_case_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now() + ($12 || ' days')::interval, $13,$14,$15,$16,$17) RETURNING id`,
+    [ctx.tenantId, src.entityId, no, src.partyId, src.jobId ?? null, src.transportOrderId ?? null, src.whRunId ?? null, ent.currency, subtotal, tax, subtotal + tax, String(termsDays), sync, ctx.userId, src.deliveryParcelId ?? null, src.specialistCaseId ?? null, src.customsCaseId ?? null]);
   const id = inv.rows[0].id;
   for (const l of lines) {
     await c.query(`INSERT INTO invoice_lines(tenant_id,invoice_id,description,qty,unit_minor,tax_code,net_minor,tax_minor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -84,6 +84,7 @@ export async function recordReceipt(c: Conn, ctx: Ctx, invoiceId: string, f: Rec
     const uninv = await c.query(`SELECT 1 FROM transport_order_charges WHERE order_id=$1 AND invoice_id IS NULL`, [inv.transport_order_id]);
     if (!open.rows.length && !uninv.rows.length) await c.query(`UPDATE transport_orders SET financial_status='collected' WHERE id=$1`, [inv.transport_order_id]);
   }
+  if(inv.customs_case_id&&status==='paid')await c.query(`UPDATE customs_cases SET financial_status='collected' WHERE id=$1`,[inv.customs_case_id]);
   await audit(c, ctx.tenantId, actorOf(ctx), "receipt.recorded", "invoice", invoiceId, { amount });
   return { status };
 }
@@ -102,6 +103,9 @@ export async function voidInvoice(c: Conn, ctx: Ctx, invoiceId: string, reason: 
     await c.query(`UPDATE transport_order_charges SET invoice_id=NULL WHERE invoice_id=$1`, [invoiceId]);
     await c.query(`UPDATE transport_orders SET financial_status='open' WHERE id=$1`, [inv.transport_order_id]);
   }
+  if (inv.delivery_parcel_id) await c.query(`UPDATE delivery_parcels SET invoice_id=NULL WHERE id=$1`, [inv.delivery_parcel_id]);
+  if (inv.specialist_case_id) await c.query(`UPDATE specialist_cases SET invoice_id=NULL WHERE id=$1`, [inv.specialist_case_id]);
+  if(inv.customs_case_id)await c.query(`UPDATE customs_cases SET invoice_id=NULL,financial_status='open' WHERE id=$1`,[inv.customs_case_id]);
   if (inv.wh_run_id) {
     // warehouse activity returns to the unbilled pool so it can be re-invoiced (after a rate correction, say)
     await c.query(`UPDATE wh_charges SET invoice_id=NULL WHERE invoice_id=$1`, [invoiceId]);

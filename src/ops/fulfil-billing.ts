@@ -14,6 +14,7 @@ export const RATE_CODES = {
   pack_order: "Pack & dispatch, per order",
   return_unit: "Returns handling, per unit",
   storage_location_month: "Storage, per occupied location per month",
+  storage_location_day: "Storage, per closing occupied location per Dubai day",
 } as const;
 export type RateCode = keyof typeof RATE_CODES;
 
@@ -39,6 +40,7 @@ export async function setRate(c: Conn, ctx: Ctx, f: Record<string, any>) {
   await assertWritable(c, ctx.tenantId);
   const code = String(f.code) as RateCode;
   if (!(code in RATE_CODES)) throw badRequest("Choose a rate type.");
+  if(code==='storage_location_day')throw badRequest('Daily storage requires an issued, reviewed contract in Daily storage.');
   await must(c.query(`SELECT id FROM parties WHERE id=$1 AND kind='customer'`, [f.party_id]), "Merchant");
   const amount = toMinor(f.amount || "0");
   const tax = TAX_CODES[f.tax_code] ? f.tax_code : "SR5";
@@ -82,7 +84,8 @@ export async function invoiceMerchant(c: Conn, ctx: Ctx, partyId: string, termsD
     g.qty += Number(ch.qty); g.ids.push(ch.id); groups.set(k, g);
   }
   const list = [...groups.values()];
-  const ent = (await c.query<any>(`SELECT id FROM entities ORDER BY created_at LIMIT 1`)).rows[0];
+  const ent = (await c.query<any>(`SELECT id,currency FROM entities ORDER BY created_at,id LIMIT 1`)).rows[0];
+  if(ent.currency!=='AED'||charges.some(ch=>ch.entity_id&&ch.entity_id!==ent.id))throw badRequest('These AED fulfilment charges must be invoiced by their agreed AED billing entity.');
   const r = await issueInvoice(c, ctx, {
     entityId: ent.id, partyId,
     lines: list.map((g, i) => ({ id: String(i), description: RATE_CODES[g.code as RateCode] ?? g.code, qty: g.qty, unit_minor: g.unit, tax_code: g.tax })),
@@ -104,8 +107,10 @@ export async function runStorageCharges(c: Conn, ctx: Ctx, month: string) {
   const occ = (await c.query<any>(
     `SELECT s.party_id, count(DISTINCT l.location_id)::int n FROM stock_levels l JOIN skus s ON s.id=l.sku_id JOIN wh_locations loc ON loc.id=l.location_id
      WHERE l.on_hand > 0 AND loc.kind IN ('bin','receiving','quarantine') GROUP BY s.party_id`)).rows;
-  let created = 0, already = 0, noRate = 0;
+  await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[`${ctx.tenantId}:stock`]);
+  let created = 0, already = 0, noRate = 0, dailyContracts = 0;
   for (const o of occ) {
+    if((await c.query(`SELECT 1 FROM fulfil_storage_contracts WHERE party_id=$1 AND valid_from<(($2||'-01')::date+interval '1 month') AND valid_until>=($2||'-01')::date`,[o.party_id,month])).rows.length){dailyContracts++;continue;}
     const id = await charge(c, ctx, { partyId: o.party_id, code: "storage_location_month", qty: o.n, sourceKey: `storage:${o.party_id}:${month}`, detail: `${month} · ${o.n} location(s) occupied at run time` });
     if (id) created++;
     else {
@@ -114,7 +119,7 @@ export async function runStorageCharges(c: Conn, ctx: Ctx, month: string) {
     }
   }
   await audit(c, ctx.tenantId, actorOf(ctx), "fulfil.storage_run", "tenant", ctx.tenantId, { month, created, already, noRate });
-  return { created, already, noRate };
+  return { created, already, noRate, dailyContracts };
 }
 
 export const unbilledForParty = (c: Conn, partyId?: string | null) => c.query<any>(

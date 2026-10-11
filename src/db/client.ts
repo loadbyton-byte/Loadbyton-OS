@@ -47,9 +47,9 @@ async function execMulti(c: Conn, sql: string) {
   else await c.query(sql);
 }
 
-export async function openDb(opts: { url?: string; dir?: string | null } = {}): Promise<Db> {
+export async function openDb(opts: { url?: string; dir?: string | null; migrate?: boolean } = {}): Promise<Db> {
   const url = opts.url ?? config.databaseUrl;
-  if (url) return openPg(url);
+  if (url) return openPg(url,opts.migrate??config.migrateOnStart);
   return openPglite(opts.dir === undefined ? config.pgliteDir : opts.dir);
 }
 
@@ -88,37 +88,55 @@ async function openPglite(dir: string | null): Promise<Db> {
   };
 }
 
-async function openPg(url: string): Promise<Db> {
-  const pool = new pg.Pool({ connectionString: url, max: 10 });
+async function openPg(url: string,migrate:boolean): Promise<Db> {
+  const parsed=new URL(url);
+  if(config.isProd&&parsed.searchParams.get('sslmode')!=='verify-full')throw new Error('Production PostgreSQL requires sslmode=verify-full');
+  const pool = new pg.Pool({ connectionString: url, max: 10,connectionTimeoutMillis:10000,statement_timeout:30000 });
+  // Idle socket errors are emitted outside query promises (including database failover).
+  pool.on('error',()=>console.error('[database] idle connection lost; pool will reconnect'));
   pg.types.setTypeParser(20, (v) => Number(v)); // int8 -> number (amounts stay well below 2^53 minor units)
   pg.types.setTypeParser(1082, (v) => v);      // date -> 'YYYY-MM-DD'
   pg.types.setTypeParser(1700, (v) => v);      // numeric stays string to preserve precision
   const client = await pool.connect();
   try {
-    await runMigrations({
+    if(migrate) {
+     await client.query(`SELECT pg_advisory_lock(7362910)`);
+     try {await runMigrations({
       query: async (s, p) => {
         const r = await client.query(s, p as any[]);
         return { rows: r.rows, rowCount: r.rowCount ?? 0 };
       },
-    });
+     });} finally {await client.query(`SELECT pg_advisory_unlock(7362910)`);}
+    } else {
+     const files=fs.readdirSync(path.join(here,'migrations')).filter(f=>f.endsWith('.sql'));
+     const applied=(await client.query(`SELECT name FROM schema_migrations`)).rows.map(x=>x.name);
+     if(files.some(f=>!applied.includes(f)))throw new Error('Pending schema migrations. Run the migration command using a direct database endpoint before release.');
+    }
   } finally {
     client.release();
   }
   const withClient = async <T>(fn: (c: Conn) => Promise<T>, scope?: string): Promise<T> => {
     const cl = await pool.connect();
+    let pending: Promise<unknown> = Promise.resolve();
     const c: Conn = {
-      query: async (s, p) => {
-        const r = await cl.query(s, p as any[]);
-        return { rows: r.rows, rowCount: r.rowCount ?? 0 };
+      query: (s, p) => {
+        const result = pending.then(async () => {
+          const r = await cl.query(s, p as any[]);
+          return { rows: r.rows, rowCount: r.rowCount ?? 0 };
+        });
+        pending = result.catch(() => {});
+        return result;
       },
     };
     try {
       await cl.query("BEGIN");
       if (scope) await scopeToTenant(c, scope);
       const out = await fn(c);
+      await pending;
       await cl.query("COMMIT");
       return out;
     } catch (e) {
+      await pending;
       await cl.query("ROLLBACK").catch(() => {});
       throw e;
     } finally {

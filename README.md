@@ -3,37 +3,39 @@
 *Run the movement. Know the margin.* — UAE-first logistics SaaS. Implements the **Master Blueprint v1.0 (10 Oct 2026)**:
 public commerce site, a tenant-isolated company application, billing/entitlements/provisioning, and a privileged control console.
 
-> **What is built, honestly.** Three sector workflows run end to end on top of the commerce and control planes:
-> **What is built, honestly.** Four sector workflows run end to end on top of the commerce and control planes:
-> **Forwarding Starter** (enquiry → quote → job → supplier costs → documents/milestones → invoice → collection),
-> **Transport** (orders → trip planning with capacity/availability/compliance checks → dispatch → offline-tolerant driver app with
-> proof of delivery → expenses, detention, subcontracting → invoice → trip profitability),
-> **E-commerce fulfilment** (merchant SKUs → inbound receiving → stock ledger with reservation → pick / scan-verified pack / ship →
-> returns → count adjustments with independent approval → activity billing and merchant invoice) and
-> **Contract warehouse / 3PL** (customer-owned custody stock on an immutable movement ledger → receiving with variances and quarantine →
-> FIFO allocation, pick, dispatch → blind cycle counts with independent approval → activity billing → invoice). All four are *Pilot*,
-> not *Available* (no production monitoring yet). The other sector packs, the Delivery/COD and Customs modules, marketplace and
-> carrier-label connectors, barcode/RF hardware, e-invoicing, native ledger, live GPS / route optimisation and real infrastructure/payment
-> adapters are **not** built and are shown publicly as *Planned* (blueprint §29: "Do not sell all 18 sector packs at launch").
-> See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.
+Six operational pilots cover forwarding, transport, fulfilment, custody warehouse, Delivery/COD and manual Customs handover. Twelve specialist profiles now also have controlled manual case workspaces, readiness reviews, issued evidence, approvals, immutable events, quotas, UI/API and service-fee collection. Their public release remains **Planned** until sector specialists validate representative real cases.
 
-> See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.
+The requested deployment stack is implemented: **Oracle Cloud** web/worker and scanner containers, **Cloudflare** routing/tunnel, **Neon** PostgreSQL, **Supabase** private objects and **Upstash Redis** rate limiting. **Stripe/Razorpay** hosted checkout supports card and eligible Google Pay methods, verified webhooks, payment reconciliation, immutable tax/merchant snapshots and optional reviewed INR quotes for an Indian Razorpay merchant. Production configuration refuses development mocks or missing required settings. No real credentials or production resources have been created.
+
+Additional work includes company MFA, a Zoho Books draft-invoice bridge, reviewed SMTP replies, shared inbox/calendar SLAs, privacy request review, setup appointments/customer acceptance, controlled customer CSV migration/rollback, management reports, warehouse lot/expiry/serial controls and Arabic/RTL invoice documents. Encrypted database-plus-object backups and isolated restore verification are executable. Further verified controls include reviewed count schedules, provider chargeable-weight rules, scoped assistant drafts, daily storage contracts/automatic accrual, independent transport expense receipts, six versioned source-linked shipment document drafts, dual-key encryption maintenance and independently approved COD cash recovery/refund/corrections with current cash/liability reporting.
+
+This is a substantial implementation of the blueprint, **not a claim that the entire future portfolio is release-complete**. See [the clause map](docs/TRACEABILITY.md), [remaining portfolio work](docs/IMPLEMENTATION_BACKLOG.md), [deployment instructions](docs/DEPLOYMENT.md) and [release acceptance](docs/RELEASE_ACCEPTANCE.md). External provider acceptance, actual infrastructure recovery, legal/tax settings and specialist reviews remain deployment gates; advanced connectors and warehouse/AI roadmap items remain explicit software work.
 
 ## Quick start
 
 ```bash
-npm install
-cp .env.example .env        # optional; dev defaults work
+npm ci
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
-npm test                    # 90+ tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, HTTP boundary
+npm test                    # acceptance tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty
                             #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (e-commerce) · warehouse@… (3PL manager) — all demo-password-123
 npm run create-staff -- you@example.com "Your Name" '<12+ char password>' commercial_admin   # prints TOTP secret
-npm run e2e                 # browser walkthrough against a running server (needs Chromium)
+CHROME=/usr/bin/chromium npm run e2e   # freight browser walkthrough against port 3000
+npm run e2e:delivery         # Delivery/COD browser walkthrough; use CHROME as above
 npm run verify              # database-wide invariants (use after every restore test)
 ```
 
-Production-like: `docker compose up` (PostgreSQL 16). `PAYMENT_PROVIDER=mock` is refused in production; secrets must be ≥32 chars.
+For file-based local overrides, copy `.env.example` to `.env` and run `node --env-file=.env --import tsx src/server.ts`; otherwise export the settings before `npm run dev`.
+
+Production configuration is supplied through secure environment variables or the private Compose env file. Follow [DEPLOYMENT.md](docs/DEPLOYMENT.md); the real payment and storage adapters are implemented, but live acceptance cannot be claimed before your merchant/provider credentials are supplied. `npm run preflight` checks setting names without printing credentials.
+
+The same acceptance suites can run against a **disposable PostgreSQL test cluster** with database-creation permission:
+```bash
+TEST_POSTGRES_URL=postgres://postgres@localhost:5433/postgres npm test -- --maxWorkers=1 --no-file-parallelism
+```
+Each suite gets an isolated temporary database and removes it after the run. CI runs both PGlite and PostgreSQL 16. For browser tests, use a disposable app database too; the walkthroughs create tenants, business records and simulated payments. `BASE`, `CHROME`, and `SHOTS` override the URL, Chromium executable and screenshot directory. Restricted containers may require `CHROME_NO_SANDBOX=true`; the default keeps Chromium's sandbox enabled.
+
+Optional metrics: configure a private `METRICS_TOKEN` of at least 32 characters and scrape `/metrics` with a matching Bearer token. See [monitoring instructions](ops/monitoring/README.md).
 
 ## Surfaces
 
@@ -51,19 +53,15 @@ Host → tenant is only a *hint* (verified `domain_mappings`); **authenticated m
 
 ## Stack and layout
 
-TypeScript · Hono (SSR JSX, no client build) · PostgreSQL (PGlite for dev/test, `pg` in production) · transactional outbox + in-process workers.
+TypeScript · Hono (SSR JSX, no client build) · PostgreSQL (PGlite for dev/test, `pg` in production) · transactional outbox + separate production workers (in-process workers for development).
 
 ```
 src/db        schema (migrations/001_init.sql), tenant-scoped transactions (RLS)
 src/platform  catalog, tenants, auth, billing, entitlements, provisioning, outbox, admin, invariants
-src/ops       enquiries, quotes, jobs, transport, fulfilment (+billing), finance, documents, dashboard, team, import, export
-src/adapters  accounting bridge (find-before-create idempotency)
+src/ops       freight, transport, fulfilment, warehouse, delivery/COD, Customs, twelve specialist profiles, inbox/migration/reports
+src/adapters  payments, Zoho, private storage/scanning, Redis, Cloudflare, SMTP
 src/web       routes + UI (public, auth, app-core/sales/ops, admin)
-tests         platform, ops, transport, fulfilment (+http), http, extras (acceptance scenarios §30)
-src/ops       enquiries, quotes, jobs, transport, warehouse, finance, documents, dashboard, team, import, export
-src/adapters  accounting bridge (find-before-create idempotency)
-src/web       routes + UI (public, auth, app-core/sales/ops, admin)
-tests         platform, ops, transport, warehouse, http, extras (acceptance scenarios §30)
+tests         platform, ops, transport, fulfilment, warehouse, delivery, customs, metrics and HTTP acceptance
 docs          architecture, traceability, runbooks, decisions
 ```
 
