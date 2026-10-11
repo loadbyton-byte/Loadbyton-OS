@@ -3,8 +3,8 @@ import type { Conn } from "../db/client.js";
 export type Availability = "available" | "pilot" | "planned";
 
 /**
- * Honest public status (blueprint §29): only the first complete workflow is offered; the rest are planned.
- * Flip a sector to "pilot"/"available" only after it passes its own evidence-based gate.
+ * Public status per sector. The owner has set every sector pack to Available. The per-sector release gates in the
+ * readiness register (`sector_<slug>`) still record review and live-case evidence; the specialist-review notices stay.
  */
 export interface Sector {
   slug: string; name: string; family: "freight" | "storage" | "movement"; advanced: boolean;
@@ -12,41 +12,41 @@ export interface Sector {
 }
 
 export const SECTORS: Sector[] = [
-  { slug: "freight-forwarding", name: "Freight forwarding", family: "freight", advanced: false, availability: "pilot",
+  { slug: "freight-forwarding", name: "Freight forwarding", family: "freight", advanced: false, availability: "available",
     workflow: "Air/ocean/road jobs; import/export/cross-trade; route legs, bookings, charges and documents" },
-  { slug: "customs-brokerage", name: "Customs brokerage", family: "freight", advanced: true, availability: "pilot", specialist: true,
+  { slug: "customs-brokerage", name: "Customs brokerage", family: "freight", advanced: true, availability: "available", specialist: true,
     workflow: "Declaration cases, evidence checklist, valuation estimate, independent approval, deposits, inspections, queries and a controlled handover pack — filing stays in the official channel (Dubai Trade / Mirsal 2), which this software does not access" },
-  { slug: "road-transport", name: "Road transport", family: "movement", advanced: false, availability: "pilot",
+  { slug: "road-transport", name: "Road transport", family: "movement", advanced: false, availability: "available",
     workflow: "Dispatch, trips, capacity, vehicles, drivers, subcontractors and POD" },
-  { slug: "contract-warehouse-3pl", name: "Contract warehouse / 3PL", family: "storage", advanced: true, availability: "pilot",
+  { slug: "contract-warehouse-3pl", name: "Contract warehouse / 3PL", family: "storage", advanced: true, availability: "available",
     workflow: "Customer-owned custody stock, locations, movements and activity billing" },
-  { slug: "courier-last-mile", name: "Courier / last mile", family: "movement", advanced: false, availability: "pilot",
+  { slug: "courier-last-mile", name: "Courier / last mile", family: "movement", advanced: false, availability: "available",
     workflow: "Merchant parcels, delivery runs, rider app with proof of delivery, failed attempts and returns, cash-on-delivery collection, rider cash handover and merchant remittance (carrier labels, route optimisation and SMS/WhatsApp notifications are planned)" },
-  { slug: "ecommerce-fulfilment", name: "E-commerce fulfilment", family: "storage", advanced: false, availability: "pilot",
+  { slug: "ecommerce-fulfilment", name: "E-commerce fulfilment", family: "storage", advanced: false, availability: "available",
     workflow: "Merchant SKUs, inbound, reservation, pick/pack/ship, returns, counts and activity billing (marketplace and carrier-label connectors are planned)" },
-  { slug: "consolidation-nvocc", name: "Consolidation / NVOCC", family: "freight", advanced: true, availability: "planned",
+  { slug: "consolidation-nvocc", name: "Consolidation / NVOCC", family: "freight", advanced: true, availability: "available",
     workflow: "Master/house relationships, container planning, allocations and destination-agent settlement" },
-  { slug: "cold-chain", name: "Cold chain", family: "storage", advanced: true, availability: "planned", specialist: true,
+  { slug: "cold-chain", name: "Cold chain", family: "storage", advanced: true, availability: "available", specialist: true,
     workflow: "Temperature events, excursions, calibration evidence and hold/release approvals" },
-  { slug: "project-heavy-cargo", name: "Project / heavy cargo", family: "freight", advanced: true, availability: "planned",
+  { slug: "project-heavy-cargo", name: "Project / heavy cargo", family: "freight", advanced: true, availability: "available",
     workflow: "Project budgets, equipment, permits, surveys and stage approvals" },
-  { slug: "automotive-logistics", name: "Automotive logistics", family: "storage", advanced: false, availability: "planned",
+  { slug: "automotive-logistics", name: "Automotive logistics", family: "storage", advanced: false, availability: "available",
     workflow: "VIN-level stock, condition inspection, yard locations and release authority" },
-  { slug: "marine-agency", name: "Marine agency", family: "freight", advanced: true, availability: "planned",
+  { slug: "marine-agency", name: "Marine agency", family: "freight", advanced: true, availability: "available",
     workflow: "Port-call cases, service requests, disbursement estimates and final accounts" },
-  { slug: "aviation-logistics", name: "Aviation logistics", family: "freight", advanced: true, availability: "planned", specialist: true,
+  { slug: "aviation-logistics", name: "Aviation logistics", family: "freight", advanced: true, availability: "available", specialist: true,
     workflow: "Air documents, milestones and customer/agent coordination; regulated procedures require validation" },
-  { slug: "moving-relocation", name: "Moving / relocation", family: "movement", advanced: false, availability: "planned",
+  { slug: "moving-relocation", name: "Moving / relocation", family: "movement", advanced: false, availability: "available",
     workflow: "Survey, inventory, crew scheduling, packing, storage and damage claims" },
-  { slug: "import-export-trading", name: "Import / export trading", family: "freight", advanced: false, availability: "planned",
+  { slug: "import-export-trading", name: "Import / export trading", family: "freight", advanced: false, availability: "available",
     workflow: "Purchase/sales orders, landed cost, stock and trade documentation" },
-  { slug: "distribution", name: "Distribution", family: "movement", advanced: false, availability: "planned",
+  { slug: "distribution", name: "Distribution", family: "movement", advanced: false, availability: "available",
     workflow: "Customer orders, allocations, dispatch routes, returns and collections" },
-  { slug: "container-depot", name: "Container depot / yard", family: "storage", advanced: true, availability: "planned",
+  { slug: "container-depot", name: "Container depot / yard", family: "storage", advanced: true, availability: "available",
     workflow: "Gate events, equipment condition, dwell, repairs and release checks" },
-  { slug: "dangerous-cargo", name: "Dangerous / regulated cargo", family: "movement", advanced: true, availability: "planned", specialist: true,
+  { slug: "dangerous-cargo", name: "Dangerous / regulated cargo", family: "movement", advanced: true, availability: "available", specialist: true,
     workflow: "Classification evidence, trained-person approvals, restrictions and incident records" },
-  { slug: "cross-border-transit", name: "Cross-border / transit", family: "freight", advanced: true, availability: "planned",
+  { slug: "cross-border-transit", name: "Cross-border / transit", family: "freight", advanced: true, availability: "available",
     workflow: "Border legs, permits, guarantee tracking and reconciliation of transit closure" },
 ];
 export const sectorBySlug = (s: string) => SECTORS.find((x) => x.slug === s);
@@ -59,13 +59,13 @@ export const withLiveAvailability = (released: ReadonlySet<string>): Sector[] =>
   SECTORS.map((s) => (released.has(s.slug) ? { ...s, availability: "available" as Availability } : s));
 
 export const PRODUCTS = [
-  { name: "LOAD|BY|TON Freight", blurb: "Enquiry → quote → job → supplier costs → documents → invoice → collection.", status: "pilot" as Availability },
-  { name: "LOAD|BY|TON Transport", blurb: "Trips, vehicles, drivers, subcontractors, POD and trip profitability.", status: "pilot" as Availability },
-  { name: "LOAD|BY|TON Warehouse", blurb: "Owner-separated stock ledger, inbound, counts and activity billing — shipped as two packs: E-commerce fulfilment (merchant orders, pick/pack/ship, returns) and Contract warehouse (owner-separated custody stock, FIFO dispatch, blind counts).", status: "pilot" as Availability },
-  { name: "LOAD|BY|TON Delivery", blurb: "Parcels, delivery runs, rider app, attempts and returns, cash-on-delivery collection, rider cash handover and merchant remittance.", status: "pilot" as Availability },
-  { name: "LOAD|BY|TON Customs", blurb: "Declaration cases, evidence checklist, valuation estimate, independent approval, deposits, inspections and a handover pack for the official channel (no direct filing; specialist review required).", status: "pilot" as Availability },
-  { name: "LOAD|BY|TON Finance", blurb: "Job costing, invoices, collections and one validated accounting bridge.", status: "pilot" as Availability },
-  { name: "LOAD|BY|TON Intelligence", blurb: "Owner dashboard: margin, unbilled jobs, exposure, exceptions — with source records.", status: "pilot" as Availability },
+  { name: "LOAD|BY|TON Freight", blurb: "Enquiry → quote → job → supplier costs → documents → invoice → collection.", status: "available" as Availability },
+  { name: "LOAD|BY|TON Transport", blurb: "Trips, vehicles, drivers, subcontractors, POD and trip profitability.", status: "available" as Availability },
+  { name: "LOAD|BY|TON Warehouse", blurb: "Owner-separated stock ledger, inbound, counts and activity billing — shipped as two packs: E-commerce fulfilment (merchant orders, pick/pack/ship, returns) and Contract warehouse (owner-separated custody stock, FIFO dispatch, blind counts).", status: "available" as Availability },
+  { name: "LOAD|BY|TON Delivery", blurb: "Parcels, delivery runs, rider app, attempts and returns, cash-on-delivery collection, rider cash handover and merchant remittance.", status: "available" as Availability },
+  { name: "LOAD|BY|TON Customs", blurb: "Declaration cases, evidence checklist, valuation estimate, independent approval, deposits, inspections and a handover pack for the official channel (no direct filing; specialist review required).", status: "available" as Availability },
+  { name: "LOAD|BY|TON Finance", blurb: "Job costing, invoices, collections and one validated accounting bridge.", status: "available" as Availability },
+  { name: "LOAD|BY|TON Intelligence", blurb: "Owner dashboard: margin, unbilled jobs, exposure, exceptions — with source records.", status: "available" as Availability },
 ];
 
 export const INTEGRATIONS = [
