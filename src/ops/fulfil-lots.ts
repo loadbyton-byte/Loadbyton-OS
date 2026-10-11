@@ -116,9 +116,12 @@ export async function traceLot(c: Conn, ctx: Ctx, lotId: string) {
     `SELECT o.id, o.no, o.status, o.shipped_at, a.picked_qty AS units, sh.carrier, sh.tracking_no, o.ship_to_name, o.ship_to_city
      FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id JOIN fulfil_orders o ON o.id=l.order_id
      LEFT JOIN fulfil_shipments sh ON sh.order_id=o.id WHERE a.lot_id=$1 AND a.picked_qty>0 ORDER BY o.created_at`, [lotId])).rows;
+  const kits = (await c.query<any>(
+    `SELECT b.id, b.created_at, b.qty AS kits_built, ks.code AS kit_sku, bl.qty AS units_used FROM fulfil_kit_build_lots bl JOIN fulfil_kit_builds b ON b.id=bl.build_id
+     JOIN fulfil_kits k ON k.id=b.kit_id JOIN skus ks ON ks.id=k.sku_id WHERE bl.lot_id=$1 ORDER BY b.created_at`, [lotId])).rows;
   const decisions = (await c.query<any>(`SELECT hold, reason, decided_at FROM fulfil_lot_decisions WHERE lot_id=$1 ORDER BY decided_at`, [lotId])).rows;
   await audit(c, ctx.tenantId, actorOf(ctx), "fulfil_lot.traced", "fulfil_lot", lotId, { orders: orders.length });
-  return { lot, where, orders, decisions };
+  return { lot, where, orders, kits, decisions };
 }
 
 export async function recordDecision(c: Conn, ctx: Ctx, lotId: string, hold: boolean, reason: unknown) {

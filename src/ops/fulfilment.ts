@@ -5,6 +5,7 @@ import { HttpError, badRequest, forbidden } from "../lib/util.js";
 import { assertWritable, consumeQuota } from "../platform/entitlements.js";
 import { must, nextNumber, optStr, reqStr } from "./common.js";
 import { charge } from "./fulfil-billing.js";
+import { expandVirtualKits } from "./fulfil-kits.js";
 import { allocatableLots, applyLotMove, ensureLot, findLot, lotBlocked, planLots, recordDecision, releaseLot, reserveLot, skuMode } from "./fulfil-lots.js";
 import { parseCsv, type ImportReport } from "./importer.js";
 import { dubaiToIso } from "./transport.js";
@@ -265,7 +266,7 @@ export function planBins(bins: { location_id: string; avail: number }[], need: n
 const LIVE = ["new", "backordered", "allocated", "picking", "picked", "packed"];
 
 /** Derive the order status from its quantities so it can never drift from the lines/allocations. */
-async function refreshStatus(c: Conn, orderId: string) {
+export async function refreshStatus(c: Conn, orderId: string) {
   const o = (await c.query<any>(`SELECT status FROM fulfil_orders WHERE id=$1`, [orderId])).rows[0];
   if (!o || !LIVE.includes(o.status)) return o?.status;
   const t = (await c.query<any>(`SELECT coalesce(sum(allocated_qty),0)::int alloc, coalesce(sum(picked_qty),0)::int picked, coalesce(sum(packed_qty),0)::int packed FROM fulfil_order_lines WHERE order_id=$1`, [orderId])).rows[0];
@@ -371,7 +372,8 @@ async function placeOrder(c: Conn, ctx: Ctx, f: OrderInput): Promise<{ id: strin
   const ref = reqStr(f.external_ref, "Order reference", 80);
   const existing = (await c.query<any>(`SELECT id, no FROM fulfil_orders WHERE party_id=$1 AND external_ref=$2`, [f.party_id, ref])).rows[0];
   if (existing) return { id: existing.id, no: existing.no, created: false };
-  const lines = await resolveSkus(c, f.party_id, f.lines);
+  const resolved = await resolveSkus(c, f.party_id, f.lines);
+  const { lines, kitLines } = await expandVirtualKits(c, resolved);
   const shipBy = f.ship_by ? dubaiToIso(String(f.ship_by)) : null;
   if (shipBy && Number.isNaN(Date.parse(shipBy))) throw badRequest("Ship-by time is not valid.");
   // validate every field BEFORE taking a number: an import skips bad orders and must not leave gaps in the numbering
@@ -389,6 +391,7 @@ async function placeOrder(c: Conn, ctx: Ctx, f: OrderInput): Promise<{ id: strin
   // billing unit for this sector is the fulfilment order; the reference makes a retried request idempotent
   await consumeQuota(c, ctx.tenantId, "fulfilment_orders_per_month", `fulorder:${id}`);
   for (const l of lines) await c.query(`INSERT INTO fulfil_order_lines(tenant_id,order_id,sku_id,qty) VALUES ($1,$2,$3,$4)`, [ctx.tenantId, id, l.sku_id, l.qty]);
+  for (const k of kitLines) await c.query(`INSERT INTO fulfil_order_kit_lines(tenant_id,order_id,kit_sku_id,qty) VALUES ($1,$2,$3,$4) ON CONFLICT (order_id,kit_sku_id) DO UPDATE SET qty = fulfil_order_kit_lines.qty + $4`, [ctx.tenantId, id, k.kit_sku_id, k.qty]);
   await audit(c, ctx.tenantId, actorOf(ctx), "fulfil_order.created", "fulfil_order", id, { no, channel: f.channel ?? "manual", lines: lines.length });
   return { id, no, created: true };
 }
@@ -458,6 +461,27 @@ export async function pickList(c: Conn, page = 1) {
      WHERE a.qty > a.picked_qty AND o.status IN ('allocated','picking') ORDER BY loc.code, s.code, o.ship_by NULLS LAST, o.no, a.id LIMIT ${PAGE_SIZE + 1} OFFSET $1`, [offsetOf(page)])).rows;
 }
 
+/** Pick `q` of one open allocation (locked row joined with loc_code, sku_code, lot_code): stages the units, releases any shortfall and raises a count task. */
+export async function pickAllocation(c: Conn, ctx: Ctx, o: any, stage: string, a: any, q: number, blocked = false) {
+  const remaining = a.qty - a.picked_qty;
+  if (!Number.isInteger(q) || q < 0 || q > remaining) throw badRequest(`Picked quantity for ${a.sku_code} at ${a.loc_code} must be between 0 and ${remaining}.`);
+  if (q > 0) {
+    await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: -q, kind: "pick_out", refType: "fulfil_order", refId: o.id, fromReserved: true, lotId: a.lot_id });
+    await moveStock(c, ctx, { skuId: a.sku_id, locationId: stage, delta: q, kind: "stage_in", refType: "fulfil_order", refId: o.id, lotId: a.lot_id });
+    await c.query(`UPDATE stock_allocations SET picked_qty = picked_qty + $2 WHERE id=$1`, [a.id, q]);
+    await c.query(`UPDATE fulfil_order_lines SET picked_qty = picked_qty + $2 WHERE id=$1`, [a.line_id, q]);
+  }
+  if (q < remaining) {
+    const s = remaining - q;
+    await releaseReserved(c, ctx.tenantId, a.sku_id, a.location_id, a.lot_id, s);
+    if (a.qty - s === 0) await c.query(`DELETE FROM stock_allocations WHERE id=$1`, [a.id]); else await c.query(`UPDATE stock_allocations SET qty = qty - $2 WHERE id=$1`, [a.id, s]);
+    await c.query(`UPDATE fulfil_order_lines SET allocated_qty = allocated_qty - $2 WHERE id=$1`, [a.line_id, s]);
+    await c.query(`INSERT INTO job_exceptions(tenant_id,title,detail,owner_id,due_at) VALUES ($1,$2,$3,$4, now() + interval '4 hours')`,
+      [ctx.tenantId, `Short pick ${o.no}: ${a.sku_code} at ${a.loc_code}`, blocked ? `Lot ${a.lot_code} at ${a.loc_code} is on hold or expired; ${s} unit(s) were released for re-allocation from another lot.` : `Expected ${remaining}, found ${q}. Count ${a.loc_code}${a.lot_code ? ` (lot ${a.lot_code})` : ""} and raise an adjustment; the order was released for re-allocation.`, o.created_by]);
+  }
+  return { picked: q, short: q < remaining };
+}
+
 /**
  * Confirm picks. `entries` = {allocation_id → quantity found}; omit it to confirm every open allocation as listed.
  * A quantity below the allocation is a short pick: the missing units are released, the order is flagged, and a task is raised
@@ -481,23 +505,8 @@ export async function pickOrder(c: Conn, ctx: Ctx, orderId: string, entries?: Re
     const blocked = !!a.lot_id && lotBlocked({ hold: a.lot_hold, expires_at: a.lot_expires });
     const q = blocked ? 0 : entries ? entries[a.id] : remaining;   // held / expired lots are never picked: the reservation is released
     if (q === undefined) continue;
-    if (!Number.isInteger(q) || q < 0 || q > remaining) throw badRequest(`Picked quantity for ${a.sku_code} at ${a.loc_code} must be between 0 and ${remaining}.`);
-    if (q > 0) {
-      await moveStock(c, ctx, { skuId: a.sku_id, locationId: a.location_id, delta: -q, kind: "pick_out", refType: "fulfil_order", refId: orderId, fromReserved: true, lotId: a.lot_id });
-      await moveStock(c, ctx, { skuId: a.sku_id, locationId: stage, delta: q, kind: "stage_in", refType: "fulfil_order", refId: orderId, lotId: a.lot_id });
-      await c.query(`UPDATE stock_allocations SET picked_qty = picked_qty + $2 WHERE id=$1`, [a.id, q]);
-      await c.query(`UPDATE fulfil_order_lines SET picked_qty = picked_qty + $2 WHERE id=$1`, [a.line_id, q]);
-      picked += q;
-    }
-    if (q < remaining) {
-      const s = remaining - q;
-      await releaseReserved(c, ctx.tenantId, a.sku_id, a.location_id, a.lot_id, s);
-      if (a.qty - s === 0) await c.query(`DELETE FROM stock_allocations WHERE id=$1`, [a.id]); else await c.query(`UPDATE stock_allocations SET qty = qty - $2 WHERE id=$1`, [a.id, s]);
-      await c.query(`UPDATE fulfil_order_lines SET allocated_qty = allocated_qty - $2 WHERE id=$1`, [a.line_id, s]);
-      await c.query(`INSERT INTO job_exceptions(tenant_id,title,detail,owner_id,due_at) VALUES ($1,$2,$3,$4, now() + interval '4 hours')`,
-        [ctx.tenantId, `Short pick ${o.no}: ${a.sku_code} at ${a.loc_code}`, blocked ? `Lot ${a.lot_code} at ${a.loc_code} is on hold or expired; ${s} unit(s) were released for re-allocation from another lot.` : `Expected ${remaining}, found ${q}. Count ${a.loc_code}${a.lot_code ? ` (lot ${a.lot_code})` : ""} and raise an adjustment; the order was released for re-allocation.`, o.created_by]);
-      shorts++;
-    }
+    const r = await pickAllocation(c, ctx, o, stage, a, q, blocked);
+    picked += r.picked; shorts += r.short ? 1 : 0;
   }
   const st = await refreshStatus(c, orderId);
   await audit(c, ctx.tenantId, actorOf(ctx), "fulfil_order.picked", "fulfil_order", orderId, { units: picked, shorts });
@@ -570,8 +579,15 @@ export async function shipOrder(c: Conn, ctx: Ctx, orderId: string, f: Record<st
     } else await moveStock(c, ctx, { skuId: l.sku_id, locationId: stage, delta: -l.packed_qty, kind: "ship", refType: "fulfil_order", refId: orderId });
     await c.query(`UPDATE fulfil_order_lines SET shipped_qty = packed_qty WHERE id=$1`, [l.id]);
   }
+  // recorded cartons are authoritative for count and weight; they must still match what ships
+  const cartonRows = (await c.query<any>(`SELECT k.id, k.weight_g FROM fulfil_order_cartons k WHERE k.order_id=$1`, [orderId])).rows;
+  if (cartonRows.length) {
+    const inCartons = Number((await c.query<any>(`SELECT coalesce(sum(cl.qty),0) n FROM fulfil_order_carton_lines cl JOIN fulfil_order_cartons k ON k.id=cl.carton_id WHERE k.order_id=$1`, [orderId])).rows[0].n);
+    if (inCartons !== units) throw badRequest("The recorded cartons do not match the packed quantities. Re-record the cartons.");
+  }
+  const cartonWeight = cartonRows.length && cartonRows.every((k) => k.weight_g) ? cartonRows.reduce((a, k) => a + k.weight_g, 0) : null;
   await c.query(`INSERT INTO fulfil_shipments(tenant_id,order_id,carrier,tracking_no,cartons,weight_g,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [ctx.tenantId, orderId, carrier, tracking, f.cartons ? posInt(f.cartons, "Cartons", 1000) : 1, f.weight_g ? posInt(f.weight_g, "Weight (g)", 5_000_000) : null, ctx.userId]);
+    [ctx.tenantId, orderId, carrier, tracking, cartonRows.length || (f.cartons ? posInt(f.cartons, "Cartons", 1000) : 1), cartonWeight ?? (f.weight_g ? posInt(f.weight_g, "Weight (g)", 5_000_000) : null), ctx.userId]);
   await c.query(`UPDATE fulfil_orders SET status='shipped', shipped_at=now() WHERE id=$1`, [orderId]);
   await charge(c, ctx, { partyId: o.party_id, code: "pick_order", qty: 1, sourceKey: `ship:${orderId}:pick_order`, orderId, detail: o.no });
   await charge(c, ctx, { partyId: o.party_id, code: "pick_unit", qty: units, sourceKey: `ship:${orderId}:pick_unit`, orderId, detail: o.no });
