@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { permsFor, type Ctx } from "../lib/perms.js";
-import { HttpError, hashPassword, randomToken, sha256, verifyPassword, verifyTotp } from "../lib/util.js";
+import { HttpError, hashPassword, randomToken, sha256, verifyPassword, verifyTotp, totp } from "../lib/util.js";
 import { rateLimit, resetRateLimits } from "../adapters/rate-limit.js";
 
 const SESSION_HOURS = 12;
@@ -46,7 +46,8 @@ export const resetThrottle = resetRateLimits;
 
 export async function login(db: Db, email: string, password: string, ip = "") {
   const e = email.trim().toLowerCase();
-  await rateLimit(`login-account:${e}`,20);
+  // Per-IP budget across all emails stops spraying. There is deliberately no per-account cap: it would let anyone lock a known user out.
+  await rateLimit(`login-ip:${ip}`,40);
   await rateLimit(`login:${e}|${ip}`);
   const u = (await db.query<any>(`SELECT id,password_hash FROM users WHERE email=$1`, [e])).rows[0];
   dummyHash ??= await hashPassword("dummy-password-for-timing");
@@ -70,7 +71,6 @@ export async function completeMfa(db: Db, token: string, code: string) {
   if (!verifyTotp(st.totp_secret, code)) throw new HttpError(401, "That code is not valid.", "unauthorized");
   const steps=[-1,0,1].map(w=>Math.floor(Date.now()/30000)+w);
   // Consume exactly the matching timestep; the same code cannot authorize another session.
-  const {totp}=await import('../lib/util.js');
   const matching=steps.find(n=>totp(st.totp_secret,n*30000)===code.trim());
   if(matching===undefined || !(await db.query(`UPDATE platform_staff SET last_totp_step=$2 WHERE user_id=$1 AND last_totp_step<$2 RETURNING user_id`,[s.userId,matching])).rows.length) throw new HttpError(401,'This code was already used. Wait for the next code.');
   await db.query(`UPDATE sessions SET mfa_ok=true WHERE token_hash=$1`, [sha256(token)]);
