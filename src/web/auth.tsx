@@ -11,6 +11,8 @@ import { completeMfa, endSession, login, newSession } from "../platform/auth.js"
 import { acceptInvite, inviteInfo } from "../ops/team.js";
 import { buildMockEvent, processPaymentEvent, signPayload, verifySignature, type PaymentEvent } from "../platform/billing.js";
 import { SESSION_COOKIE, arr, clearSessionCookie, clientIp, formBody, safeNext, setSessionCookie, str, type Env } from "./mw.js";
+import { AuthFrame } from "./experience.js";
+import { requestPasswordRecovery, recoverPassword } from '../platform/password-recovery.js';
 import { Csrf, PublicShell, type Page } from "./ui.js";
 
 export const auth = new Hono<Env>();
@@ -32,11 +34,12 @@ auth.get("/start", (c) => {
   const plan = c.req.query("plan") ?? "";
   return c.html(
     <PublicShell p={p}>
-      <section class="block"><div class="wrap" style="max-width:720px">
+      <AuthFrame signup>
+        <span class="eyebrow">START SOMETHING BETTER</span>
         <h1>Start free</h1>
         <p>You get a real, empty workspace on the permanent Free plan. Examples live in a separate demo environment, never mixed with your data. No trade documents are needed to explore.</p>
         <Alerts p={p} />
-        <form method="post" action="/start">
+        <form method="post" action="/start" class="signup-form">
           <Csrf t={p.csrf} />
           <input type="hidden" name="plan" value={plan} />
           <div class="row">
@@ -51,7 +54,7 @@ auth.get("/start", (c) => {
             <div class="field"><label for="country">Country</label><select id="country" name="country"><option value="AE">United Arab Emirates</option></select></div>
             <div class="field"><label for="emirate">Emirate</label><select id="emirate" name="emirate">{EMIRATES.map((e) => <option>{e}</option>)}</select></div>
           </div>
-          <fieldset><legend>Sectors you operate in</legend>
+          <fieldset class="sector-picker"><legend>Sectors you operate in</legend>
             <p class="hint">Free includes one sector. Pick more and we will record your interest. Sectors marked Planned are not released yet.</p>
             <div class="checks">{SECTORS.map((s) => (
               <label class="check"><input type="checkbox" name="sector" value={s.slug} checked={pre.includes(s.slug) || (!pre.length && s.slug === "freight-forwarding")} /><span>{s.name}<br /><span class="small mute">{s.availability === "planned" ? "Planned" : "Pilot"}</span></span></label>
@@ -62,7 +65,7 @@ auth.get("/start", (c) => {
           <button class="btn red" type="submit">Create my free workspace</button>
         </form>
         <p class="small">Already registered? <a href="/login">Sign in</a>.</p>
-      </div></section>
+      </AuthFrame>
     </PublicShell>,
   );
 });
@@ -90,18 +93,21 @@ auth.get("/login", (c) => {
   const next = c.req.query("next") ?? "";
   return c.html(
     <PublicShell p={p}>
-      <section class="block"><div class="auth card">
+      <AuthFrame>
+        <span class="eyebrow">WELCOME BACK</span>
         <h1>Sign in</h1>
+        <p class="mute">Your team, your records, your next move.</p>
         <Alerts p={p} />
         <form method="post" action="/login">
           <Csrf t={p.csrf} />
           <input type="hidden" name="next" value={next} />
           <div class="field"><label for="e">Email</label><input id="e" name="email" type="email" required autocomplete="username" /></div>
           <div class="field"><label for="p">Password</label><input id="p" name="password" type="password" required autocomplete="current-password" /></div>
-          <button class="btn" type="submit">Sign in</button>
+          <p class="small right"><a href="/forgot-password">Forgot password?</a></p>
+          <button class="btn red auth-submit" type="submit">Sign in</button>
         </form>
         <p class="small" style="margin-top:14px">New here? <a href="/start">Start free</a>.</p>
-      </div></section>
+      </AuthFrame>
     </PublicShell>,
   );
 });
@@ -115,7 +121,43 @@ auth.post("/login", async (c) => {
     if (r.staff) return c.redirect("/admin/mfa");
     return c.redirect(safeNext(str(b.next), "/app"));
   } catch (e) {
-    if (e instanceof HttpError && e.status < 500) return c.redirect("/login?err=" + encodeURIComponent(e.message));
+    if (e instanceof HttpError && e.status < 500) return c.redirect("/login?next=" + encodeURIComponent(safeNext(str(b.next), '/app')) + "&err=" + encodeURIComponent(e.message));
+    throw e;
+  }
+});
+
+auth.get('/forgot-password', c => {
+  const p = pg(c, 'Reset your password');
+  return c.html(<PublicShell p={p}><AuthFrame><span class="eyebrow">ACCOUNT RECOVERY</span><h1>Reset your password</h1><p class="mute">Enter your account email. If an account exists, we will send a link that works once and expires in one hour.</p><Alerts p={p} /><form method="post" action="/forgot-password"><Csrf t={p.csrf} /><div class="field"><label for="recovery-email">Email</label><input id="recovery-email" name="email" type="email" required autocomplete="email" maxlength={254} /></div><button class="btn red auth-submit" type="submit">Send reset link</button></form><p class="small" style="margin-top:20px"><a href="/login">Back to sign in</a></p></AuthFrame></PublicShell>);
+});
+
+auth.post('/forgot-password', async c => {
+  const b = await formBody(c);
+  try {
+    await requestPasswordRecovery(c.get('db'), str(b.email), clientIp(c));
+    return c.redirect('/forgot-password?ok=' + encodeURIComponent('If an account exists for this email, a reset link has been sent.'));
+  } catch (e) {
+    if (e instanceof HttpError && e.status < 500) return c.redirect('/forgot-password?err=' + encodeURIComponent(e.message));
+    throw e;
+  }
+});
+
+auth.get('/reset-password', c => {
+  const p = pg(c, 'Choose a new password');
+  // Do not leak the bearer link through referrers or retain it in intermediary caches.
+  c.header('Referrer-Policy', 'no-referrer'); c.header('Cache-Control', 'no-store');
+  return c.html(<PublicShell p={p}><AuthFrame><span class="eyebrow">ACCOUNT RECOVERY</span><h1>Choose a new password</h1><p class="mute">All existing sessions will be signed out. Your authenticator settings stay in place.</p><Alerts p={p} /><form method="post" action="/reset-password"><Csrf t={p.csrf} /><input type="hidden" name="token" value={c.req.query('token') || ''} /><div class="field"><label for="new-password">New password</label><input id="new-password" name="password" type="password" required minlength={10} autocomplete="new-password" /><p class="hint">At least 10 characters.</p></div><button class="btn red auth-submit" type="submit">Save new password</button></form><p class="small" style="margin-top:20px"><a href="/forgot-password">Request a new reset link</a></p></AuthFrame></PublicShell>);
+});
+
+auth.post('/reset-password', async c => {
+  c.header('Referrer-Policy', 'no-referrer'); c.header('Cache-Control', 'no-store');
+  const b = await formBody(c);
+  try {
+    await recoverPassword(c.get('db'), str(b.token), str(b.password), clientIp(c));
+    clearSessionCookie(c);
+    return c.redirect('/login?ok=' + encodeURIComponent('Password updated. Sign in with your new password.'));
+  } catch (e) {
+    if (e instanceof HttpError && e.status < 500) return c.redirect('/reset-password?token=' + encodeURIComponent(str(b.token)) + '&err=' + encodeURIComponent(e.message));
     throw e;
   }
 });

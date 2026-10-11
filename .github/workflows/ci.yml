@@ -56,6 +56,7 @@ jobs:
           curl --fail --silent http://localhost:3000/healthz >/dev/null
           npm run e2e
           npm run e2e:transport
+          npm run e2e:experience
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

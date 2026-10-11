@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import { config } from "../config.js";
-import { baseUrl } from "../lib/util.js";
+import { baseUrl, sha256 } from "../lib/util.js";
 import type { OutboxHandlers } from "../platform/outbox.js";
 import { decryptSecret } from "../lib/encryption.js";
 
@@ -46,6 +46,7 @@ const wrap = (title: string, paras: string[], cta?: { label: string; href: strin
 
 /** Pure templates: (payload facts) → subject/body. Unknown templates are never sent (the row is dead-lettered so a human sees the gap). */
 export const templates: Record<string, (d: Record<string, any>) => { subject: string; text: string; html: string }> = {
+  password_recovery: (d) => ({ subject: 'Reset your LOAD|BY|TON.store password', ...wrap('Reset your password', ['A password reset was requested for your account. This link expires in one hour and works once. If you did not request it, you can ignore this email.'], d.link ? { label: 'Reset password', href: d.link } : undefined) }),
   invitation: (d) => ({ subject: "You have been invited to LOAD|BY|TON.store", ...wrap("You have been invited", ["Someone on your team invited you to their workspace. Set your own password to join — the link works for 7 days."], d.link ? { label: "Accept the invitation", href: d.link } : undefined) }),
   payment_received: (d) => ({ subject: `Payment received · ${d.reference}`, ...wrap("Payment received", [`We received payment ${d.reference}. Your plan is being activated; you will get another email when your workspace is ready.`], d.link ? { label: "Open plan & billing", href: d.link } : undefined) }),
   workspace_ready: (d) => ({ subject: "Your workspace is ready", ...wrap("Your workspace is ready", ["Your upgraded workspace has been activated and checked. Everything you had before is still there."], d.link ? { label: "Open your workspace", href: d.link } : undefined) }),
@@ -65,6 +66,15 @@ export function mailHandlers(db: Db, mailer: Mailer = defaultMailer()): OutboxHa
         // The raw invitation token is stored encrypted in the queue; the link is built only at send time.
         if (p.tokenEncrypted) d = { ...p, link: `${baseUrl()}/invite/${decryptSecret(p.tokenEncrypted)}` };
         else if (!p.link) throw new PermanentMailError("Legacy invitation requires an owner to revoke and reissue a secure link");
+      }
+      else if (p.template === 'password_recovery') {
+        if (!p.tokenEncrypted) throw new PermanentMailError('Recovery token is unavailable');
+        const token = decryptSecret(p.tokenEncrypted);
+        const recovery = (await db.query<any>(`SELECT u.email FROM password_recoveries r JOIN users u ON u.id=r.user_id WHERE r.token_hash=$1 AND r.user_id=$2 AND r.consumed_at IS NULL AND r.expires_at>now()`, [sha256(token), p.userId])).rows[0];
+        // Expired or replaced requests are intentionally completed without delivery.
+        if (!recovery) return {};
+        to = [recovery.email];
+        d = { ...p, link: `${baseUrl()}/reset-password?token=${encodeURIComponent(token)}` };
       }
       else if (p.template === "payment_received") {
         const o = (await db.query<any>(`SELECT o.reference, u.email FROM orders o LEFT JOIN users u ON u.id=o.created_by WHERE o.id=$1`, [p.orderId])).rows[0];
