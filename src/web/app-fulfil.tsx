@@ -514,7 +514,7 @@ fulfil.get(`${F}/billing`, async (c) => {
     {rates ? (<div class="grid g2" style="margin-top:14px">
       <form method="post" action={`${F}/billing/rate`} class="card"><Csrf t={csrf} /><h3>Set a rate</h3><p class="small mute">Applies to activity from now on; charges already created keep their rate. A rate of 0 stops billing that activity.</p>
         <div class="field"><label for="rp">Merchant</label><select id="rp" name="party_id" required>{d.merchants.map((p: any) => <option value={p.id}>{p.name}</option>)}</select></div>
-        <div class="row"><div class="field"><label for="rc">Activity</label><select id="rc" name="code">{Object.entries(RATE_CODES).filter(([k])=>k!=="storage_location_day").map(([k, v]) => <option value={k}>{v}</option>)}</select></div>
+        <div class="row"><div class="field"><label for="rc">Activity</label><select id="rc" name="code">{Object.entries(RATE_CODES).filter(([k])=>!k.endsWith("_day")).map(([k, v]) => <option value={k}>{v}</option>)}</select></div>
           <div class="field"><label for="ra2">Rate (AED, ex-VAT)</label><input id="ra2" name="amount" type="number" min="0" step="0.01" required /></div>
           <div class="field"><label for="rt2">Tax code</label><select id="rt2" name="tax_code">{Object.entries(TAX_CODES).map(([k, v]) => <option value={k}>{k} · {v.label}</option>)}</select></div></div>
         <button class="btn ghost sm" type="submit">Save rate</button></form>

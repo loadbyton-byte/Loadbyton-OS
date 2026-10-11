@@ -922,7 +922,7 @@ export async function getFulfilOrder(c: Conn, id: string, ctx?:Ctx) {
     c.query<any>(`SELECT l.*, s.code, s.name, s.barcode, (l.qty - l.closed_qty - l.allocated_qty)::int AS waiting FROM fulfil_order_lines l JOIN skus s ON s.id=l.sku_id WHERE l.order_id=$1 ORDER BY s.code`, [id]),
     c.query<any>(`SELECT a.*, loc.code AS location, s.code AS sku_code, (a.qty - a.picked_qty)::int AS remaining FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id JOIN wh_locations loc ON loc.id=a.location_id JOIN skus s ON s.id=a.sku_id WHERE l.order_id=$1 ORDER BY loc.code, s.code`, [id]),
     c.query<any>(`SELECT * FROM fulfil_shipments WHERE order_id=$1`, [id]),
-    c.query<any>(`SELECT * FROM fulfil_charges WHERE order_id=$1 ORDER BY created_at`, [id]),
+    c.query<any>(`SELECT *, qty::float8 AS qty FROM fulfil_charges WHERE order_id=$1 ORDER BY created_at`, [id]),
     c.query<any>(`SELECT * FROM fulfil_returns WHERE order_id=$1 ORDER BY created_at`, [id]),
   ]);
   return { order:ctx?redactFulfilmentRecipient(order,ctx):order, lines: lines.rows, allocs: allocs.rows, shipment: shipment.rows[0] ?? null, charges: charges.rows, returns: returns.rows };
