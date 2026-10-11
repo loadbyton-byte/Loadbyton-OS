@@ -16,34 +16,49 @@ import { recordSpecialistEvent } from "./specialists.js";
  * (current calibration evidence, open status) accept it; otherwise it stays as a rejected reading with the reason. An out-of-range reading
  * puts the case on hold through the same path as a manual one; a person with approval authority decides the excursion.
  */
-const SECTOR = "cold-chain";
+/** What each sector's devices report. A reading becomes the named case event, subject to that sector's own rules in recordSpecialistEvent. */
+export const FEED_SECTORS = {
+  "cold-chain": { event: "temperature", noun: "logger", measure: "temperature" },
+  "automotive-logistics": { event: "yard", noun: "yard scanner", measure: "location" },
+} as const;
+type FeedSector = keyof typeof FEED_SECTORS;
+const isSector = (v: unknown): v is FeedSector => typeof v === "string" && v in FEED_SECTORS;
 export const deviceUrl = (token: string) => channelUrl(token).replace("/webhooks/inbound/", "/webhooks/devices/");
 
-async function gate(c: Conn, ctx: Ctx, perm: Perm = "specialist.write") {
+async function gate(c: Conn, ctx: Ctx, sector: FeedSector, perm: Perm = "specialist.write") {
   require(ctx, perm);
   await assertWritable(c, ctx.tenantId);
-  if (!(await c.query(`SELECT 1 FROM tenant_sectors WHERE sector=$1`, [SECTOR])).rows.length) throw forbidden("The cold-chain sector is not selected.");
+  if (!(await c.query(`SELECT 1 FROM tenant_sectors WHERE sector=$1`, [sector])).rows.length) throw forbidden(`The ${sector} sector is not selected.`);
+}
+/** Gate for an operation on an existing device: its own sector decides. */
+async function gateDevice(c: Conn, ctx: Ctx, deviceId: string) {
+  require(ctx, "specialist.write");
+  const d = await must(c.query<any>(`SELECT sector FROM specialist_devices WHERE id=$1`, [recordId(deviceId, "Device")]), "Device");
+  await gate(c, ctx, d.sector);
+  return d.sector as FeedSector;
 }
 
 export async function registerDevice(c: Conn, ctx: Ctx, f: Record<string, any>) {
-  await gate(c, ctx);
+  const sector = (f.sector ?? "cold-chain") as string;
+  if (!isSector(sector)) throw badRequest("Choose cold chain or automotive logistics.");
+  await gate(c, ctx, sector);
   const interval = Number(f.interval_minutes ?? 15);
   if (!Number.isInteger(interval) || interval < 1 || interval > 1440) throw badRequest("The logging interval is 1–1440 minutes.");
   const serial = reqStr(f.serial, "Logger serial number", 80), token = randomToken(24), secret = randomToken(32);
   const dup = await c.query(`SELECT 1 FROM specialist_devices WHERE serial=$1`, [serial]);
-  if (dup.rows.length) throw badRequest("A logger with that serial number is already registered.");
-  const id = (await c.query<any>(`INSERT INTO specialist_devices(tenant_id,label,serial,interval_minutes,token_hash,secret_enc,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [ctx.tenantId, reqStr(f.label, "Label", 80), serial, interval, sha256(token), encryptSecret(secret), ctx.userId])).rows[0].id;
+  if (dup.rows.length) throw badRequest("A device with that serial number is already registered.");
+  const id = (await c.query<any>(`INSERT INTO specialist_devices(tenant_id,label,serial,interval_minutes,token_hash,secret_enc,created_by,sector) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [ctx.tenantId, reqStr(f.label, "Label", 80), serial, interval, sha256(token), encryptSecret(secret), ctx.userId, sector])).rows[0].id;
   await audit(c, ctx.tenantId, actorOf(ctx), "device.registered", "specialist_device", id, { serial });
   return { id: id as string, url: deviceUrl(token), secret };        // shown once
 }
 export async function bindDevice(c: Conn, ctx: Ctx, deviceId: string, caseId: string, since?: string) {
-  await gate(c, ctx);
+  await gateDevice(c, ctx, deviceId);
   const d = await must(c.query<any>(`SELECT * FROM specialist_devices WHERE id=$1 FOR UPDATE`, [recordId(deviceId, "Logger")]), "Logger");
   if (d.status !== "active") throw badRequest("This logger is retired.");
   if (d.case_id && !d.unbound_at) throw badRequest("This logger is already bound to a case. Unbind it first.");
   const k = await must(c.query<any>(`SELECT id, sector, status FROM specialist_cases WHERE id=$1`, [recordId(caseId, "Case")]), "Case");
-  if (k.sector !== SECTOR) throw badRequest("Loggers are bound to cold-chain cases.");
+  if (k.sector !== d.sector) throw badRequest(`A ${FEED_SECTORS[d.sector as FeedSector].noun} is bound to ${d.sector} cases.`);
   if (!["ready", "active", "hold"].includes(k.status)) throw badRequest(`A ${k.status} case does not take readings.`);
   // monitoring starts when the goods and logger were loaded together, which may be a little before the binding is recorded
   let from = new Date();
@@ -52,16 +67,16 @@ export async function bindDevice(c: Conn, ctx: Ctx, deviceId: string, caseId: st
   await audit(c, ctx.tenantId, actorOf(ctx), "device.bound", "specialist_device", d.id, { case: k.id, from: from.toISOString() });
 }
 export async function unbindDevice(c: Conn, ctx: Ctx, deviceId: string) {
-  await gate(c, ctx);
+  await gateDevice(c, ctx, deviceId);
   await must(c.query(`UPDATE specialist_devices SET unbound_at=now() WHERE id=$1 AND case_id IS NOT NULL AND unbound_at IS NULL RETURNING id`, [recordId(deviceId, "Logger")]), "Bound logger");
   await audit(c, ctx.tenantId, actorOf(ctx), "device.unbound", "specialist_device", deviceId);
 }
 export async function retireDevice(c: Conn, ctx: Ctx, deviceId: string) {
-  await gate(c, ctx);
+  await gateDevice(c, ctx, deviceId);
   await must(c.query(`UPDATE specialist_devices SET status='retired', unbound_at=CASE WHEN case_id IS NOT NULL AND unbound_at IS NULL THEN now() ELSE unbound_at END WHERE id=$1 RETURNING id`, [recordId(deviceId, "Logger")]), "Logger");
 }
 
-export interface Reading { ref?: string; at: string; celsius: number }
+export interface Reading { ref?: string; at: string; celsius?: number; location?: string }
 export interface Outcome { ref: string; outcome: "ingested" | "rejected" | "duplicate"; reason?: string }
 
 /** Events from devices are recorded by a per-workspace service identity that can write readings and nothing else. */
@@ -80,14 +95,16 @@ export async function ingestReading(c: Conn, device: any, svc: Ctx, r: Reading, 
   const prior = (await c.query<any>(`SELECT outcome, recoverable, attempt FROM device_readings WHERE device_id=$1 AND reading_ref=$2 ORDER BY attempt DESC LIMIT 1`, [device.id, ref])).rows[0];
   if (prior && (prior.outcome === "ingested" || !prior.recoverable)) return { ref, outcome: "duplicate" };
   const attempt = prior ? prior.attempt + 1 : 1;
+  const yard = device.sector === "automotive-logistics";
   const insert = async (outcome: "ingested" | "rejected", reason: string | null, caseId: string | null, eventId: string | null, recoverable = false): Promise<Outcome> => {
-    const t = Number.isFinite(Number(r.celsius)) ? Math.max(-999, Math.min(999, Number(r.celsius))) : 0;
-    await c.query(`INSERT INTO device_readings(tenant_id,device_id,reading_ref,observed_at,celsius,outcome,reason,case_id,event_id,source,attempt,recoverable) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [device.tenant_id, device.id, ref, Number.isNaN(at.getTime()) ? new Date(0) : at, t, outcome, reason, caseId, eventId, source, attempt, recoverable]);
+    const t = yard ? null : Number.isFinite(Number(r.celsius)) ? Math.max(-999, Math.min(999, Number(r.celsius))) : 0;
+    await c.query(`INSERT INTO device_readings(tenant_id,device_id,reading_ref,observed_at,celsius,outcome,reason,case_id,event_id,source,attempt,recoverable,detail) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [device.tenant_id, device.id, ref, Number.isNaN(at.getTime()) ? new Date(0) : at, t, outcome, reason, caseId, eventId, source, attempt, recoverable, yard ? String(r.location ?? "").slice(0, 100) : null]);
     return { ref, outcome, reason: reason ?? undefined };
   };
   if (Number.isNaN(at.getTime())) return insert("rejected", "The reading time is not a valid date.", null, null);
-  if (typeof r.celsius !== "number" || !Number.isFinite(r.celsius) || r.celsius < -100 || r.celsius > 100) return insert("rejected", "The temperature is missing or outside −100…100 °C.", null, null);
+  if (yard) { if (typeof r.location !== "string" || !r.location.trim() || r.location.length > 100) return insert("rejected", "The yard location is missing or longer than 100 characters.", null, null); }
+  else if (typeof r.celsius !== "number" || !Number.isFinite(r.celsius) || r.celsius < -100 || r.celsius > 100) return insert("rejected", "The temperature is missing or outside −100…100 °C.", null, null);
   const live = (await c.query<any>(`SELECT case_id, bound_at, unbound_at, status FROM specialist_devices WHERE id=$1`, [device.id])).rows[0];
   if (live.status !== "active") return insert("rejected", "The logger is retired.", null, null);
   if (!live.case_id) return insert("rejected", "The logger is not bound to a case.", null, null, true);
@@ -96,7 +113,9 @@ export async function ingestReading(c: Conn, device: any, svc: Ctx, r: Reading, 
   if (at.getTime() > Date.now() + 300_000) return insert("rejected", "The reading time is in the future.", live.case_id, null);
   await c.query("SAVEPOINT reading");
   try {
-    const eventId = await recordSpecialistEvent(c, svc, live.case_id, "temperature", { celsius: Math.round(r.celsius * 100) / 100, observed_at: at.toISOString() }, `Logger ${device.serial}`, `dev:${device.serial}:${ref}`.slice(0, 120));
+    const eventId = yard
+      ? await recordSpecialistEvent(c, svc, live.case_id, "yard", { location: String(r.location).trim(), reference: `${device.serial}@${at.toISOString()}`.slice(0, 120) }, `Yard scanner ${device.serial} at ${at.toISOString()}`, `dev:${device.serial}:${ref}`.slice(0, 120))
+      : await recordSpecialistEvent(c, svc, live.case_id, "temperature", { celsius: Math.round(r.celsius! * 100) / 100, observed_at: at.toISOString() }, `Logger ${device.serial}`, `dev:${device.serial}:${ref}`.slice(0, 120));
     await c.query("RELEASE SAVEPOINT reading");
     return insert("ingested", null, live.case_id, eventId);
   } catch (e: any) {
@@ -131,8 +150,8 @@ export async function handleDeviceFeed(db: Db, token: string, req: FeedRequest):
     const p = JSON.parse(req.raw);
     const list = Array.isArray(p?.readings) ? p.readings : [];
     if (!list.length || list.length > 500) throw new Error("count");
-    readings = list.map((x: any) => ({ ref: x.id != null ? String(x.id) : undefined, at: String(x.at ?? x.time ?? ""), celsius: typeof x.celsius === "number" ? x.celsius : typeof x.c === "number" ? x.c : NaN }));
-  } catch { return { status: 400, body: { error: "send {\"readings\":[{\"id\",\"at\",\"celsius\"}]} with 1–500 readings" } }; }
+    readings = list.map((x: any) => ({ ref: x.id != null ? String(x.id) : undefined, at: String(x.at ?? x.time ?? ""), celsius: typeof x.celsius === "number" ? x.celsius : typeof x.c === "number" ? x.c : NaN, location: typeof x.location === "string" ? x.location : undefined }));
+  } catch { return { status: 400, body: { error: device.sector === "automotive-logistics" ? "send {\"readings\":[{\"id\",\"at\",\"location\"}]} with 1–500 readings" : "send {\"readings\":[{\"id\",\"at\",\"celsius\"}]} with 1–500 readings" } }; }
   const results = await processReadings(db, device, readings, "push");
   return { status: 200, body: { received: results.length, ingested: results.filter((r) => r.outcome === "ingested").length, rejected: results.filter((r) => r.outcome === "rejected").length, duplicates: results.filter((r) => r.outcome === "duplicate").length,
     rejections: results.filter((r) => r.outcome === "rejected").slice(0, 20).map((r) => ({ ref: r.ref, reason: r.reason })) } };
@@ -140,14 +159,15 @@ export async function handleDeviceFeed(db: Db, token: string, req: FeedRequest):
 
 /** A logger's downloaded CSV (UTC ISO times). Re-importing the same file adds nothing: readings are keyed by device and time. */
 export async function importLoggerCsv(db: Db, ctx: Ctx, deviceId: string, csv: string) {
-  const device = await db.tenant(ctx.tenantId, async (c) => { await gate(c, ctx); return must(c.query<any>(`SELECT * FROM specialist_devices WHERE id=$1`, [recordId(deviceId, "Logger")]), "Logger"); });
+  const device = await db.tenant(ctx.tenantId, async (c) => { await gateDevice(c, ctx, deviceId); return must(c.query<any>(`SELECT * FROM specialist_devices WHERE id=$1`, [recordId(deviceId, "Logger")]), "Logger"); });
   const rows = parseCsv(csv).filter((r) => r.some((x) => x.trim()));
   if (rows.length < 2) throw badRequest("The file has no readings.");
   if (rows.length > 20001) throw badRequest("Import up to 20,000 readings at a time.");
   const head = rows[0].map((h) => h.trim().toLowerCase());
-  const ti = head.findIndex((h) => ["time", "timestamp", "datetime", "at"].includes(h)), ci = head.findIndex((h) => ["celsius", "temperature", "temp", "temp_c", "c"].includes(h));
-  if (ti < 0 || ci < 0) throw badRequest("The file needs a time column (UTC, ISO 8601) and a temperature column in °C.");
-  const readings: Reading[] = rows.slice(1).map((r) => ({ at: (r[ti] ?? "").trim(), celsius: Number((r[ci] ?? "").replace(",", ".")) }));
+  const yard = device.sector === "automotive-logistics";
+  const ti = head.findIndex((h) => ["time", "timestamp", "datetime", "at"].includes(h)), ci = head.findIndex((h) => (yard ? ["location", "yard", "zone", "bay"] : ["celsius", "temperature", "temp", "temp_c", "c"]).includes(h));
+  if (ti < 0 || ci < 0) throw badRequest(yard ? "The file needs a time column (UTC, ISO 8601) and a location column." : "The file needs a time column (UTC, ISO 8601) and a temperature column in °C.");
+  const readings: Reading[] = rows.slice(1).map((r) => yard ? ({ at: (r[ti] ?? "").trim(), location: (r[ci] ?? "").trim() }) : ({ at: (r[ti] ?? "").trim(), celsius: Number((r[ci] ?? "").replace(",", ".")) }));
   const out: Outcome[] = [];
   for (let i = 0; i < readings.length; i += 500) out.push(...await processReadings(db, device, readings.slice(i, i + 500), "csv"));
   await db.tenant(ctx.tenantId, (c) => audit(c, ctx.tenantId, actorOf(ctx), "device.csv_imported", "specialist_device", device.id, { rows: readings.length }));
