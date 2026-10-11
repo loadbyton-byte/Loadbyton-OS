@@ -16,10 +16,12 @@ export const FIELD_POLICY: Record<string, Record<string, import('./perms.js').Pe
  parties:{email:['party.write','finance.write'],phone:['party.write','finance.write'],tax_id:['party.write','finance.write']},
  dlv_shipments:{consignee_name:['dlv.write'],consignee_phone:['dlv.write'],address:['dlv.write'],delivered_to:['dlv.write']},
  drivers:{phone:['transport.write'],licence_no:['transport.write']},
+ inbound_events:{sender:['inbox.write'],sender_norm:['inbox.write'],sender_name:['inbox.write'],subject:['inbox.write'],body:['inbox.write']},
+ contact_identities:{address:['inbox.write','party.write']},
 };
 export const canReadField=(table:string,field:string,ctx:Ctx)=>{const need=FIELD_POLICY[table]?.[field];return !need||(!ctx.supportStaffId&&need.some(p=>ctx.perms.has(p)));};
 export function redactFields<T extends Record<string,any>>(table:string,row:T,ctx:Ctx):T{
  const rules=FIELD_POLICY[table];if(!rules)return row;let out:Record<string,any>|null=null;
- for(const f of Object.keys(rules))if(f in row&&row[f]!==null&&!canReadField(table,f,ctx)){out??={...row};out[f]=typeof row[f]==='string'&&['consignee_name','delivered_to','address'].includes(f)?'Restricted':null;}
+ for(const f of Object.keys(rules))if(f in row&&row[f]!==null&&!canReadField(table,f,ctx)){out??={...row};out[f]=typeof row[f]==='string'&&['consignee_name','delivered_to','address','sender','sender_name','subject','body'].includes(f)?'Restricted':null;}
  return (out??row) as T;
 }

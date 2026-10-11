@@ -9,6 +9,7 @@ export const RETENTION_SUBJECTS = {
   fulfil_recipient: "Fulfilment recipient name, phone and address on shipped or cancelled orders",
   delivery_consignee: "Delivery consignee name, phone, address and received-by on completed parcels",
   driver_positions: "Driver GPS positions recorded during trips (deleted, not anonymised)",
+  inbound_messages: "Sender details and text copied from inbound email, WhatsApp and call events (the conversation record itself is kept)",
 } as const;
 export type RetentionSubject = keyof typeof RETENTION_SUBJECTS;
 
@@ -33,6 +34,12 @@ const SQL = {
 SQL.driver_positions = {
   count: `SELECT count(*)::int n FROM trip_positions p WHERE p.effective_time < now() - make_interval(days => $1) AND NOT EXISTS (SELECT 1 FROM privacy_legal_holds h WHERE h.released_at IS NULL AND h.party_id IS NULL)`,
   run: `DELETE FROM trip_positions WHERE id IN (SELECT p.id FROM trip_positions p WHERE p.effective_time < now() - make_interval(days => $1) AND NOT EXISTS (SELECT 1 FROM privacy_legal_holds h WHERE h.released_at IS NULL AND h.party_id IS NULL) ORDER BY p.effective_time, p.id LIMIT $2) RETURNING 1`,
+};
+
+SQL.inbound_messages = {
+  count: `SELECT count(*)::int n FROM inbound_events e WHERE e.anonymised_at IS NULL AND e.received_at < now() - make_interval(days => $1) AND ${HOLD("e.party_id")}`,
+  run: `UPDATE inbound_events SET sender=NULL, sender_norm='anonymised', sender_name=NULL, subject=NULL, body=NULL, anonymised_at=now(), status=CASE WHEN status='unmatched' THEN 'ignored' ELSE status END
+    WHERE id IN (SELECT e.id FROM inbound_events e WHERE e.anonymised_at IS NULL AND e.received_at < now() - make_interval(days => $1) AND ${HOLD("e.party_id")} ORDER BY e.received_at, e.id LIMIT $2) RETURNING 1`,
 };
 
 const owner = (ctx: Ctx) => { require(ctx, "settings.manage"); if (!ctx.roles.includes("owner")) throw forbidden("Retention and legal-hold decisions are made by the workspace owner."); };
