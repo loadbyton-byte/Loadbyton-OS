@@ -1,15 +1,15 @@
-import { rateLimit, resetRateLimits } from "../lib/ratelimit.js";
 import type { Db } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { permsFor, type Ctx } from "../lib/perms.js";
-import { HttpError, hashPassword, randomToken, sha256, verifyPassword, verifyTotp } from "../lib/util.js";
+import { HttpError, hashPassword, randomToken, sha256, verifyPassword, verifyTotp, totp } from "../lib/util.js";
+import { rateLimit, resetRateLimits } from "../adapters/rate-limit.js";
 
 const SESSION_HOURS = 12;
 // verifying against a dummy hash keeps unknown-email timing close to wrong-password timing
 let dummyHash: string | null = null;
 
 export interface Session {
-  token: string; userId: string; tenantId: string | null; csrf: string; mfaOk: boolean; supportTenantId: string | null;
+  token: string; userId: string; tenantId: string | null; csrf: string; mfaOk: boolean; companyMfaOk: boolean; supportTenantId: string | null;
   isStaff: boolean; staffRole: string | null; name: string; email: string;
 }
 
@@ -30,7 +30,7 @@ export async function loadSession(db: Db, token: string | undefined): Promise<Se
   const s = r.rows[0];
   if (!s) return null;
   return {
-    token, userId: s.user_id, tenantId: s.tenant_id, csrf: s.csrf, mfaOk: s.mfa_ok, supportTenantId: s.support_tenant_id,
+    token, userId: s.user_id, tenantId: s.tenant_id, csrf: s.csrf, mfaOk: s.mfa_ok, companyMfaOk: s.company_mfa_ok, supportTenantId: s.support_tenant_id,
     isStaff: !!s.staff_role && s.staff_active, staffRole: s.staff_role, name: s.name, email: s.email,
   };
 }
@@ -42,13 +42,13 @@ export async function revokeAllSessions(db: Db, userId: string) {
   await db.query(`UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, [userId]);
 }
 
-// Sign-in throttle per email+ip: shared across instances when Upstash is configured (see lib/ratelimit.ts), per-process otherwise.
-const throttle = (key: string) => rateLimit(`auth:${key}`, 8, 15 * 60, "Too many sign-in attempts. Try again in a few minutes.");
 export const resetThrottle = resetRateLimits;
 
 export async function login(db: Db, email: string, password: string, ip = "") {
   const e = email.trim().toLowerCase();
-  await throttle(`${e}|${ip}`);
+  // Per-IP budget across all emails stops spraying. There is deliberately no per-account cap: it would let anyone lock a known user out.
+  await rateLimit(`login-ip:${ip}`,40);
+  await rateLimit(`login:${e}|${ip}`);
   const u = (await db.query<any>(`SELECT id,password_hash FROM users WHERE email=$1`, [e])).rows[0];
   dummyHash ??= await hashPassword("dummy-password-for-timing");
   const ok = await verifyPassword(password, u?.password_hash ?? dummyHash);
@@ -67,8 +67,12 @@ export async function completeMfa(db: Db, token: string, code: string) {
   const s = await loadSession(db, token);
   if (!s || !s.isStaff) throw new HttpError(403, "Not a platform staff account.", "forbidden");
   const st = (await db.query<any>(`SELECT totp_secret FROM platform_staff WHERE user_id=$1`, [s.userId])).rows[0];
-  await throttle(`mfa|${s.userId}`);
+  await rateLimit(`mfa|${s.userId}`);
   if (!verifyTotp(st.totp_secret, code)) throw new HttpError(401, "That code is not valid.", "unauthorized");
+  const steps=[-1,0,1].map(w=>Math.floor(Date.now()/30000)+w);
+  // Consume exactly the matching timestep; the same code cannot authorize another session.
+  const matching=steps.find(n=>totp(st.totp_secret,n*30000)===code.trim());
+  if(matching===undefined || !(await db.query(`UPDATE platform_staff SET last_totp_step=$2 WHERE user_id=$1 AND last_totp_step<$2 RETURNING user_id`,[s.userId,matching])).rows.length) throw new HttpError(401,'This code was already used. Wait for the next code.');
   await db.query(`UPDATE sessions SET mfa_ok=true WHERE token_hash=$1`, [sha256(token)]);
   await db.system((c) => audit(c, null, { kind: "platform_staff", userId: s.userId }, "staff.mfa_ok"));
 }
@@ -93,9 +97,14 @@ export async function resolveCtx(db: Db, s: Session, hostSlug?: string | null): 
   let tenantId = s.tenantId;
   if (hostSlug) {
     const m = (await membershipsFor(db, s.userId)).find((x) => x.slug === hostSlug);
-    if (m) tenantId = m.tenant_id;
+    if(m)tenantId=m.tenant_id;
+    else if(!s.supportTenantId)return null;
   }
   if (s.supportTenantId && s.isStaff && s.mfaOk) {
+    if(hostSlug) {
+      const target=(await db.query<any>(`SELECT slug FROM tenants WHERE id=$1`,[s.supportTenantId])).rows[0];
+      if(target?.slug!==hostSlug)return null;
+    }
     const g = (await db.query<any>(
       `SELECT 1 FROM support_grants WHERE tenant_id=$1 AND staff_user_id=$2 AND status='approved' AND expires_at > now()`, [s.supportTenantId, s.userId])).rows;
     if (!g.length) return null;

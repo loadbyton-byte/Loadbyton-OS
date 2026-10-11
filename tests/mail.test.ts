@@ -16,7 +16,8 @@ describe("transactional email", () => {
     const t = await newTenant(db);
     const token = await db.tenant(t.tenantId, (c) => invite(c, t.ctx, { email: "New.Person@Example.com", roles: ["sales"] }));
     const before = (await db.query<any>(`SELECT payload FROM outbox WHERE topic='email' AND tenant_id=$1 ORDER BY created_at DESC LIMIT 1`, [t.tenantId])).rows[0].payload;
-    expect(before.link).toContain(`/invite/${token}`);
+    expect(before.link).toBeUndefined();   // the raw token is never queued in clear: only its encrypted form
+    expect(JSON.stringify(before)).not.toContain(token);expect(before.tokenEncrypted).toBeTruthy();
     const { sent, m } = capture();
     await drain(m);
     const msg = sent.find((x) => x.to === "new.person@example.com")!;

@@ -378,8 +378,8 @@ describe("billing activity", () => {
     const s = await shop({ rates: true }), t = T(s);
     await stockIn(s, "TEE-M", 2, s.A); await stockIn(s, "MUG", 2, s.B); await stockIn(s, "MUG", 1, s.A);
     const month = new Date().toISOString().slice(0, 7);
-    expect(await t((c, x) => runStorageCharges(c, x, month))).toEqual({ created: 1, already: 0, noRate: 0 });
-    expect(await t((c, x) => runStorageCharges(c, x, month))).toEqual({ created: 0, already: 1, noRate: 0 });
+    expect(await t((c, x) => runStorageCharges(c, x, month))).toEqual({ created: 1, already: 0, noRate: 0, dailyContracts: 0 });
+    expect(await t((c, x) => runStorageCharges(c, x, month))).toEqual({ created: 0, already: 1, noRate: 0, dailyContracts: 0 });
     await expect(t((c, x) => runStorageCharges(c, x, "2999-01"))).rejects.toThrow(/future month/);
     const storage = (await db.query<any>(`SELECT qty, unit_minor FROM fulfil_charges WHERE code='storage_location_month' AND tenant_id=$1`, [s.t.tenantId])).rows[0];
     expect({ qty: storage.qty, unit: Number(storage.unit_minor) }).toEqual({ qty: 2, unit: 1000 });
@@ -393,7 +393,7 @@ describe("billing activity", () => {
 
     const bare = await shop();                                                          // no rate card at all
     await stockIn(bare, "TEE-M", 1, bare.A);
-    expect(await T(bare)((c, x) => runStorageCharges(c, x, month))).toEqual({ created: 0, already: 0, noRate: 1 });
+    expect(await T(bare)((c, x) => runStorageCharges(c, x, month))).toEqual({ created: 0, already: 0, noRate: 1, dailyContracts: 0 });
     expect(await T(bare)((c) => billingSummary(c))).toEqual([]);
     await clean();
   });

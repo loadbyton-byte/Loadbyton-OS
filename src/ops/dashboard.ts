@@ -47,7 +47,7 @@ export async function ownerDashboard(c: Conn, tenantId: string) {
   const conc = (await c.query<any>(
     `SELECT p.name, sum(i.subtotal_minor) AS n FROM invoices i JOIN parties p ON p.id=i.party_id WHERE i.status<>'void' GROUP BY p.name ORDER BY 2 DESC`)).rows;
   const concTotal = conc.reduce((a, r) => a + Number(r.n), 0);
-  const unsynced = (await c.query<any>(`SELECT count(*)::int n FROM invoices WHERE sync_status IN ('pending','failed')`)).rows[0].n;
+  const unsynced = (await c.query<any>(`SELECT count(*)::int n FROM invoices WHERE sync_status<>'synced' AND status<>'void'`)).rows[0].n;
   const sub = (await c.query<any>(
     `SELECT s.status, s.period_end, pv.name AS plan, pv.plan_code FROM subscriptions s JOIN plan_versions pv ON pv.id=s.plan_version_id WHERE s.tenant_id=$1`, [tenantId])).rows[0];
   const limits = await getLimits(c, tenantId);

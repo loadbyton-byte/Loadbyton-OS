@@ -10,3 +10,56 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          # Disposable CI credentials; never used by application deployments.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test -- --maxWorkers=1 --no-file-parallelism
+        env:
+          TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Forwarding and transport receipts browser acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm start > /tmp/loadbyton-browser-server.log 2>&1 &
+          browser_server_pid=$!
+          trap 'kill "$browser_server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3000/healthz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://localhost:3000/healthz >/dev/null
+          npm run e2e
+          npm run e2e:transport
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-evidence
+          path: |
+            /tmp/loadbyton-browser-server.log
+            /tmp/loadbyton-e2e/shots

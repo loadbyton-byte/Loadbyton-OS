@@ -292,7 +292,7 @@ warehouse.get(`${W}/counts`, async (c) => {
   const d = await withT(c, async (cn) => ({ counts: await listCounts(cn), warehouses: await listWarehouses(cn), locations: await listLocations(cn) }));
   const csrf = c.get("csrf");
   return appPage(c, "Counts", (<>
-    <PageHead title="Cycle counts" sub="Counters do not see the system quantity. A different person approves each variance, and only if the stock has not moved since the sheet was cut." />
+    <PageHead title="Cycle counts" sub="Counters do not see the system quantity. A different person approves each variance, and only if the stock has not moved since the sheet was cut."><a class="btn ghost sm" href={`${W}/count-schedules`}>Reviewed count schedules</a></PageHead>
     <Table head={["Count", "Warehouse", "Scope", ["Lines", "num"], ["Variances", "num"], "Status", "Started"]} empty={d.counts.length ? undefined : "No counts yet."}>
       {d.counts.map((k: any) => <tr><td><a href={`${W}/counts/${k.id}`}>{k.no}</a></td><td>{k.warehouse_code}</td><td>{k.loc_code ?? "whole warehouse"}</td><td class="num">{k.lines}</td><td class="num">{k.status === "open" ? "—" : k.variances}</td><td><Badge s={k.status} /></td><td class="small">{dt(k.created_at)}</td></tr>)}</Table>
     {can(c, "wh.write") && d.warehouses.length ? (
@@ -318,6 +318,7 @@ warehouse.get(`${W}/counts/:id`, async (c) => {
       <Badge s={k.status} />
       {k.status === "open" && w ? <><PostBtn action={`${W}/counts/${id}/submit`} csrf={csrf} label="Submit for approval" cls="red sm" /><Confirm action={`${W}/counts/${id}/cancel`} csrf={csrf} label="Cancel count" confirm="Cancel this count? Nothing will be adjusted." /></> : null}
     </PageHead>
+    {k.assigned_to?<p>Assigned counter: {k.assigned_counter??'Ask an owner to review the assignment'}.</p>:null}
     <Table head={["Customer", "SKU", "Location", "Lot", ...(showSystem ? [["System", "num"] as [string, string]] : []), ["Counted", "num"], ...(showSystem ? [["Variance", "num"] as [string, string]] : []), "Status", ""]}>
       {d.lines.map((l: any) => { const v = l.counted_qty == null ? null : Math.round((Number(l.counted_qty) - Number(l.system_qty)) * 1000) / 1000;
         return <tr><td>{l.owner_name}</td><td>{l.sku_code}<div class="small mute">{l.sku_desc}</div></td><td>{l.loc_code}</td><td>{l.lot || "—"}</td>
@@ -369,7 +370,7 @@ warehouse.get(`${W}/setup`, async (c) => {
     <h3>SKUs</h3>
     <Table head={["Customer", "SKU", "Description", "Unit"]} empty={d.skus.length ? undefined : "No SKUs yet."}>{d.skus.map((s: any) => <tr><td>{s.owner_name}</td><td>{s.code}</td><td>{s.description}</td><td>{s.uom}</td></tr>)}</Table>
     {w && d.customers.length ? <form method="post" action={`${W}/setup/sku`} class="inline-form" style="margin-top:10px"><Csrf t={csrf} />
-      <select name="owner_id" aria-label="Customer">{d.customers.map((p: any) => <option value={p.id}>{p.name}</option>)}</select><input name="code" type="text" placeholder="SKU code" required /><input name="description" type="text" placeholder="Description" required /><input name="uom" type="text" placeholder="Unit (carton, pallet…)" /><button class="btn ghost sm" type="submit">Add SKU</button></form> : null}
+      <select name="owner_id" aria-label="Customer">{d.customers.map((p: any) => <option value={p.id}>{p.name}</option>)}</select><input name="code" type="text" placeholder="SKU code" required /><input name="description" type="text" placeholder="Description" required /><input name="uom" type="text" placeholder="Unit (carton, pallet…)" /><select name="rotation" aria-label="Stock rotation"><option value="fifo">FIFO</option><option value="fefo">FEFO (expiry required)</option></select><select name="tracking" aria-label="Tracking"><option value="none">Untracked</option><option value="lot">Lot / batch</option><option value="serial">Individual serial</option></select><button class="btn ghost sm" type="submit">Add SKU</button></form> : null}
     {w && !d.customers.length ? <p class="hint">Add a customer under <a href="/app/parties">Customers &amp; suppliers</a> to hold stock for them.</p> : null}
   </>));
 });

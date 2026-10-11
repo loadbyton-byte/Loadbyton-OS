@@ -1,4 +1,4 @@
-# Decisions required before implementation continues (blueprint §32)
+# Decision register (blueprint §32)
 
 | # | Decision | Where the code is waiting |
 |---|---|---|
@@ -23,7 +23,7 @@
 | 14 | Route-estimate / live-GPS provider (and its consent + retention policy) | Estimated km is a manual figure; no tracking; `capture_location` is off by default and only gates POD coordinates |
 | 15 | Driver app: browser PWA with service worker vs native app | Today: server-rendered page + localStorage queue; add a service worker if drivers must open it offline |
 | 16 | Trip billing unit and plan allowances (`trips_per_month`) | Hypotheses equal to the jobs allowance; plan v2 |
-| 17 | Fuel/toll policy (who approves, limits, receipt upload) | One independent approver, no receipt upload yet |
+| 17 | Fuel/toll policy (who approves, limits, receipt upload) | Current issued trip-linked receipts and an independent approver, including owners, are required for new expense approval. Driver/office uploads retain immutable receipt versions; legacy decisions need evidence review; fuel/toll provider feeds and company-specific caps remain pending |
 | 18 | Salik/toll and fuel-card integrations | Not built |
 
 ## Added with E-commerce fulfilment
@@ -33,12 +33,12 @@
 | 19 | Fulfilment billing unit and plan allowances (`fulfilment_orders_per_month`: 50 / 500 / 2,000 / 8,000 / 100,000) | Hypotheses in `PLAN_SEEDS`; plan v3. v1/v2 subscriptions fall back to their jobs allowance |
 | 20 | Marketplace / storefront connector provider and order-ingestion contract (Shopify, Noon, Amazon, WooCommerce, REST) | Orders enter by form or CSV, idempotent on (merchant, external ref). No connectors, so marketplace stock levels are not pushed back |
 | 21 | Carrier label and tracking provider(s) | Carrier and tracking number are typed in at dispatch; tracking is unique per carrier. No labels, rates or status feeds |
-| 22 | COD handling (belongs with Delivery) | Not stored or reconciled at all. Do not offer COD fulfilment until the Delivery module exists |
-| 23 | Storage billing basis (pallet/cbm/location, daily accrual vs month-end snapshot) | `runStorageCharges` bills the locations occupied *when run*, once per merchant per month |
+| 22 | COD handling (belongs with Delivery) | Delivery/COD now stores collections, handovers, independent variance decisions and bounded remittances. Committed UAE Own fleet fulfilment dispatch now links to one immutable source parcel. COD corrections/recovery/refunds and formal shortage accounting remain pending |
+| 23 | Storage billing basis (pallet/cbm/location, daily accrual vs month-end snapshot) | Reviewed future AED daily contracts accrue closed Dubai-day occupied bin/receiving/quarantine locations from the movement ledger. Monthly snapshots skip months covered by daily terms. Pallet/cbm/peak pricing and amendments still need agreed models |
 | 24 | Lot/batch/expiry/serial tracking and FEFO | Not built; required before food, cosmetics with expiry, or electronics with serials |
-| 25 | Count policy: who may approve, variance thresholds, scheduled cycle counts | Every non-zero variance needs a *different* approver (owner may approve their own because small tenants have one user); no thresholds or schedule |
+| 25 | Count policy: who may approve, variance thresholds, scheduled cycle counts | Every non-zero variance requires a different approver, including owners. Reviewed count schedules/value tiers currently belong to the separate custody pack; fulfilment count schedules and monetary adjustment thresholds remain pending |
 | 26 | Shortage policy: backorder vs. partial shipment per merchant; short-pick investigation SLA | Default is "ship complete" (all-or-nothing); partial is a per-order flag; a short pick raises a 4-hour task |
-| 27 | Recipient personal-data retention, deletion and who may see it | Names, phones and addresses are kept on orders indefinitely and are readable by every non-portal/driver staff role; no anonymisation job or field-level restriction (links to #8 retention workflow) |
+| 27 | Recipient personal-data retention, deletion and who may see it | Recipient names, phones and addresses are restricted to fulfilment operators or the bound merchant on views, packing slips and structured order exports, including search restrictions. Support grants hide these fields. Scheduled minimisation and broader legacy/free-text/document policy remain pending |
 | 28 | Multi-warehouse / multi-site stock and inter-site transfer | One stock pool per workspace |
 | 29 | Hand-held scanner / label printer hardware | Packing accepts a typed or keyboard-wedge scan; no mobile pick app (the driver-app pattern could be reused) |
 
@@ -47,10 +47,10 @@
 
 | # | Decision | Where the code is waiting |
 |---|---|---|
-| 30 | Warehouse billing unit and plan allowances (`wh_orders_per_month`) | Hypotheses equal to the jobs allowance; plan v3. Alternatives: per scan/line, per pallet position |
+| 30 | Warehouse billing unit and plan allowances (`wh_orders_per_month`) | Hypotheses equal to the jobs allowance; plan v4. Alternatives: per scan/line, per pallet position |
 | 31 | Storage billing basis: per unit-day (today) vs per pallet position or per cbm | `accrueStorage` uses end-of-day units on hand; pallet/cbm needs SKU master data (units per pallet, dimensions) |
-| 32 | Who may release stock from quarantine and who approves count adjustments (and value thresholds) | `wh.approve` = owner, finance, coordinator; counter ≠ approver (owner excepted). No value-based tiers |
-| 33 | Stock rotation policy: FIFO by received date today; FEFO/expiry, lot-controlled and serial-tracked goods | `first_received_at`; lots are free text; no expiry |
+| 32 | Who may release stock from quarantine and who approves count adjustments (and value thresholds) | `wh.approve` = owner, finance, coordinator; counter ≠ approver, including owners. Reviewed high-value/standard/low-value count tiers are explicit policies; monetary adjustment thresholds remain pending |
+| 33 | Stock rotation policy | Custody SKUs choose FIFO/FEFO and none/lot/serial tracking at creation. Source-evidenced expiry/serial identities and quality holds are enforced. Fulfilment uses its separate inventory model and still needs equivalent controls. |
 | 34 | Barcode/RF scanning hardware and a WMS/ERP integration | Scan/retry references exist (`client_ref`); no hardware or integration |
 | 35 | Backorders, partial-shipment policy and returns | Partial allocation closes the shortfall; no returns flow (belongs with E-commerce fulfilment) |
 | 36 | Insurance / liability cut-off for custody stock and bonded goods | Not modelled; bonded warehousing is explicitly out of scope (see /coverage) |

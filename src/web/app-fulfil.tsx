@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import {listPage,canReadFulfilmentRecipient} from "../lib/data-policy.js";
 import { Hono } from "hono";
 import { HttpError, formatDate, formatDay } from "../lib/util.js";
 import { TAX_CODES } from "../lib/util.js";
@@ -11,7 +12,7 @@ import {
 import { RATE_CODES, billingSummary, invoiceMerchant, listRates, runStorageCharges, setRate, unbilledForParty } from "../ops/fulfil-billing.js";
 import { listParties } from "../ops/crm.js";
 import { formBody, str, type Env } from "./mw.js";
-import { act, appPage, can, Confirm, need, PageHead, PostBtn, withT } from "./appkit.js";
+import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table } from "./ui.js";
 
 export const fulfil = new Hono<Env>();
@@ -20,6 +21,8 @@ const dt = (v: any) => (v ? formatDate(v) : "—");
 const tok = () => crypto.randomUUID();
 const CARRIERS = ["Aramex", "DHL", "FedEx", "SMSA", "Emirates Post", "Fetchr", "Own fleet", "Other"];
 const STATUS_LABEL: Record<string, string> = { new: "new", backordered: "waiting for stock", allocated: "ready to pick", picking: "picking", picked: "picked", packed: "packed", shipped: "shipped", cancelled: "cancelled" };
+const pageNumber=(p:string|undefined)=>listPage(Number.parseInt(p??'1'));
+const Pages=({page,more,q='',status=''}:{page:number;more:boolean;q?:string;status?:string})=><nav aria-label="Record pages">{page>1?<a href={`?${new URLSearchParams({page:String(page-1),q,status})}`}>Previous</a>:null} Page {page} {more?<a href={`?${new URLSearchParams({page:String(page+1),q,status})}`}>Next</a>:null}</nav>;
 const OSt = ({ s }: { s: string }) => <Badge s={s === "backordered" ? "warn" : s === "shipped" ? "delivered" : s} label={STATUS_LABEL[s] ?? s} />;
 
 const summarise = (r: { created: number; duplicates: string[]; rejected: { line: number; reason: string }[] }, dry: boolean) =>
@@ -68,18 +71,19 @@ fulfil.post(`${F}/allocate-waiting`, async (c) => act(c, F, async () => {
 
 // ───────── orders
 fulfil.get(`${F}/orders`, async (c) => {
-  const q = c.req.query("q") ?? "", st = c.req.query("status") ?? "";
-  const rows = await withT(c, (cn) => listFulfilOrders(cn, { status: st || null, q }));
+  const q = c.req.query("q") ?? "", st = c.req.query("status") ?? "", page=pageNumber(c.req.query("page"));
+  const rows = await withT(c, (cn,ctx) => listFulfilOrders(cn, { status: st || null, q,page,ctx }));
   return appPage(c, "Fulfilment orders", (<>
     <PageHead title="Orders" sub="Each order reserves stock the moment it is entered, or waits — it never half-reserves unless the merchant allows partial shipment.">
       {can(c, "wh.write") ? <><a class="btn red sm" href={`${F}/orders/new`}>New order</a><a class="btn sm" href={`${F}/orders/import`}>Import CSV</a></> : null}
     </PageHead>
-    <form method="get" class="inline-form no-print" style="margin-bottom:12px"><input name="q" type="search" placeholder="Order no., reference, recipient, tracking" value={q} style="min-width:280px" />
+    <form method="get" class="inline-form no-print" style="margin-bottom:12px"><input name="q" type="search" placeholder={canReadFulfilmentRecipient(ctxOf(c))?'Order no., reference, recipient, tracking':'Order no., reference, tracking'} value={q} style="min-width:280px" />
       <select name="status"><option value="">All statuses</option>{Object.keys(STATUS_LABEL).map((k) => <option value={k} selected={k === st}>{STATUS_LABEL[k]}</option>)}</select><button class="btn ghost sm" type="submit">Filter</button></form>
     <Table head={["Order", "Merchant", "Reference", "Recipient", ["Units", "num"], "Ship by", "Status", "Tracking"]} empty={rows.length ? undefined : "No orders match."}>
-      {rows.map((o: any) => <tr><td><a href={`${F}/orders/${o.id}`}>{o.no}</a></td><td>{o.party_name}</td><td class="small">{o.external_ref}<div class="mute">{o.channel}</div></td><td class="small">{o.ship_to_name}<div class="mute">{o.ship_to_city ?? ""}</div></td>
+      {rows.slice(0,50).map((o: any) => <tr><td><a href={`${F}/orders/${o.id}`}>{o.no}</a></td><td>{o.party_name}</td><td class="small">{o.external_ref}<div class="mute">{o.channel}</div></td><td class="small">{o.ship_to_name}<div class="mute">{o.ship_to_city ?? ""}</div></td>
         <td class="num">{o.units}</td><td class="small">{dt(o.ship_by)} {o.late ? <Badge s="bad" label="late" /> : null}</td><td><OSt s={o.status} /></td><td class="small">{o.tracking_no ? `${o.carrier} ${o.tracking_no}` : "—"}</td></tr>)}
     </Table>
+    <Pages page={page} more={rows.length>50} q={q} status={st}/>
   </>));
 });
 
@@ -142,7 +146,7 @@ fulfil.post(`${F}/orders/import`, async (c) => {
 
 fulfil.get(`${F}/orders/:id`, async (c) => {
   const id = c.req.param("id");
-  const d = await withT(c, (cn) => getFulfilOrder(cn, id));
+  const d = await withT(c, (cn,ctx) => getFulfilOrder(cn, id,ctx));
   const o = d.order, csrf = c.get("csrf"), floor = can(c, "wh.floor"), wr = can(c, "wh.write");
   const live = ["new", "backordered", "allocated", "picking", "picked", "packed"].includes(o.status);
   const waiting = d.lines.reduce((a: number, l: any) => a + l.waiting, 0);
@@ -210,12 +214,12 @@ fulfil.post(`${F}/orders/:id/ship`, async (c) => { const id = c.req.param("id"),
 
 fulfil.get(`${F}/orders/:id/slip`, async (c) => {
   const id = c.req.param("id");
-  const d = await withT(c, (cn) => getFulfilOrder(cn, id));
+  const d = await withT(c, (cn,ctx) => getFulfilOrder(cn, id,ctx));
   const o = d.order;
   return appPage(c, `Packing slip ${o.no}`, (<>
-    <PageHead title={`Packing slip ${o.no}`}><button class="btn ghost sm" data-print="1" type="button">Print</button></PageHead>
+    <PageHead title={`Packing slip ${o.no}`}>{canReadFulfilmentRecipient(ctxOf(c))?<button class="btn ghost sm" data-print="1" type="button">Print</button>:null}</PageHead>
     <div class="print-doc card"><h2>{o.party_name}</h2>
-      <p><strong>Deliver to:</strong> {o.ship_to_name}{o.ship_to_phone ? `, ${o.ship_to_phone}` : ""}<br />{o.ship_to_address}{o.ship_to_city ? `, ${o.ship_to_city}` : ""} ({o.ship_to_country})</p>
+      {canReadFulfilmentRecipient(ctxOf(c))?<p><strong>Deliver to:</strong> {o.ship_to_name}{o.ship_to_phone ? `, ${o.ship_to_phone}` : ""}<br />{o.ship_to_address}{o.ship_to_city ? `, ${o.ship_to_city}` : ""} ({o.ship_to_country})</p>:<p>Recipient details are restricted to warehouse operators and the owning merchant.</p>}
       <p>Order {o.external_ref} · {o.no}{d.shipment ? ` · ${d.shipment.carrier} ${d.shipment.tracking_no}` : ""}</p>
       <Table head={["SKU", "Item", ["Qty", "num"]]}>{d.lines.filter((l: any) => l.packed_qty > 0 || l.shipped_qty > 0).map((l: any) => <tr><td>{l.code}</td><td>{l.name}</td><td class="num">{l.shipped_qty || l.packed_qty}</td></tr>)}</Table></div>
   </>));
@@ -240,11 +244,12 @@ fulfil.post(`${F}/pick/:id/confirm`, async (c) => { const id = c.req.param("id")
 
 // ───────── inbound
 fulfil.get(`${F}/inbound`, async (c) => {
-  const rows = await withT(c, (cn) => listInbound(cn));
+  const page=pageNumber(c.req.query("page")),rows = await withT(c, (cn) => listInbound(cn,null,page));
   return appPage(c, "Inbound", (<>
     <PageHead title="Inbound deliveries" sub="Tell the warehouse what is coming; receive against it to put stock on the shelf."><a class="btn red sm" href={`${F}/inbound/new`}>Expect a delivery</a></PageHead>
     <Table head={["Inbound", "Merchant", "Reference", "Expected", ["Units expected", "num"], ["Received", "num"], "Status"]} empty={rows.length ? undefined : "Nothing yet."}>
-      {rows.map((i: any) => <tr><td><a href={`${F}/inbound/${i.id}`}>{i.no}</a></td><td>{i.party_name}</td><td class="small">{i.reference ?? "—"}</td><td class="small">{dt(i.expected_at)}</td><td class="num">{i.expected}</td><td class="num">{i.received}</td><td><Badge s={i.status === "received" ? "ok" : i.status} /></td></tr>)}</Table>
+      {rows.slice(0,50).map((i: any) => <tr><td><a href={`${F}/inbound/${i.id}`}>{i.no}</a></td><td>{i.party_name}</td><td class="small">{i.reference ?? "—"}</td><td class="small">{dt(i.expected_at)}</td><td class="num">{i.expected}</td><td class="num">{i.received}</td><td><Badge s={i.status === "received" ? "ok" : i.status} /></td></tr>)}</Table>
+    <Pages page={page} more={rows.length>50}/>
   </>));
 });
 fulfil.get(`${F}/inbound/new`, async (c) => {
@@ -423,11 +428,12 @@ fulfil.post(`${F}/locations/:id`, async (c) => { const id = c.req.param("id"), b
 
 // ───────── returns
 fulfil.get(`${F}/returns`, async (c) => {
-  const rows = await withT(c, (cn) => listReturns(cn));
+  const page=pageNumber(c.req.query("page")),rows = await withT(c, (cn) => listReturns(cn,null,page));
   return appPage(c, "Returns", (<>
     <PageHead title="Returns" sub="Expect a return, inspect on arrival, then restock, quarantine or dispose."><a class="btn red sm" href={`${F}/returns/new`}>Expect a return</a></PageHead>
     <Table head={["Return", "Merchant", "Order", "Reason", ["Units", "num"], "Status"]} empty={rows.length ? undefined : "No returns."}>
-      {rows.map((r: any) => <tr><td><a href={`${F}/returns/${r.id}`}>{r.no}</a></td><td>{r.party_name}</td><td>{r.order_no ?? "—"}</td><td class="small">{r.reason ?? "—"}</td><td class="num">{r.handled} / {r.expected}</td><td><Badge s={r.status === "received" ? "ok" : r.status} /></td></tr>)}</Table>
+      {rows.slice(0,50).map((r: any) => <tr><td><a href={`${F}/returns/${r.id}`}>{r.no}</a></td><td>{r.party_name}</td><td>{r.order_no ?? "—"}</td><td class="small">{r.reason ?? "—"}</td><td class="num">{r.handled} / {r.expected}</td><td><Badge s={r.status === "received" ? "ok" : r.status} /></td></tr>)}</Table>
+    <Pages page={page} more={rows.length>50}/>
   </>));
 });
 fulfil.get(`${F}/returns/new`, async (c) => {
@@ -494,11 +500,11 @@ fulfil.get(`${F}/billing`, async (c) => {
     {rates ? (<div class="grid g2" style="margin-top:14px">
       <form method="post" action={`${F}/billing/rate`} class="card"><Csrf t={csrf} /><h3>Set a rate</h3><p class="small mute">Applies to activity from now on; charges already created keep their rate. A rate of 0 stops billing that activity.</p>
         <div class="field"><label for="rp">Merchant</label><select id="rp" name="party_id" required>{d.merchants.map((p: any) => <option value={p.id}>{p.name}</option>)}</select></div>
-        <div class="row"><div class="field"><label for="rc">Activity</label><select id="rc" name="code">{Object.entries(RATE_CODES).map(([k, v]) => <option value={k}>{v}</option>)}</select></div>
+        <div class="row"><div class="field"><label for="rc">Activity</label><select id="rc" name="code">{Object.entries(RATE_CODES).filter(([k])=>k!=="storage_location_day").map(([k, v]) => <option value={k}>{v}</option>)}</select></div>
           <div class="field"><label for="ra2">Rate (AED, ex-VAT)</label><input id="ra2" name="amount" type="number" min="0" step="0.01" required /></div>
           <div class="field"><label for="rt2">Tax code</label><select id="rt2" name="tax_code">{Object.entries(TAX_CODES).map(([k, v]) => <option value={k}>{k} · {v.label}</option>)}</select></div></div>
         <button class="btn ghost sm" type="submit">Save rate</button></form>
-      <form method="post" action={`${F}/billing/storage`} class="card"><Csrf t={csrf} /><h3>Storage charge for a month</h3><p class="small mute"><strong>Snapshot, not daily accrual:</strong> counts the locations holding each merchant’s stock when you run it. Safe to repeat — a merchant is billed once per month.</p>
+      <form method="post" action={`${F}/billing/storage`} class="card"><Csrf t={csrf} /><h3>Storage charge for a month</h3><p class="small mute"><strong>Snapshot, not daily accrual:</strong> counts the locations holding each merchant’s stock when you run it. Safe to repeat — a merchant is billed once per month. Months covered by a reviewed daily contract are skipped.</p>
         <div class="field"><label for="sm2">Month</label><input id="sm2" name="month" type="month" value={month} max={month} required /></div>
         <button class="btn ghost sm" type="submit">Create storage charges</button></form></div>) : null}
   </>));
@@ -509,6 +515,6 @@ fulfil.post(`${F}/billing/storage`, async (c) => {
   const b = await formBody(c);
   return act(c, `${F}/billing`, async () => {
     const r = await withT(c, (cn, ctx) => runStorageCharges(cn, ctx, str(b.month)));
-    return { to: `${F}/billing`, ok: `Storage: ${r.created} charge(s) created${r.already ? `, ${r.already} already billed for this month` : ""}${r.noRate ? `, ${r.noRate} merchant(s) have no storage rate` : ""}.` };
+    return { to: `${F}/billing`, ok: `Storage: ${r.created} charge(s) created${r.already ? `, ${r.already} already billed for this month` : ""}${r.noRate ? `, ${r.noRate} merchant(s) have no storage rate` : ""}${r.dailyContracts ? `, ${r.dailyContracts} merchant(s) use daily contracts` : ""}.` };
   });
 });

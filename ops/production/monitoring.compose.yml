@@ -1,0 +1,16 @@
+# Optional overlay: store the same metrics token in a 0600 host file and configure Alertmanager routing.
+services:
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.retention.time=30d']
+    volumes:
+      - ../monitoring:/etc/prometheus:ro
+      - prometheus:/prometheus
+    secrets: [metrics_token]
+    networks: [app]
+    restart: unless-stopped
+    expose: ['9090']
+secrets:
+  metrics_token:
+    file: ${METRICS_TOKEN_FILE:?set the protected metrics token file path}
+volumes: {prometheus: {}}

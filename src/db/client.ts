@@ -63,9 +63,9 @@ export function pgConnection(url: string, c = config): { connectionString: strin
   return { connectionString, ssl: c.databaseCa ? { rejectUnauthorized: true, ca: c.databaseCa.replace(/\\n/g, "\n") } : { rejectUnauthorized: true } };
 }
 
-export async function openDb(opts: { url?: string; dir?: string | null } = {}): Promise<Db> {
+export async function openDb(opts: { url?: string; dir?: string | null; migrate?: boolean } = {}): Promise<Db> {
   const url = opts.url ?? config.databaseUrl;
-  if (url) return openPg(url);
+  if (url) return openPg(url, opts.migrate ?? config.migrateOnStart);
   return openPglite(opts.dir === undefined ? config.pgliteDir : opts.dir);
 }
 
@@ -104,8 +104,8 @@ async function openPglite(dir: string | null): Promise<Db> {
   };
 }
 
-async function openPg(url: string): Promise<Db> {
-  const pool = new pg.Pool({ ...pgConnection(url), max: config.databasePoolMax, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 15_000 });
+async function openPg(url: string, migrate: boolean): Promise<Db> {
+  const pool = new pg.Pool({ ...pgConnection(url), max: config.databasePoolMax, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 15_000, statement_timeout: 30_000 });
   pool.on("error", (e) => console.error("[pg] idle client error", e.message));   // a dropped idle connection (serverless Postgres suspends) must not crash the process
   pg.types.setTypeParser(20, (v) => Number(v)); // int8 -> number (amounts stay well below 2^53 minor units)
   pg.types.setTypeParser(1082, (v) => v);      // date -> 'YYYY-MM-DD'
@@ -115,12 +115,18 @@ async function openPg(url: string): Promise<Db> {
   const client = await mPool.connect();
   try {
     await client.query(`SELECT pg_advisory_lock(727001)`);        // two instances starting together must not both migrate
-    await runMigrations({
-      query: async (s, p) => {
-        const r = await client.query(s, p as any[]);
-        return { rows: r.rows, rowCount: r.rowCount ?? 0 };
-      },
-    });
+    if (migrate) {
+      await runMigrations({
+        query: async (s, p) => {
+          const r = await client.query(s, p as any[]);
+          return { rows: r.rows, rowCount: r.rowCount ?? 0 };
+        },
+      });
+    } else {
+     const files=fs.readdirSync(path.join(here,'migrations')).filter(f=>f.endsWith('.sql'));
+     const applied=(await client.query(`SELECT name FROM schema_migrations`)).rows.map(x=>x.name);
+     if(files.some(f=>!applied.includes(f)))throw new Error('Pending schema migrations. Run the migration command using a direct database endpoint before release.');
+    }
   } finally {
     await client.query(`SELECT pg_advisory_unlock(727001)`).catch(() => {});
     client.release();
@@ -128,19 +134,26 @@ async function openPg(url: string): Promise<Db> {
   }
   const withClient = async <T>(fn: (c: Conn) => Promise<T>, scope?: string): Promise<T> => {
     const cl = await pool.connect();
+    let pending: Promise<unknown> = Promise.resolve();
     const c: Conn = {
-      query: async (s, p) => {
-        const r = await cl.query(s, p as any[]);
-        return { rows: r.rows, rowCount: r.rowCount ?? 0 };
+      query: (s, p) => {
+        const result = pending.then(async () => {
+          const r = await cl.query(s, p as any[]);
+          return { rows: r.rows, rowCount: r.rowCount ?? 0 };
+        });
+        pending = result.catch(() => {});
+        return result;
       },
     };
     try {
       await cl.query("BEGIN");
       if (scope) await scopeToTenant(c, scope);
       const out = await fn(c);
+      await pending;
       await cl.query("COMMIT");
       return out;
     } catch (e) {
+      await pending;
       await cl.query("ROLLBACK").catch(() => {});
       throw e;
     } finally {

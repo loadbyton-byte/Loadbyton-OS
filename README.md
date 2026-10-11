@@ -18,19 +18,23 @@ public commerce site, a tenant-isolated company application, billing/entitlement
 > adapters are **not** built and are shown publicly as *Planned* (blueprint §29: "Do not sell all 18 sector packs at launch").
 > See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.
 
-> See [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) for a section-by-section status and [`docs/DECISIONS.md`](docs/DECISIONS.md) for the §32 decisions still needed.
+The requested deployment stack is implemented: **Oracle Cloud** web/worker and scanner containers, **Cloudflare** routing/tunnel, **Neon** PostgreSQL, **Supabase** private objects and **Upstash Redis** rate limiting. **Stripe/Razorpay** hosted checkout supports card and eligible Google Pay methods, verified webhooks, payment reconciliation, immutable tax/merchant snapshots and optional reviewed INR quotes for an Indian Razorpay merchant. Production configuration refuses development mocks or missing required settings. No real credentials or production resources have been created.
+
+Additional work includes company MFA, a Zoho Books draft-invoice bridge, reviewed SMTP replies, shared inbox/calendar SLAs, privacy request review, setup appointments/customer acceptance, controlled customer CSV migration/rollback, management reports, warehouse lot/expiry/serial controls and Arabic/RTL invoice documents. Encrypted database-plus-object backups and isolated restore verification are executable. Further verified controls include reviewed count schedules, provider chargeable-weight rules, scoped assistant drafts, daily storage contracts/automatic accrual, independent transport expense receipts, six versioned source-linked shipment document drafts, dual-key encryption maintenance and independently approved COD cash recovery/refund/corrections with current cash/liability reporting.
+
+This is a substantial implementation of the blueprint, **not a claim that the entire future portfolio is release-complete**. See [the clause map](docs/TRACEABILITY.md), [remaining portfolio work](docs/IMPLEMENTATION_BACKLOG.md), [deployment instructions](docs/DEPLOYMENT.md) and [release acceptance](docs/RELEASE_ACCEPTANCE.md). External provider acceptance, actual infrastructure recovery, legal/tax settings and specialist reviews remain deployment gates; advanced connectors and warehouse/AI roadmap items remain explicit software work.
 
 ## Quick start
 
 ```bash
-npm install
-cp .env.example .env        # optional; dev defaults work
+npm ci
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
 npm test                    # 170+ tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty
                             #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (e-commerce) · warehouse@… (3PL manager) · delivery@… (courier owner) · customs@… (customs broker) · rider1@… (rider phone view) — all demo-password-123
 npm run create-staff -- you@example.com "Your Name" '<12+ char password>' commercial_admin   # prints TOTP secret
-npm run e2e                 # browser walkthrough against a running server (needs Chromium)
+CHROME=/usr/bin/chromium npm run e2e   # freight browser walkthrough against port 3000
+npm run e2e:delivery         # Delivery/COD browser walkthrough; use CHROME as above
 npm run verify              # database-wide invariants (use after every restore test)
 ```
 
@@ -57,19 +61,15 @@ Host → tenant is only a *hint* (verified `domain_mappings`); **authenticated m
 
 ## Stack and layout
 
-TypeScript · Hono (SSR JSX, no client build) · PostgreSQL (PGlite for dev/test, `pg` in production) · transactional outbox + in-process workers.
+TypeScript · Hono (SSR JSX, no client build) · PostgreSQL (PGlite for dev/test, `pg` in production) · transactional outbox + separate production workers (in-process workers for development).
 
 ```
 src/db        schema (migrations/001_init.sql), tenant-scoped transactions (RLS)
 src/platform  catalog, tenants, auth, billing, entitlements, provisioning, outbox, admin, invariants
-src/ops       enquiries, quotes, jobs, transport, fulfilment (+billing), finance, documents, dashboard, team, import, export
-src/adapters  accounting bridge (find-before-create idempotency)
+src/ops       freight, transport, fulfilment, warehouse, delivery/COD, Customs, twelve specialist profiles, inbox/migration/reports
+src/adapters  Zoho, malware scanning, Cloudflare, Razorpay quote helpers (payments, mail, storage and rate limiting live in `src/platform/payments`, `adapters/mail.ts`, `lib/storage.ts`, `lib/ratelimit.ts`)
 src/web       routes + UI (public, auth, app-core/sales/ops, admin)
-tests         platform, ops, transport, fulfilment (+http), http, extras (acceptance scenarios §30)
-src/ops       enquiries, quotes, jobs, transport, warehouse, finance, documents, dashboard, team, import, export
-src/adapters  accounting bridge (find-before-create idempotency)
-src/web       routes + UI (public, auth, app-core/sales/ops, admin)
-tests         platform, ops, transport, warehouse, http, extras (acceptance scenarios §30)
+tests         platform, ops, transport, fulfilment, warehouse, delivery, customs, metrics and HTTP acceptance
 docs          architecture, traceability, runbooks, decisions
 ```
 

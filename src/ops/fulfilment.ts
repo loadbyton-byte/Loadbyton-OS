@@ -7,6 +7,7 @@ import { must, nextNumber, optStr, reqStr } from "./common.js";
 import { charge } from "./fulfil-billing.js";
 import { parseCsv, type ImportReport } from "./importer.js";
 import { dubaiToIso } from "./transport.js";
+import {canReadFulfilmentRecipient,redactFulfilmentRecipient,listPage} from '../lib/data-policy.js';
 
 /**
  * E-commerce fulfilment (blueprint §15, merchant-order slice).
@@ -598,10 +599,10 @@ export async function cancelInbound(c: Conn, ctx: Ctx, id: string) {
   await audit(c, ctx.tenantId, actorOf(ctx), "inbound.cancelled", "inbound", id);
 }
 
-export const listInbound = (c: Conn, partyId?: string | null) => c.query<any>(
+export const listInbound = (c: Conn, partyId?: string | null,page=1) => c.query<any>(
   `SELECT i.*, p.name AS party_name, (SELECT coalesce(sum(expected_qty),0)::int FROM inbound_lines l WHERE l.inbound_id=i.id) AS expected,
      (SELECT coalesce(sum(received_qty + damaged_qty),0)::int FROM inbound_lines l WHERE l.inbound_id=i.id) AS received
-   FROM inbound_shipments i JOIN parties p ON p.id=i.party_id WHERE ($1::uuid IS NULL OR i.party_id=$1) ORDER BY i.created_at DESC LIMIT 200`, [partyId ?? null]).then((r) => r.rows);
+   FROM inbound_shipments i JOIN parties p ON p.id=i.party_id WHERE ($1::uuid IS NULL OR i.party_id=$1) ORDER BY i.created_at DESC,i.id LIMIT 51 OFFSET $2`, [partyId ?? null,(listPage(page)-1)*50]).then((r) => r.rows);
 
 export async function getInbound(c: Conn, id: string) {
   const inb = await must(c.query<any>(`SELECT i.*, p.name AS party_name FROM inbound_shipments i JOIN parties p ON p.id=i.party_id WHERE i.id=$1`, [id]), "Inbound");
@@ -783,12 +784,12 @@ export async function cancelReturn(c: Conn, ctx: Ctx, id: string) {
   await audit(c, ctx.tenantId, actorOf(ctx), "return.cancelled", "return", id);
 }
 
-export const listReturns = (c: Conn, partyId?: string | null) => c.query<any>(
+export const listReturns = (c: Conn, partyId?: string | null,page=1) => c.query<any>(
   `SELECT r.*, p.name AS party_name, o.no AS order_no,
      (SELECT coalesce(sum(expected_qty),0)::int FROM fulfil_return_lines l WHERE l.return_id=r.id) AS expected,
      (SELECT coalesce(sum(restocked_qty + quarantined_qty + disposed_qty),0)::int FROM fulfil_return_lines l WHERE l.return_id=r.id) AS handled
    FROM fulfil_returns r JOIN parties p ON p.id=r.party_id LEFT JOIN fulfil_orders o ON o.id=r.order_id
-   WHERE ($1::uuid IS NULL OR r.party_id=$1) ORDER BY r.created_at DESC LIMIT 200`, [partyId ?? null]).then((r) => r.rows);
+   WHERE ($1::uuid IS NULL OR r.party_id=$1) ORDER BY r.created_at DESC,r.id LIMIT 51 OFFSET $2`, [partyId ?? null,(listPage(page)-1)*50]).then((r) => r.rows);
 
 export async function getReturn(c: Conn, id: string) {
   const ret = await must(c.query<any>(`SELECT r.*, p.name AS party_name, o.no AS order_no FROM fulfil_returns r JOIN parties p ON p.id=r.party_id LEFT JOIN fulfil_orders o ON o.id=r.order_id WHERE r.id=$1`, [id]), "Return");
@@ -800,17 +801,22 @@ export async function getReturn(c: Conn, id: string) {
 }
 
 // ───────────────────────── reading
-export const listFulfilOrders = (c: Conn, opts: { partyId?: string | null; status?: string | null; q?: string | null } = {}) => c.query<any>(
+export const listFulfilOrders = (c: Conn, opts: { partyId?: string | null; status?: string | null; q?: string | null; page?:number; ctx?:Ctx } = {}) => {
+ if(opts.ctx&&!(opts.ctx.roles.length===1&&opts.ctx.roles[0]==='portal'&&opts.ctx.partyId))require(opts.ctx,'read');
+ return c.query<any>(
   `SELECT o.*, p.name AS party_name, (SELECT coalesce(sum(qty - closed_qty),0)::int FROM fulfil_order_lines l WHERE l.order_id=o.id) AS units,
      (SELECT coalesce(sum(shipped_qty),0)::int FROM fulfil_order_lines l WHERE l.order_id=o.id) AS shipped_units,
      (o.ship_by IS NOT NULL AND o.ship_by < now() AND o.status NOT IN ('shipped','cancelled')) AS late, sh.carrier, sh.tracking_no
    FROM fulfil_orders o JOIN parties p ON p.id=o.party_id LEFT JOIN fulfil_shipments sh ON sh.order_id=o.id
    WHERE ($1::uuid IS NULL OR o.party_id=$1) AND ($2::text IS NULL OR o.status=$2)
-     AND ($3::text IS NULL OR o.external_ref ILIKE '%'||$3||'%' OR o.no ILIKE '%'||$3||'%' OR o.ship_to_name ILIKE '%'||$3||'%' OR sh.tracking_no ILIKE '%'||$3||'%')
-   ORDER BY o.created_at DESC LIMIT 300`, [opts.partyId ?? null, opts.status || null, opts.q?.trim() || null]).then((r) => r.rows);
+     AND ($3::text IS NULL OR o.external_ref ILIKE '%'||$3||'%' OR o.no ILIKE '%'||$3||'%' OR ($4 AND o.ship_to_name ILIKE '%'||$3||'%') OR sh.tracking_no ILIKE '%'||$3||'%')
+   ORDER BY o.created_at DESC,o.id LIMIT 51 OFFSET $5`, [opts.ctx?.partyId??opts.partyId??null, opts.status || null, opts.q?.trim() || null,opts.ctx?canReadFulfilmentRecipient(opts.ctx):true,(listPage(opts.page??1)-1)*50]).then((r) => opts.ctx?r.rows.map(row=>redactFulfilmentRecipient(row,opts.ctx!)):r.rows);
+};
 
-export async function getFulfilOrder(c: Conn, id: string) {
+export async function getFulfilOrder(c: Conn, id: string, ctx?:Ctx) {
+  if(ctx&&!(ctx.roles.length===1&&ctx.roles[0]==='portal'&&ctx.partyId))require(ctx,'read');
   const order = await must(c.query<any>(`SELECT o.*, p.name AS party_name FROM fulfil_orders o JOIN parties p ON p.id=o.party_id WHERE o.id=$1`, [id]), "Order");
+  if(ctx?.partyId&&order.party_id!==ctx.partyId)throw new HttpError(404,'Order not found.');
   const [lines, allocs, shipment, charges, returns] = await Promise.all([
     c.query<any>(`SELECT l.*, s.code, s.name, s.barcode, (l.qty - l.closed_qty - l.allocated_qty)::int AS waiting FROM fulfil_order_lines l JOIN skus s ON s.id=l.sku_id WHERE l.order_id=$1 ORDER BY s.code`, [id]),
     c.query<any>(`SELECT a.*, loc.code AS location, s.code AS sku_code, (a.qty - a.picked_qty)::int AS remaining FROM stock_allocations a JOIN fulfil_order_lines l ON l.id=a.line_id JOIN wh_locations loc ON loc.id=a.location_id JOIN skus s ON s.id=a.sku_id WHERE l.order_id=$1 ORDER BY loc.code, s.code`, [id]),
@@ -818,7 +824,7 @@ export async function getFulfilOrder(c: Conn, id: string) {
     c.query<any>(`SELECT * FROM fulfil_charges WHERE order_id=$1 ORDER BY created_at`, [id]),
     c.query<any>(`SELECT * FROM fulfil_returns WHERE order_id=$1 ORDER BY created_at`, [id]),
   ]);
-  return { order, lines: lines.rows, allocs: allocs.rows, shipment: shipment.rows[0] ?? null, charges: charges.rows, returns: returns.rows };
+  return { order:ctx?redactFulfilmentRecipient(order,ctx):order, lines: lines.rows, allocs: allocs.rows, shipment: shipment.rows[0] ?? null, charges: charges.rows, returns: returns.rows };
 }
 
 /** One row per SKU: where its units are and how many can still be promised to new orders. */

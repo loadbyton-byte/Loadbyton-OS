@@ -11,6 +11,9 @@ import {
 import { getInvoice, voidInvoice } from "../src/ops/finance.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 import { currentPlans } from "../src/platform/catalog.js";
+import {registerLot,holdLot} from '../src/ops/traceability.js';
+import {uploadDocument} from '../src/ops/documents.js';
+import {future} from './helpers.js';
 
 let db: Db;
 beforeAll(async () => { db = await freshDb(); });
@@ -57,6 +60,33 @@ async function stockIn(s: Site, owner: string, sku: string, qty: number, locatio
 const free = async (s: Site, sku: string) => (await run(s, (c) => listStock(c, {}))).filter((r: any) => r.sku_id === sku).map((r: any) => ({ loc: r.loc_code, on: Number(r.qty_on_hand), res: Number(r.qty_reserved) }));
 const onHand = async (s: Site, sku: string, loc: string) => (await free(s, sku)).find((r) => r.loc === loc)?.on ?? 0;
 const noViolations = async () => expect(await verifyInvariants(db)).toEqual([]);
+
+describe('controlled warehouse traceability',()=>{
+ async function evidence(s:Site){return run(s,c=>uploadDocument(c,s.t.ctx,{kind:'other',title:'Supplier lot source',issuer:'Supplier',filename:'source.pdf',data:Buffer.from('%PDF-1.4 source')}));}
+ it('requires lot evidence, excludes expired stock and allocates by FEFO',async()=>{
+  const s=await site(),doc=await evidence(s),sku=await run(s,c=>createSku(c,s.t.ctx,{owner_id:s.acme,code:'FEFO',description:'Expiry-controlled stock',rotation:'fefo',tracking:'lot'}));
+  await expect(stockIn(s,s.acme,sku,2,s.L.a1,{lot:'UNKNOWN'})).rejects.toThrow(/Register/);
+  const later=await run(s,c=>registerLot(c,s.t.ctx,{sku_id:sku,lot:'LATER',expires_at:future(20),document_id:doc}));
+  const early=await run(s,c=>registerLot(c,s.t.ctx,{sku_id:sku,lot:'EARLY',expires_at:future(5),document_id:doc}));
+  await run(s,c=>registerLot(c,s.t.ctx,{sku_id:sku,lot:'EXPIRED',expires_at:'2020-01-01',document_id:doc}));
+  await stockIn(s,s.acme,sku,2,s.L.a1,{lot:'LATER'});await stockIn(s,s.acme,sku,2,s.L.a2,{lot:'EARLY'});
+  await expect(stockIn(s,s.acme,sku,1,s.L.a1,{lot:'EXPIRED'})).rejects.toThrow(/quarantine/);
+  await stockIn(s,s.acme,sku,1,s.L.qrn,{lot:'EXPIRED',condition:'damaged'});
+  const o=await run(s,c=>createOutbound(c,s.t.ctx,{owner_id:s.acme,warehouse_id:s.wh,ship_to:"Customer destination",lines:[{sku_id:sku,qty:1}]}));await run(s,c=>allocateOutbound(c,s.t.ctx,o.id));
+  const allocation=(await run(s,c=>getOutbound(c,o.id))).allocations[0];expect(allocation.lot).toBe('EARLY');
+  await run(s,c=>confirmPick(c,s.t.ctx,o.id,{[allocation.id]:1}));await run(s,c=>holdLot(c,s.t.ctx,early,true,'Supplier recall'));
+  await expect(run(s,c=>dispatchOutbound(c,s.t.ctx,o.id))).rejects.toThrow(/Held/);await run(s,c=>cancelOutbound(c,s.t.ctx,o.id));
+  const next=await run(s,c=>createOutbound(c,s.t.ctx,{owner_id:s.acme,warehouse_id:s.wh,ship_to:"Customer destination",lines:[{sku_id:sku,qty:1}]}));await run(s,c=>allocateOutbound(c,s.t.ctx,next.id));expect((await run(s,c=>getOutbound(c,next.id))).allocations[0].lot).toBe('LATER');
+  await expect(db.query(`UPDATE wh_lots SET expires_at='2030-01-01' WHERE id=$1`,[later])).rejects.toThrow(/immutable/);await noViolations();
+ });
+ it('serial stock remains one unit across retry, movement and concurrent receipts',async()=>{
+  const s=await site(),doc=await evidence(s),sku=await run(s,c=>createSku(c,s.t.ctx,{owner_id:s.acme,code:'SERIAL',description:'Serialized equipment',tracking:'serial'}));
+  await run(s,c=>registerLot(c,s.t.ctx,{sku_id:sku,lot:'SER1',serial_ref:'SER1',document_id:doc}));
+  const attempts=await Promise.allSettled([stockIn(s,s.acme,sku,1,s.L.a1,{lot:'SER1'}),stockIn(s,s.acme,sku,1,s.L.a2,{lot:'SER1'})]);expect(attempts.filter(x=>x.status==='fulfilled')).toHaveLength(1);
+  const held=(await run(s,c=>listStock(c,{}))).find((x:any)=>x.sku_id===sku&&Number(x.qty_on_hand)===1);await run(s,c=>moveStock(c,s.t.ctx,{stock_id:held.id,to_location_id:held.location_id===s.L.a1?s.L.a2:s.L.a1,qty:1,client_ref:'serial-move-1'}));
+  await expect(stockIn(s,s.acme,sku,0.5,s.L.a1,{lot:'SER1'})).rejects.toThrow(/exactly one/);await noViolations();
+ });
+});
 
 describe("owner-separated custody", () => {
   it("keeps every customer's stock apart in code and in the database", async () => {
@@ -379,7 +409,7 @@ describe("activity billing", () => {
     expect((await db.query<any>(`SELECT count(*)::int n FROM usage_counters WHERE tenant_id=$1 AND key='jobs_per_month'`, [s.t.tenantId])).rows[0].n).toBe(0);
     const plans = await db.system((c) => currentPlans(c));
     expect(plans.find((p) => p.plan_code === "starter")!.limits.wh_orders_per_month).toBe(150);
-    expect((await db.query<any>(`SELECT version FROM plan_versions WHERE plan_code='starter' ORDER BY version`)).rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect((await db.query<any>(`SELECT version FROM plan_versions WHERE plan_code='starter' ORDER BY version`)).rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 });
 

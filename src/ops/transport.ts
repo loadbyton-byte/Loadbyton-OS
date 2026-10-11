@@ -377,11 +377,14 @@ export async function syncDriverEvents(c: Conn, ctx: Ctx, events: DriverEvent[])
 
 export async function decideExpense(c: Conn, ctx: Ctx, expenseId: string, approve: boolean) {
   require(ctx, "transport.expense");
+  await assertWritable(c,ctx.tenantId);
   const x = await must(c.query<any>(`SELECT * FROM trip_expenses WHERE id=$1 FOR UPDATE`, [expenseId]), "Expense");
   if (x.status !== "recorded") throw badRequest(`Expense is already ${x.status}; decisions are final.`);
-  if (x.recorded_by === ctx.userId && !ctx.roles.includes("owner")) throw forbidden("Expenses cannot be approved by the person who recorded them.");
-  await c.query(`UPDATE trip_expenses SET status=$2, decided_by=$3 WHERE id=$1`, [expenseId, approve ? "approved" : "rejected", ctx.userId]);
-  await audit(c, ctx.tenantId, actorOf(ctx), approve ? "expense.approved" : "expense.rejected", "trip", x.trip_id, { expenseId });
+  if (x.recorded_by === ctx.userId) throw forbidden("Expenses cannot be approved by the person who recorded them.");
+  let receiptId:string|null=null;
+  if(approve&&x.evidence_required){const r=await must(c.query<any>(`SELECT r.id,d.trip_id,d.status,d.hold,d.kind FROM trip_expense_receipts r JOIN documents d ON d.id=r.document_id WHERE r.expense_id=$1 ORDER BY r.version DESC LIMIT 1`,[x.id]),'Current issued expense receipt');if(r.trip_id!==x.trip_id||r.status!=='issued'||r.hold||!['supplier_invoice','other'].includes(r.kind))throw badRequest('The current receipt is unavailable; review and link valid issued evidence before approval.');receiptId=r.id;}
+  await c.query(`UPDATE trip_expenses SET status=$2, decided_by=$3,approved_receipt_id=$4 WHERE id=$1`, [expenseId, approve ? "approved" : "rejected", ctx.userId,receiptId]);
+  await audit(c, ctx.tenantId, actorOf(ctx), approve ? "expense.approved" : "expense.rejected", "trip", x.trip_id, { expenseId,receipt_id:receiptId });
 }
 
 /** Detention: minutes beyond free time × the order's hourly rate, billable once per stop. */
@@ -441,7 +444,7 @@ export async function getTrip(c: Conn, id: string) {
     c.query<any>(`SELECT l.*, o.no AS order_no, p.name AS customer FROM trip_legs l JOIN transport_orders o ON o.id=l.order_id JOIN parties p ON p.id=o.party_id WHERE l.trip_id=$1 ORDER BY l.seq`, [id]),
     c.query<any>(`SELECT o.*, p.name AS party_name FROM transport_orders o JOIN parties p ON p.id=o.party_id WHERE o.trip_id=$1`, [id]),
     c.query<any>(`SELECT e.*, l.kind AS leg_kind FROM trip_events e LEFT JOIN trip_legs l ON l.id=e.leg_id WHERE e.trip_id=$1 ORDER BY e.effective_time, e.server_time`, [id]),
-    c.query<any>(`SELECT x.*, u.name AS recorder FROM trip_expenses x LEFT JOIN team_members u ON u.user_id=x.recorded_by WHERE x.trip_id=$1 ORDER BY x.created_at`, [id]),
+    c.query<any>(`SELECT x.*, u.name AS recorder,r.document_id AS receipt_document_id FROM trip_expenses x LEFT JOIN team_members u ON u.user_id=x.recorded_by LEFT JOIN LATERAL(SELECT document_id FROM trip_expense_receipts WHERE expense_id=x.id AND (x.approved_receipt_id IS NULL OR id=x.approved_receipt_id) ORDER BY version DESC LIMIT 1) r ON true WHERE x.trip_id=$1 ORDER BY x.created_at`, [id]),
   ]);
   const kg = orders.rows.reduce((s, o) => s + Number(o.weight_kg), 0);
   return { trip, legs: legs.rows, orders: orders.rows, events: events.rows, expenses: expenses.rows, loadKg: kg, profit: await tripProfit(c, id) };

@@ -122,7 +122,7 @@ describe("intake", () => {
     const v4 = (await db.query<any>(`SELECT limits FROM plan_versions WHERE plan_code='starter' AND version=4`)).rows[0].limits;
     expect(v4.parcels_per_month).toBeUndefined();
     const plans = await db.system((c) => currentPlans(c));
-    expect(plans.every((p) => p.version === 6 && p.limits.parcels_per_month! > 0)).toBe(true);
+    expect(plans.every((p) => p.version === 9 && p.limits.parcels_per_month! > 0)).toBe(true);
   });
 });
 

@@ -1,3 +1,5 @@
+import {SPECIALIST_PROFILES} from "../ops/specialist-profiles.js";
+import {sectorBySlug} from "../platform/catalog.js";
 import type { Child } from "hono/jsx";
 import type { Conn } from "../db/client.js";
 import { HttpError } from "../lib/util.js";
@@ -27,6 +29,8 @@ export function navFor(c: C): NavItem[] {
   if (fwd) {
     n.push({ href: "/app/enquiries", label: "Enquiries", section: "Sell" }, { href: "/app/quotes", label: "Quotations", section: "Sell" });
   }
+  if (t?.sectors.includes("customs-brokerage")) n.push({href:"/app/customs",label:"Customs cases",section:"Customs"});
+  if (t?.sectors.includes("courier-last-mile")) n.push({href:"/app/delivery",label:"Delivery & COD",section:"Delivery"});
   if (t?.sectors.includes("road-transport")) {
     n.push({ href: "/app/transport", label: "Planning board", section: "Transport" }, { href: "/app/transport/orders", label: "Transport orders", section: "Transport" },
       { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" });
@@ -35,14 +39,16 @@ export function navFor(c: C): NavItem[] {
     const w = (href: string, label: string) => n.push({ href, label, section: "Fulfilment" });
     w("/app/fulfilment", "Fulfilment board"); w("/app/fulfilment/orders", "Orders"); w("/app/fulfilment/pick", "Pick list"); w("/app/fulfilment/inbound", "Inbound");
     w("/app/fulfilment/stock", "Stock"); w("/app/fulfilment/returns", "Returns"); w("/app/fulfilment/catalog", "Catalogue"); w("/app/fulfilment/locations", "Locations");
-    if (ctx.perms.has("wh.rates") || ctx.perms.has("finance.write")) w("/app/fulfilment/billing", "Billing activity");
+    if (ctx.perms.has("wh.rates") || ctx.perms.has("finance.write")) {w("/app/fulfilment/billing", "Billing activity");w('/app/fulfilment/daily-storage','Daily storage');}
   }
   if (t?.sectors.includes("contract-warehouse-3pl")) {
     n.push({ href: "/app/warehouse", label: "Warehouse board", section: "Warehouse" }, { href: "/app/warehouse/inbound", label: "Inbound", section: "Warehouse" },
       { href: "/app/warehouse/outbound", label: "Dispatch", section: "Warehouse" }, { href: "/app/warehouse/stock", label: "Stock", section: "Warehouse" },
-      { href: "/app/warehouse/counts", label: "Counts", section: "Warehouse" }, { href: "/app/warehouse/setup", label: "Locations & SKUs", section: "Warehouse" });
+      { href: "/app/warehouse/counts", label: "Counts", section: "Warehouse" }, { href: "/app/warehouse/setup", label: "Locations & SKUs", section: "Warehouse" }, {href:"/app/warehouse/traceability",label:"Lots, expiry & serials",section:"Warehouse"});
+    n.push({href:'/app/warehouse/count-schedules',label:'Count schedules',section:'Warehouse'});
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
   }
+  for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
   if (t?.sectors.includes("courier-last-mile")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Delivery" });
     w("/app/delivery", "Delivery board"); w("/app/delivery/shipments", "Parcels"); w("/app/delivery/runs", "Runs"); w("/app/delivery/riders", "Riders"); w("/app/delivery/cash", "Cash desk");
@@ -57,6 +63,7 @@ export function navFor(c: C): NavItem[] {
   n.push({ href: "/app/parties", label: "Customers & suppliers", section: "Sell" });
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });
+  if (fwd && ctx.perms.has('quote.write')) n.push({href:'/app/freight/weight',label:'Chargeable weight',section:'Sell'});
   n.push({ href: "/app/documents", label: "Documents", section: "Operate" });
   if (t && t.sectors.length) n.push({ href: "/app/tasks", label: "Tasks & exceptions", section: "Operate" },
     { href: "/app/invoices", label: "Invoices & collections", section: "Money" });
@@ -64,13 +71,23 @@ export function navFor(c: C): NavItem[] {
   if (ctx.perms.has("team.manage")) n.push({ href: "/app/team", label: "Team", section: "Admin" });
   if (ctx.perms.has("billing.manage")) n.push({ href: "/app/billing", label: "Plan & billing", section: "Admin" });
   if (ctx.perms.has("settings.manage")) n.push({ href: "/app/settings", label: "Settings", section: "Admin" });
+  if (ctx.perms.has("settings.manage")) n.push({href:'/app/connections',label:'Accounting connection',section:'Admin'});
+  if (ctx.perms.has("settings.manage")) n.push({href:'/app/privacy',label:'Your data',section:'Admin'});
+  if (ctx.perms.has("settings.manage")) n.push({href:'/app/onboarding',label:'Setup and onboarding',section:'Admin'});
+  if (ctx.perms.has("settings.manage")) n.push({href:'/app/api-keys',label:'API keys',section:'Admin'});
+  if(ctx.perms.has('inbox.write'))n.push({href:'/app/inbox',label:'Shared inbox',section:'Operate'});
+  if(fwd&&(ctx.perms.has('enquiry.write')||ctx.perms.has('job.write')))n.push({href:'/app/assistant',label:'Assistant drafts',section:'Operate'});
+  if(fwd&&(ctx.perms.has('job.write')||ctx.perms.has('job.cost')))n.push({href:'/app/document-drafts',label:'Document drafts',section:'Operate'});
+  if(ctx.perms.has('dashboard.owner'))n.push({href:'/app/management-reports',label:'Management reports',section:'Money'});
+  if(ctx.perms.has('settings.manage'))n.push({href:'/app/migration',label:'Migration and calendar',section:'Admin'});
+  n.push({href:'/account/security',label:'Account security',section:'Admin'});
   if (ctx.perms.has("audit.read")) n.push({ href: "/app/audit", label: "Audit trail", section: "Admin" });
   return n;
 }
 
 export function appPage(c: C, title: string, body: Child, extra: Partial<Page> = {}) {
   const ctx = ctxOf(c), s = c.get("session")!, t = c.get("tenant")!;
-  const p: Page = { title, csrf: c.get("csrf"), path: c.req.path, user: { name: s.name }, ok: c.req.query("ok"), err: c.req.query("err"), ...extra };
+  const p: Page = { title, csrf: c.get("csrf"), path: c.req.path, user: { name: s.name }, offlineScope: ctx.perms.has('driver.act')?`${ctx.tenantId}:${ctx.userId}`:undefined, ok: c.req.query("ok"), err: c.req.query("err"), ...extra };
   const mems = c.get("memberships");
   const switcher = mems.length > 1 ? (
     <form method="post" action="/app/switch" style="margin-top:8px">

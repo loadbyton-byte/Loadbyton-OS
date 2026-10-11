@@ -9,7 +9,7 @@
 - **Operating plane** — `src/ops/*`, `src/web/app-*.tsx`: tenant business records. Uses `db.tenant(tenantId, …)`, which opens a
   transaction, `SET LOCAL ROLE lbt_app`, and sets `app.tenant_id`; RLS policies do the rest.
 
-Modular monolith + background workers (`src/server.ts`). Domain modules take a `Conn` and a `Ctx`, so high-volume pieces
+Modular monolith + standalone production worker (`src/worker.ts`); `src/server.ts` can host in-process development workers. Domain modules take a `Conn` and a `Ctx`, so high-volume pieces
 (tracking, integrations) can be lifted into separate workers later without changing business logic.
 
 ## Tenant isolation
@@ -33,8 +33,7 @@ never grant access. Failed-after-success, duplicates, replays under new event id
 
 State: `information_pending → queued → provisioning → validation → ready → onboarding` (+`failed`/`cancelled`).
 Nine steps, each with a unique idempotency key; a retry skips completed steps and every step is itself idempotent.
-**Infrastructure adapters are simulated** (`simulatedAdapters`): DNS/routing and TLS must be implemented before advertising the
-24-hour target as a promise.
+Development uses `simulatedAdapters`; production verifies Cloudflare wildcard routing and branded HTTPS. Exclusive expiring job leases prevent competing workers from claiming the same activation. Real routing/provider acceptance remains required before advertising an activation SLA.
 
 ## Quoting → cash
 
@@ -48,10 +47,9 @@ Margin is shown three ways: quotation estimate, updated expected, actual reconci
 ## Accounting bridge (blueprint §17)
 
 `outbox(topic='accounting.invoice', key='invoice:<id>')` unique. The handler calls `adapter.find(reference)` **before**
-`create`, so a retry after a provider timeout reconciles instead of double-posting. Default adapter is a CSV/export stub; a real
-provider needs selection (decision §32) and connector acceptance tests.
+`create`, so a retry after a provider timeout reconciles instead of double-posting. The configured default is a tenant-specific Zoho Books draft-invoice adapter with encrypted credentials and explicit tax/currency mappings. CSV export never impersonates synchronization. Live controller acceptance, credit notes and bank/receipt reconciliation remain separate scope.
 
-## Known limitations
+## Production boundaries
 
 See `TRACEABILITY.md`. Notably: no inbound email/WhatsApp intake, no customs filing integration (case management and handover only), no contract-3PL custody workflows, no marketplace or carrier connectors, no native ledger,
 
@@ -117,7 +115,7 @@ single-connection).
 
 ## Warehouse (blueprint §15)
 
-`src/ops/warehouse.ts` (+ `web/app-warehouse.tsx`, `migrations/003_warehouse.sql`). Sector slug `contract-warehouse-3pl`.
+`src/ops/warehouse.ts` (+ `web/app-warehouse.tsx`, `migrations/004_warehouse.sql`). Sector slug `contract-warehouse-3pl`.
 
 - **Owner separation is structural.** A SKU belongs to one customer (`wh_skus.owner_id`). Stock, movements and every order line carry
   `owner_id` and reference the SKU through the composite key `(tenant_id, owner_id, sku_id)`, so a row that mixes owners cannot be
@@ -139,7 +137,7 @@ single-connection).
   marked stale and goes back to the counters with a fresh snapshot — a count only proves the balance at the moment it was cut. An
   adjustment can never push stock below what is reserved. Stock found where the system expected none is added as a line.
 - **Billing unit:** the warehouse *order* (an inbound notice or a dispatch order; `wh_orders_per_month`, reference `wh_in:<id>` /
-  `wh_out:<id>`). Plan version 3 adds the key; v1/v2 subscriptions fall back to their jobs allowance.
+  `wh_out:<id>`). Plan version 4 adds the key; v1/v2/v3 subscriptions fall back to their jobs allowance.
 - **Money:** `accrue()` writes one `wh_charges` row per source event (`source_ref` unique): handling-in per receipt movement,
   handling-out per dispatched line, an outbound-order fee, and daily storage = end-of-day units from the ledger × rate for each
   *completed* company day (UTC+4), idempotent per owner-day, backfilled exactly. Rates are effective-dated per customer; a rate in

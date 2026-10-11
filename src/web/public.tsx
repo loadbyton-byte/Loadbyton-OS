@@ -182,7 +182,7 @@ const Limits = ({ pl }: { pl: PlanVersion }) => (
     <li>{pl.limits.max_sectors} sector{pl.limits.max_sectors > 1 ? "s" : ""}{pl.plan_code === "business" ? " (advanced)" : ""}</li>
     <li>{pl.limits.max_users} full users</li>
     <li>{pl.limits.max_branches} branch{pl.limits.max_branches > 1 ? "es" : ""}</li>
-    <li>{pl.limits.jobs_per_month.toLocaleString("en")} jobs / month</li>
+    <li>{pl.limits.jobs_per_month.toLocaleString("en")} jobs / month</li><li>{pl.limits.ai_drafts_per_month??0} assistant drafts / month (forwarding sources)</li>
     <li>{pl.limits.storage_mb >= 1024 ? `${pl.limits.storage_mb / 1024} GB` : `${pl.limits.storage_mb} MB`} documents</li>
   </ul>
 );
@@ -349,15 +349,14 @@ const LEGAL: Record<string, { title: string; body: any }> = {
     <h2>Regulated activities</h2><p>The software is not an accredited e-invoicing provider, customs authority or certification to handle dangerous goods, pharmaceutical cold chain or bonded inventory.</p></>) },
   privacy: { title: "Privacy notice", body: (<>
     <p>We process account and operational data to provide the service. For your customers’ data, you are the controller and we act as processor under the data processing terms; for our own commercial relationship with you we are a controller.</p>
-    <h2>Your rights</h2><p>Data access, export and deletion workflows are provided in-product (export on every plan). Retention periods, breach procedures and cross-border processing are defined per deployment.</p></>) },
+    <h2>Your rights</h2><p>Export is available on every plan. Owners can submit access, correction and deletion requests under Your data; deletion is reviewed for statutory retention and legal holds before the deployment operator performs erasure.</p></>) },
   "data-processing": { title: "Data processing", body: (<>
     <p>Roles: you are the controller of operational records in your workspace; LOAD|BY|TON is the processor. Records are stored in tenant-isolated storage; files are private with short-lived signed access.</p>
-    <h2>Retention and exit</h2><p>Export access and retention duration are defined in your contract; we do not promise unlimited perpetual hosting. Deletion requires human approval.</p>
+    <h2>Retention and exit</h2><p>The deployment retention schedule is {config.retentionDays} days after the applicable exit milestone, subject to contract terms, statutory records and legal holds. Export remains available while the account is retained. Approved erasure includes the database, private objects and eventual expiry of recovery copies under the provider schedule.</p>
     <h2>Incidents</h2><p>A breach procedure with customer communication owner and incident commander is maintained by the operating team.</p></>) },
   subprocessors: { title: "Subprocessors", body: (<>
-    <p>The following categories of subprocessor will be listed here by name, purpose, region and recovery position <strong>before the first paid customer is onboarded</strong>.</p>
-    <ul><li>Managed PostgreSQL database hosting</li><li>Private object storage</li><li>Application hosting / compute</li><li>Transactional email and messaging</li><li>Payment processing</li><li>Monitoring and error tracking</li></ul>
-    <p class="mute">Hosting and managed-service choices require a current cost, security, region and recovery assessment before procurement.</p></>) },
+    <ul><li>Oracle Cloud Infrastructure: application and background compute.</li><li>Cloudflare: DNS, TLS edge and origin tunnel.</li><li>Neon: transactional PostgreSQL and configured recovery.</li><li>Supabase: private document objects.</li><li>Upstash: shared abuse-prevention counters with pseudonymous keys.</li><li>Stripe and/or Razorpay: hosted payment processing when enabled.</li><li>Your configured SMTP provider: account and service notifications.</li></ul>
+    <p>Deployment region and processing schedule: {config.deploymentRegion}. Review each provider's region, retention, transfer and recovery terms before deployment; providers may process security/payment data in additional locations.</p></>) },
   accessibility: { title: "Accessibility", body: (<>
     <p>We design for keyboard use, visible focus, sufficient contrast, text and icons in addition to colour (red is never the only indicator of an error), and large touch targets for driver workflows. We have not yet completed a formal accessibility audit; report problems via <a href="/contact">Contact</a>.</p></>) },
 };
@@ -367,8 +366,9 @@ pub.get("/legal/:doc", (c) => {
   return c.html(
     <PublicShell p={pg(c, d.title)}>
       <section class="block"><div class="wrap prose">
-        <div class="draft-note"><strong>Draft — requires legal review before publication.</strong> This text is a starting point written for the pilot and has not been reviewed by counsel.</div>
+        {config.legalReviewed?null:<div class="draft-note"><strong>Draft — requires legal review before publication.</strong> Review this service-specific copy with the contracting entity before setting LEGAL_REVIEWED.</div>}
         <h1>{d.title}</h1>{d.body}
+        {config.seller.legalName?<p>Contracting service provider: {config.seller.legalName}, {config.seller.address}. {config.seller.gstin?`Tax registration: ${config.seller.gstin}.`:''} Contact: {config.seller.email}.</p>:null}
       </div></section>
     </PublicShell>);
 });

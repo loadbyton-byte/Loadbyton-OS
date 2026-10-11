@@ -1,0 +1,50 @@
+name: loadbyton
+services:
+  web:
+    image: ${APP_IMAGE:-loadbyton:local}
+    build: ../..
+    env_file: .env.production
+    environment: {NODE_ENV: production, RUN_WORKERS: 'false', PORT: '3000'}
+    restart: unless-stopped
+    stop_grace_period: 2m
+    depends_on: {scanner: {condition: service_healthy}}
+    networks: [app, scanner]
+    expose: ['3000']
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  worker:
+    image: ${APP_IMAGE:-loadbyton:local}
+    command: ['node', '--import', 'tsx', 'src/worker.ts']
+    env_file: .env.production
+    environment: {NODE_ENV: production, WORKER_PORT: '3001'}
+    restart: unless-stopped
+    stop_grace_period: 2m
+    depends_on: {web: {condition: service_healthy}}
+    networks: [app]
+    expose: ['3001']
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ['CMD', 'wget', '-Y', 'off', '-qO-', 'http://127.0.0.1:3001/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  scanner:
+    image: ${SCANNER_IMAGE:-loadbyton-scanner:local}
+    build: ./scanner
+    restart: unless-stopped
+    volumes: [clamav:/var/lib/clamav]
+    networks: [scanner]
+  tunnel:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.9.3}
+    command: ['tunnel', '--no-autoupdate', 'run']
+    environment: {TUNNEL_TOKEN: '${CLOUDFLARE_TUNNEL_TOKEN:?set tunnel token in deployment environment}'}
+    restart: unless-stopped
+    depends_on: {web: {condition: service_healthy}}
+    networks: [app]
+networks: {app: {}, scanner: {}}
+volumes: {clamav: {}}

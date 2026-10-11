@@ -8,6 +8,9 @@ import {
   decideExpense, dispatchTrip, getOrder, getTrip, invoiceOrder, syncDriverEvents, tripProfit, type DriverEvent,
 } from "../src/ops/transport.js";
 import { invite, acceptInvite } from "../src/ops/team.js";
+import {uploadDocument} from "../src/ops/documents.js";
+import {linkExpenseReceipt} from "../src/ops/expense-receipts.js";
+import {randomUUID} from "node:crypto";
 import { recordReceipt, voidInvoice } from "../src/ops/finance.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 import { setSectors } from "../src/platform/tenants.js";
@@ -150,6 +153,8 @@ describe("trip lifecycle → proof → invoice → profit", () => {
       const x = (await getTrip(c, tr.id)).expenses[0];
       // the driver cannot decide; the owner who did not record it can
       await expect(decideExpense(c, f.driverCtx, x.id, true)).rejects.toThrow(/does not allow/);
+      await expect(decideExpense(c,f.t.ctx,x.id,true)).rejects.toThrow(/issued expense receipt/);
+      const receipt=await uploadDocument(c,f.t.ctx,{trip_id:tr.id,kind:'supplier_invoice',title:'Fixture issued Salik receipt',issuer:'Fixture toll provider',filename:'receipt.pdf',data:Buffer.from('%PDF-1.4 expense receipt fixture')});await linkExpenseReceipt(c,f.t.ctx,x.id,receipt,randomUUID());
       await decideExpense(c, f.t.ctx, x.id, true);
       await expect(decideExpense(c, f.t.ctx, x.id, false)).rejects.toThrow(/decisions are final/);
       await completeTrip(c, f.t.ctx, tr.id, { actual_km: "100" });

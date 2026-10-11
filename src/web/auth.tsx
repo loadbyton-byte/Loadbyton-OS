@@ -140,7 +140,7 @@ auth.get("/invite/:token", async (c) => {
         <Alerts p={p} />
         <form method="post" action={`/invite/${c.req.param("token")}`}>
           <Csrf t={p.csrf} />
-          {existing ? <p class="alert info">You already have an account. Accepting adds this workspace to it; sign in afterwards.</p> : (<>
+          {existing ? <><p class="alert info">Enter your existing account password to add this workspace.</p><div class="field"><label for="pw">Account password</label><input id="pw" name="password" type="password" required autocomplete="current-password"/></div></> : (<>
             <div class="field"><label for="n">Your name</label><input id="n" name="name" type="text" required /></div>
             <div class="field"><label for="pw">Choose a password</label><input id="pw" name="password" type="password" required minlength={10} autocomplete="new-password" /></div>
           </>)}
