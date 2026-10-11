@@ -6,7 +6,8 @@ import { HttpError, baseUrl, badRequest, fmtMoney, formatDate, formatDay } from 
 import { ROLES } from "../lib/perms.js";
 import { audit } from "../lib/audit.js";
 import { actorOf } from "../lib/perms.js";
-import { currentPlans, PRODUCTS, SECTORS } from "../platform/catalog.js";
+import { currentPlans, PRODUCTS, withLiveAvailability } from "../platform/catalog.js";
+import { releasedSectors } from "../platform/readiness.js";
 import { currentUsage, getLimits, previewPlanChange } from "../platform/entitlements.js";
 import { cancelAtPeriodEnd, createOrder, priceCheckout, scheduleDowngrade, signPayload, buildMockEvent, startCheckout, paymentQuote } from "../platform/billing.js";
 import { enabledProviders, getAdapter } from "../platform/payments/index.js";
@@ -538,6 +539,7 @@ core.post("/app/billing/pay/:id", async (c) => {
 core.get("/app/settings", async (c) => {
   need(c, "settings.manage");
   const ctx = ctxOf(c), db = c.get("db"), t = c.get("tenant")!;
+  const SECTORS = withLiveAvailability(await releasedSectors(db));
   const d = await withT(c, async (cn) => ({
     ent: (await cn.query<any>(`SELECT * FROM entities ORDER BY created_at LIMIT 1`)).rows[0],
     branches: (await cn.query<any>(`SELECT * FROM branches ORDER BY name`)).rows,

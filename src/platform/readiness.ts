@@ -1,5 +1,6 @@
 import type { Db } from "../db/client.js";
 import { audit } from "../lib/audit.js";
+import { SECTORS, sectorGateKey } from "./catalog.js";
 import { HttpError, badRequest, forbidden } from "../lib/util.js";
 
 /**
@@ -32,6 +33,8 @@ export const GATES: GateSeed[] = [
   { key: "unit_economics", area: "Business", title: "Unit economics", evidence: "Measured acquisition cost, conversion, retention, support cost and gross margin from real customers, with the calculation method" },
   { key: "support_coverage", area: "Governance", title: "Support coverage and escalation owners", evidence: "Named coverage hours, first-line and escalation owners, tested on-call contact path" },
   { key: "governance_owners", area: "Governance", title: "Security, privacy and change governance owners", evidence: "Named owners for security incidents, privacy requests, change approval and vendor review, with a review calendar" },
+  ...SECTORS.map((x): GateSeed => ({ key: sectorGateKey(x.slug), area: "Sector release", title: `${x.name} release`, blocking: false,
+    evidence: `${x.specialist ? "Qualified subject-matter review of the workflow and controls; " : ""}representative live cases run end to end, incident and hold disposition, fee and accounting reconciliation, and a named support owner for ${x.name}` })),
 ];
 
 export type Staff = { userId: string; role: string };
@@ -110,4 +113,11 @@ export async function readinessSummary(db: Db, asOf = today()) {
 }
 export async function gateHistory(db: Db, key: string) {
   return (await db.query<any>(`SELECT e.*, u.name AS actor FROM release_gate_events e JOIN users u ON u.id=e.actor_id WHERE e.gate_key=$1 ORDER BY e.id DESC LIMIT 50`, [key])).rows;
+}
+
+/** Slugs of sectors whose own gate is accepted and still in date. A waiver is not evidence, so it never releases a sector. */
+export async function releasedSectors(db: Pick<Db, "query">, asOf = today()): Promise<Set<string>> {
+  const rows = (await db.query<any>(`SELECT key FROM release_gates WHERE key LIKE 'sector\\_%' AND status='accepted' AND valid_until >= $1`, [asOf])).rows;
+  const keys = new Set(rows.map((r) => String(r.key)));
+  return new Set(SECTORS.filter((x) => keys.has(sectorGateKey(x.slug))).map((x) => x.slug));
 }

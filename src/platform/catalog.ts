@@ -51,6 +51,13 @@ export const SECTORS: Sector[] = [
 ];
 export const sectorBySlug = (s: string) => SECTORS.find((x) => x.slug === s);
 
+/** Release-readiness gate that must be accepted (with in-date evidence) before a sector may be shown as Available. */
+export const sectorGateKey = (slug: string) => `sector_${slug.replace(/-/g, "_")}`;
+
+/** Catalogue with live availability: a sector is Available only while its own gate is accepted; otherwise its catalogue baseline shows. */
+export const withLiveAvailability = (released: ReadonlySet<string>): Sector[] =>
+  SECTORS.map((s) => (released.has(s.slug) ? { ...s, availability: "available" as Availability } : s));
+
 export const PRODUCTS = [
   { name: "LOAD|BY|TON Freight", blurb: "Enquiry → quote → job → supplier costs → documents → invoice → collection.", status: "pilot" as Availability },
   { name: "LOAD|BY|TON Transport", blurb: "Trips, vehicles, drivers, subcontractors, POD and trip profitability.", status: "pilot" as Availability },
