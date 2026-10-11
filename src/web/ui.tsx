@@ -139,7 +139,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
 
 export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
   const nav: [string, string][] = [["/admin", "Overview"], ["/admin/tenants", "Tenants"], ["/admin/orders", "Orders & payments"], ["/admin/provisioning", "Provisioning"],
-    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/service", "Setup & privacy"], ["/admin/leads", "Leads"]];
+    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/service", "Setup & privacy"], ["/admin/partners", "Partners"], ["/admin/rollout", "Rollout"], ["/admin/reports", "Reports"], ["/admin/leads", "Leads"]];
   return (
     <html lang="en">
       <Head p={p} />

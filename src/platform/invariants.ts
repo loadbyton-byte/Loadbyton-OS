@@ -107,6 +107,9 @@ export async function verifyInvariants(db: Db): Promise<Violation[]> {
     ["specialist service invoices match their case", `SELECT s.id::text FROM specialist_cases s JOIN invoices i ON i.id=s.invoice_id WHERE i.status='void' OR i.specialist_case_id IS DISTINCT FROM s.id OR i.party_id<>s.party_id OR i.subtotal_minor<>s.fee_minor`],
     ["closed specialist cases have collected their service fee", `SELECT s.id::text FROM specialist_cases s LEFT JOIN invoices i ON i.id=s.invoice_id WHERE s.status='closed' AND s.fee_minor>0 AND (i.id IS NULL OR i.status<>'paid')`],
     ["scheduled counts preserve their approved scope, operator and due evidence", `SELECT r.id::text FROM wh_count_schedule_runs r JOIN wh_count_schedules p ON p.id=r.schedule_id JOIN wh_counts k ON k.id=r.count_id WHERE k.warehouse_id<>p.warehouse_id OR k.location_id IS DISTINCT FROM p.location_id OR k.assigned_to IS DISTINCT FROM p.counter_id OR r.due_on>p.valid_until OR r.due_on<p.first_due`],
+    ["an applied stock migration was approved by someone other than its stager, with evidence", `SELECT id::text FROM stock_migrations WHERE status='applied' AND (approved_by IS NULL OR approved_by=created_by OR evidence IS NULL)`],
+    ["a partner commission reversal exactly cancels its order's commission", `SELECT r.id::text FROM partner_ledger r LEFT JOIN partner_ledger c ON c.source_key='commission:'||r.order_id WHERE r.kind='reversal' AND (c.id IS NULL OR c.amount_minor <> -r.amount_minor OR c.partner_id <> r.partner_id)`],
+    ["a paid partner payout has its matching ledger entry", `SELECT x.id::text FROM partner_payouts x WHERE x.status='paid' AND NOT EXISTS (SELECT 1 FROM partner_ledger l WHERE l.source_key='payout:'||x.id AND l.amount_minor=-x.amount_minor)`],
     ["documents are stored under their tenant prefix", `SELECT id::text FROM documents WHERE storage_key NOT LIKE tenant_id::text || '/%'`],
   ];
   const out: Violation[] = [];
