@@ -5,7 +5,7 @@ import { HttpError, badRequest, forbidden } from "../lib/util.js";
 import { assertWritable } from "../platform/entitlements.js";
 import { must, nextNumber, optStr, reqStr } from "./common.js";
 import { findLot, skuMode } from "./fulfil-lots.js";
-import { allocateWaitingInternal, lockStock, moveStock, systemLocation } from "./fulfilment.js";
+import { allocateWaitingInternal, lockStock, moveStock, resolveLocation, resolveSku, systemLocation } from "./fulfilment.js";
 
 const posInt = (v: unknown, label: string) => {
   const n = Number(v);
@@ -63,9 +63,10 @@ export async function requestSiteTransfer(c: Conn, ctx: Ctx, f: Record<string, a
   const no = await nextNumber(c, ctx.tenantId, "site_transfer", "XFR");
   const t = (await c.query<{ id: string }>(`INSERT INTO fulfil_site_transfers(tenant_id,no,from_site,to_site,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [ctx.tenantId, no, from.id, to.id, optStr(f.notes, 300), ctx.userId])).rows[0].id;
   for (const l of lines) {
-    const loc = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [l.location_id]), "Origin bin");
+    const loc = await resolveLocation(c, l);
     if (loc.kind !== "bin" || loc.site_id !== from.id) throw badRequest(`${loc.code} is not a bin at ${from.code}.`);
-    const sku = await must(c.query<any>(`SELECT id, code FROM skus WHERE id=$1 AND active`, [l.sku_id]), "SKU");
+    const sku = await resolveSku(c, l);
+    if (!sku.active) throw badRequest(`${sku.code} is inactive.`);
     const mode = await skuMode(c, sku.id);
     const lot = mode.tracked ? await findLot(c, sku.id, l.lot) : null;
     await c.query(`INSERT INTO fulfil_site_transfer_lines(tenant_id,transfer_id,sku_id,lot_id,from_location_id,qty) VALUES ($1,$2,$3,$4,$5,$6)`, [ctx.tenantId, t, sku.id, lot?.id ?? null, loc.id, posInt(l.qty, "Quantity")]);
@@ -100,7 +101,7 @@ export async function receiveSiteTransferLine(c: Conn, ctx: Ctx, id: string, f: 
   const line = await must(c.query<any>(`SELECT * FROM fulfil_site_transfer_lines WHERE id=$1 AND transfer_id=$2 FOR UPDATE`, [f.line_id, id]), "Transfer line");
   const qty = posInt(f.qty, "Quantity");
   if (line.received_qty + qty > line.qty) throw badRequest(`Only ${line.qty - line.received_qty} unit(s) are still in transit on this line.`);
-  const dest = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.location_id]), "Destination bin");
+  const dest = await resolveLocation(c, f);
   if (dest.kind !== "bin" || !dest.active || dest.site_id !== t.to_site) throw badRequest(`${dest.code} is not an active bin at the destination site.`);
   const transit = await systemLocation(c, ctx.tenantId, "transit");
   await moveStock(c, ctx, { skuId: line.sku_id, locationId: transit, delta: -qty, kind: "site_out", refType: "site_transfer", refId: id, lotId: line.lot_id });

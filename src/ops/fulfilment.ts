@@ -81,10 +81,31 @@ export async function setLocationActive(c: Conn, ctx: Ctx, id: string, active: b
   await audit(c, ctx.tenantId, actorOf(ctx), active ? "location.enabled" : "location.disabled", "location", id);
 }
 
-export const listLocations = (c: Conn) => c.query<any>(
-  `SELECT loc.*, coalesce(sum(l.on_hand),0)::int AS units, count(l.sku_id) FILTER (WHERE l.on_hand > 0)::int AS skus
-   FROM wh_locations loc LEFT JOIN stock_levels l ON l.location_id=loc.id GROUP BY loc.id
-   ORDER BY (loc.kind <> 'bin'), loc.code`).then((r) => r.rows);
+export const PAGE_SIZE = 50;
+const offsetOf = (page: number) => (listPage(page) - 1) * PAGE_SIZE;
+const like = (q?: string | null) => (q && q.trim() ? `%${q.trim().replace(/[\\%_]/g, "\\$&")}%` : null);
+/** One page (+1 look-ahead row) of locations; `q` filters on the code. Dropdown-style lookups use resolveLocation instead. */
+export const listLocations = (c: Conn, page = 1, q?: string | null) => c.query<any>(
+  `SELECT loc.*, s.code AS site_code, coalesce(sum(l.on_hand),0)::int AS units, count(l.sku_id) FILTER (WHERE l.on_hand > 0)::int AS skus
+   FROM wh_locations loc LEFT JOIN fulfil_sites s ON s.id=loc.site_id LEFT JOIN stock_levels l ON l.location_id=loc.id
+   WHERE ($1::text IS NULL OR loc.code ILIKE $1) GROUP BY loc.id, s.code
+   ORDER BY (loc.kind <> 'bin'), loc.code LIMIT ${PAGE_SIZE + 1} OFFSET $2`, [like(q), offsetOf(page)]).then((r) => r.rows);
+
+/** Resolve a location typed by code (floor staff scan or type codes) or passed by id. Never silently picks among several. */
+export async function resolveLocation(c: Conn, f: Record<string, any>, idKey = "location_id", codeKey = "location_code") {
+  const code = String(f[codeKey] ?? "").trim().toUpperCase().replace(/\s+/g, "-");
+  if (code) return must(c.query<any>(`SELECT * FROM wh_locations WHERE code=$1`, [code]), `Location ${code}`);
+  return must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f[idKey]]), "Location");
+}
+/** Resolve a SKU by id, or by code / barcode (optionally within one merchant). Ambiguity is an error, not a guess. */
+export async function resolveSku(c: Conn, f: Record<string, any>, idKey = "sku_id", codeKey = "sku_code") {
+  const code = String(f[codeKey] ?? "").trim();
+  if (!code) return must(c.query<any>(`SELECT * FROM skus WHERE id=$1`, [f[idKey]]), "SKU");
+  const rows = (await c.query<any>(`SELECT s.*, p.name AS party_name FROM skus s JOIN parties p ON p.id=s.party_id WHERE (upper(s.code)=upper($1) OR s.barcode=$1) AND ($2::uuid IS NULL OR s.party_id=$2) LIMIT 5`, [code, f.party_id || null])).rows;
+  if (!rows.length) throw badRequest(`No SKU matches “${code}”.`);
+  if (rows.length > 1) throw badRequest(`“${code}” belongs to several merchants (${rows.map((r: any) => r.party_name).join(", ")}). Choose the merchant too.`);
+  return rows[0];
+}
 
 // ───────────────────────── SKUs
 export async function createSku(c: Conn, ctx: Ctx, f: Record<string, any>) {
@@ -155,8 +176,10 @@ export async function importSkus(c: Conn, ctx: Ctx, partyId: string, csv: string
   return rep;
 }
 
-export const listSkus = (c: Conn, partyId?: string | null) => c.query<any>(
-  `SELECT s.*, p.name AS party_name FROM skus s JOIN parties p ON p.id=s.party_id WHERE ($1::uuid IS NULL OR s.party_id=$1) ORDER BY p.name, s.code`, [partyId ?? null]).then((r) => r.rows);
+export const listSkus = (c: Conn, partyId?: string | null, page = 1, q?: string | null) => c.query<any>(
+  `SELECT s.*, p.name AS party_name FROM skus s JOIN parties p ON p.id=s.party_id WHERE ($1::uuid IS NULL OR s.party_id=$1)
+     AND ($2::text IS NULL OR s.code ILIKE $2 OR s.name ILIKE $2 OR s.barcode ILIKE $2) ORDER BY p.name, s.code LIMIT ${PAGE_SIZE + 1} OFFSET $3`, [partyId ?? null, like(q), offsetOf(page)]).then((r) => r.rows);
+export const getSku = (c: Conn, id: string) => must(c.query<any>(`SELECT s.*, p.name AS party_name FROM skus s JOIN parties p ON p.id=s.party_id WHERE s.id=$1`, [id]), "SKU");
 
 /** "CODE, qty" per line. Quantities for the same code are added together. */
 export function parseQtyLines(text: string, label = "line"): { code: string; qty: number }[] {
@@ -427,12 +450,12 @@ export async function importOrders(c: Conn, ctx: Ctx, partyId: string, csv: stri
   return rep;
 }
 
-export async function pickList(c: Conn) {
+export async function pickList(c: Conn, page = 1) {
   return (await c.query<any>(
-    `SELECT a.id, loc.code AS location, s.code AS sku, s.name AS sku_name, s.barcode, (a.qty - a.picked_qty)::int AS remaining, o.id AS order_id, o.no AS order_no, o.ship_by, o.status
-     FROM stock_allocations a JOIN wh_locations loc ON loc.id=a.location_id JOIN skus s ON s.id=a.sku_id
+    `SELECT a.id, loc.code AS location, lot.lot AS lot, s.code AS sku, s.name AS sku_name, s.barcode, (a.qty - a.picked_qty)::int AS remaining, o.id AS order_id, o.no AS order_no, o.ship_by, o.status
+     FROM stock_allocations a JOIN wh_locations loc ON loc.id=a.location_id JOIN skus s ON s.id=a.sku_id LEFT JOIN fulfil_lots lot ON lot.id=a.lot_id
      JOIN fulfil_order_lines l ON l.id=a.line_id JOIN fulfil_orders o ON o.id=l.order_id
-     WHERE a.qty > a.picked_qty AND o.status IN ('allocated','picking') ORDER BY loc.code, s.code, o.ship_by NULLS LAST, o.no`)).rows;
+     WHERE a.qty > a.picked_qty AND o.status IN ('allocated','picking') ORDER BY loc.code, s.code, o.ship_by NULLS LAST, o.no, a.id LIMIT ${PAGE_SIZE + 1} OFFSET $1`, [offsetOf(page)])).rows;
 }
 
 /**
@@ -621,7 +644,7 @@ export async function receiveInbound(c: Conn, ctx: Ctx, inboundId: string, f: Re
   const inb = await must(c.query<any>(`SELECT * FROM inbound_shipments WHERE id=$1 FOR UPDATE`, [inboundId]), "Inbound");
   if (!["expected", "receiving"].includes(inb.status)) throw badRequest(`This inbound is ${inb.status}.`);
   const line = await must(c.query<any>(`SELECT l.*, s.code FROM inbound_lines l JOIN skus s ON s.id=l.sku_id WHERE l.id=$1 AND l.inbound_id=$2 FOR UPDATE OF l`, [f.line_id, inboundId]), "Inbound line");
-  const loc = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.location_id]), "Location");
+  const loc = await resolveLocation(c, f);
   if (good > 0 && !(loc.active && ["bin", "receiving"].includes(loc.kind))) throw badRequest("Good stock is received into a bin or the receiving area.");
   const total = line.received_qty + line.damaged_qty + good + damaged;
   if (total > line.expected_qty && f.accept_over !== "1") throw badRequest(`This brings ${line.code} to ${total} against ${line.expected_qty} expected. Tick “accept over-receipt” only if the extra units really arrived.`);
@@ -644,10 +667,10 @@ export async function receiveInbound(c: Conn, ctx: Ctx, inboundId: string, f: Re
     }
   }
   const rec = await c.query<{ id: string }>(`INSERT INTO inbound_receipts(tenant_id,line_id,good_qty,damaged_qty,location_id,token,created_by,lot_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [ctx.tenantId, line.id, good, damaged, f.location_id, token, ctx.userId, receiptLot]);
+    [ctx.tenantId, line.id, good, damaged, loc.id, token, ctx.userId, receiptLot]);
   if (good) {
-    if (!mode.tracked) await moveStock(c, ctx, { skuId: line.sku_id, locationId: f.location_id, delta: good, kind: "receive", refType: "inbound", refId: inboundId });
-    else for (const x of goodLots) await moveStock(c, ctx, { skuId: line.sku_id, locationId: f.location_id, delta: x.qty, kind: "receive", refType: "inbound", refId: inboundId, lotId: x.id });
+    if (!mode.tracked) await moveStock(c, ctx, { skuId: line.sku_id, locationId: loc.id, delta: good, kind: "receive", refType: "inbound", refId: inboundId });
+    else for (const x of goodLots) await moveStock(c, ctx, { skuId: line.sku_id, locationId: loc.id, delta: x.qty, kind: "receive", refType: "inbound", refId: inboundId, lotId: x.id });
   }
   if (damaged) {
     const q = await systemLocation(c, ctx.tenantId, "quarantine");
@@ -703,12 +726,11 @@ export async function transferStock(c: Conn, ctx: Ctx, f: Record<string, any>) {
   await assertWritable(c, ctx.tenantId);
   await lockStock(c, ctx.tenantId);
   const qty = posInt(f.qty, "Quantity");
-  if (f.from_location === f.to_location) throw badRequest("Choose two different locations.");
-  const from = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.from_location]), "From location");
-  const to = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.to_location]), "To location");
+  const from = await resolveLocation(c, f, "from_location", "from_code"), to = await resolveLocation(c, f, "to_location", "to_code");
+  if (from.id === to.id) throw badRequest("Choose two different locations.");
   if (from.kind === "staging" || to.kind === "staging") throw badRequest("Staging is managed by picking and shipping.");
   if (!to.active) throw badRequest(`${to.code} is switched off.`);
-  const sku = await must(c.query<any>(`SELECT id, code FROM skus WHERE id=$1`, [f.sku_id]), "SKU");
+  const sku = await resolveSku(c, f);
   const tmode = await skuMode(c, sku.id);
   const tlot = tmode.tracked ? (await findLot(c, sku.id, f.lot)).id : null;
   await moveStock(c, ctx, { skuId: sku.id, locationId: from.id, delta: -qty, kind: "transfer_out", note: `to ${to.code}`, lotId: tlot });
@@ -725,8 +747,8 @@ export async function requestAdjustment(c: Conn, ctx: Ctx, f: Record<string, any
   await lockStock(c, ctx.tenantId);
   const counted = nonNegInt(f.counted_qty, "Counted quantity");
   if (f.counted_qty === undefined || String(f.counted_qty).trim() === "") throw badRequest("Enter the counted quantity.");
-  const sku = await must(c.query<any>(`SELECT id, code FROM skus WHERE id=$1`, [f.sku_id]), "SKU");
-  const loc = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.location_id]), "Location");
+  const sku = await resolveSku(c, f);
+  const loc = await resolveLocation(c, f);
   if (loc.kind === "staging") throw badRequest("Staging stock belongs to open orders; count it by finishing or cancelling those orders.");
   const amode = await skuMode(c, sku.id);
   const alot = amode.tracked ? (await findLot(c, sku.id, f.lot)).id : null;
@@ -788,11 +810,12 @@ export async function decideAdjustment(c: Conn, ctx: Ctx, id: string, approve: b
   return { status: "applied" as const, released, reallocated: alloc };
 }
 
-export const listAdjustments = (c: Conn, status?: string) => c.query<any>(
-  `SELECT a.*, s.code AS sku_code, s.name AS sku_name, loc.code AS loc_code, p.name AS party_name, ru.name AS requester, du.name AS decider
-   FROM stock_adjustments a JOIN skus s ON s.id=a.sku_id JOIN parties p ON p.id=s.party_id JOIN wh_locations loc ON loc.id=a.location_id
+export const listAdjustments = (c: Conn, status?: string, page = 1) => c.query<any>(
+  `SELECT a.*, s.code AS sku_code, s.name AS sku_name, loc.code AS loc_code, lot.lot AS lot_code, p.name AS party_name, ru.name AS requester, du.name AS decider
+   FROM stock_adjustments a JOIN skus s ON s.id=a.sku_id JOIN parties p ON p.id=s.party_id JOIN wh_locations loc ON loc.id=a.location_id LEFT JOIN fulfil_lots lot ON lot.id=a.lot_id
    LEFT JOIN team_members ru ON ru.user_id=a.requested_by LEFT JOIN team_members du ON du.user_id=a.decided_by
-   WHERE ($1::text IS NULL OR a.status=$1) ORDER BY a.requested_at DESC LIMIT 200`, [status ?? null]).then((r) => r.rows);
+   WHERE ($1::text IS NULL OR a.status=$1) ORDER BY a.requested_at DESC, a.id LIMIT ${PAGE_SIZE + 1} OFFSET $2`, [status ?? null, offsetOf(page)]).then((r) => r.rows);
+export const countPendingAdjustments = (c: Conn) => c.query<any>(`SELECT count(*)::int n FROM stock_adjustments WHERE status='pending'`).then((r) => r.rows[0].n as number);
 
 // ───────────────────────── returns
 export async function createReturn(c: Conn, ctx: Ctx, f: Record<string, any>) {
@@ -850,7 +873,7 @@ export async function receiveReturn(c: Conn, ctx: Ctx, returnId: string, f: Reco
     if (disposition === "restock" && lotBlocked(rlot)) throw badRequest(`Lot ${rlot.lot} is on hold or expired: quarantine or dispose of the units.`);
   }
   if (disposition === "restock") {
-    const loc = await must(c.query<any>(`SELECT * FROM wh_locations WHERE id=$1`, [f.location_id]), "Location");
+    const loc = await resolveLocation(c, f);
     if (!(loc.active && ["bin", "receiving"].includes(loc.kind))) throw badRequest("Restock into a bin or the receiving area.");
     locId = loc.id;
   } else if (disposition === "quarantine") locId = await systemLocation(c, ctx.tenantId, "quarantine");
@@ -929,7 +952,7 @@ export async function getFulfilOrder(c: Conn, id: string, ctx?:Ctx) {
 }
 
 /** One row per SKU: where its units are and how many can still be promised to new orders. */
-export const stockOverview = (c: Conn, partyId?: string | null) => c.query<any>(
+export const stockOverview = (c: Conn, partyId?: string | null, page = 1, q?: string | null) => c.query<any>(
   `SELECT s.id, s.code, s.name, s.barcode, s.reorder_point, s.active, s.party_id, s.tracking, s.rotation, p.name AS party_name,
      coalesce(sum(l.on_hand) FILTER (WHERE loc.kind='bin'),0)::int AS in_bins,
      coalesce(sum(l.reserved) FILTER (WHERE loc.kind='bin'),0)::int AS reserved,
@@ -942,7 +965,15 @@ export const stockOverview = (c: Conn, partyId?: string | null) => c.query<any>(
      (SELECT coalesce(sum(ol.qty - ol.closed_qty - ol.allocated_qty),0)::int FROM fulfil_order_lines ol JOIN fulfil_orders o ON o.id=ol.order_id
         WHERE ol.sku_id=s.id AND o.status IN ('new','backordered','allocated','picking','picked','packed')) AS backordered
    FROM skus s JOIN parties p ON p.id=s.party_id LEFT JOIN stock_levels l ON l.sku_id=s.id LEFT JOIN wh_locations loc ON loc.id=l.location_id
-   WHERE ($1::uuid IS NULL OR s.party_id=$1) GROUP BY s.id, p.name ORDER BY p.name, s.code`, [partyId ?? null]).then((r) => r.rows);
+   WHERE ($1::uuid IS NULL OR s.party_id=$1) AND ($2::text IS NULL OR s.code ILIKE $2 OR s.name ILIKE $2 OR s.barcode ILIKE $2) GROUP BY s.id, p.name ORDER BY p.name, s.code
+   LIMIT ${PAGE_SIZE + 1} OFFSET $3`, [partyId ?? null, like(q), offsetOf(page)]).then((r) => r.rows);
+
+/** Low-stock SKUs for the board: filtered in SQL so the board never loads the whole catalogue. */
+export const lowStock = (c: Conn) => c.query<any>(
+  `SELECT * FROM (SELECT s.id, s.code, s.name, s.reorder_point, s.active, p.name AS party_name,
+     coalesce(sum(l.on_hand - l.reserved) FILTER (WHERE loc.kind='bin' AND loc.active),0)::int AS available
+     FROM skus s JOIN parties p ON p.id=s.party_id LEFT JOIN stock_levels l ON l.sku_id=s.id LEFT JOIN wh_locations loc ON loc.id=l.location_id
+     WHERE s.active AND s.reorder_point > 0 GROUP BY s.id, p.name) x WHERE x.available <= x.reorder_point ORDER BY x.available, x.code LIMIT 20`).then((r) => r.rows);
 
 export const stockByLocation = (c: Conn, skuId: string) => c.query<any>(
   `SELECT loc.code, loc.kind, l.on_hand, l.reserved, (l.on_hand - l.reserved) AS available FROM stock_levels l JOIN wh_locations loc ON loc.id=l.location_id
@@ -955,8 +986,7 @@ export const skuLedger = (c: Conn, skuId: string, limit = 100) => c.query<any>(
 /** Fulfilment board: what is waiting at each stage, and what is late. */
 export async function fulfilmentOverview(c: Conn) {
   const n = async (sql: string) => Number((await c.query<any>(sql)).rows[0].n);
-  const stock = await stockOverview(c);
-  const low = stock.filter((s: any) => s.active && s.reorder_point > 0 && s.available <= s.reorder_point);
+  const low = await lowStock(c);
   return {
     byStatus: Object.fromEntries((await c.query<any>(`SELECT status, count(*)::int n FROM fulfil_orders GROUP BY status`)).rows.map((r) => [r.status, r.n])) as Record<string, number>,
     late: (await c.query<any>(`SELECT o.id, o.no, o.status, o.ship_by, p.name AS party FROM fulfil_orders o JOIN parties p ON p.id=o.party_id WHERE o.ship_by < now() AND o.status IN ('new','backordered','allocated','picking','picked','packed') ORDER BY o.ship_by LIMIT 10`)).rows,
