@@ -4,10 +4,16 @@ import { actorOf, require, type Ctx } from "../lib/perms.js";
 import { badRequest, lineNet, taxFor, toMinor } from "../lib/util.js";
 import { assertWritable } from "../platform/entitlements.js";
 import { must, nextNumber, reqStr, today } from "./common.js";
+import { rateOn } from "./finance-bridge.js";
+
+/** An invoice is shown in the customer's billing currency only at an approved rate that is current: older than this many days it must be re-approved. */
+export const FX_RATE_MAX_AGE_DAYS = 7;
 
 export interface InvoiceSource {
   entityId: string; partyId: string; jobId?: string | null; transportOrderId?: string | null; whRunId?: string | null; dlvRunId?: string | null; customsCaseId?: string | null; specialistCaseId?: string | null;
   lines: { id: string; description: string; qty: number | string; unit_minor: number | string; tax_code: string }[];
+  /** Present the invoice in this currency (default: the customer's billing currency). Needs a current approved rate. */
+  billingCurrency?: string | null;
   /** called after the invoice row exists so the caller can mark its own charge rows as invoiced */
   markCharge: (chargeId: string, invoiceId: string) => Promise<void>;
 }
@@ -24,24 +30,37 @@ export async function issueInvoice(c: Conn, ctx: Ctx, src: InvoiceSource, termsD
   });
   const subtotal = lines.reduce((a, l) => a + l.net, 0);
   const tax = lines.reduce((a, l) => a + l.tax, 0);
+  const wanted = src.billingCurrency ?? (await c.query<any>(`SELECT billing_currency FROM parties WHERE id=$1`, [src.partyId])).rows[0]?.billing_currency ?? null;
+  let billing: { ccy: string; rate: number; rateId: string; asOf: string } | null = null;
+  if (wanted && wanted !== ent.currency) {
+    const r = await rateOn(c, wanted, today());
+    if (!r) throw badRequest(`This customer is billed in ${wanted}, but there is no approved ${wanted} exchange rate. Enter a rate and have another person approve it first.`);
+    const age = (Date.parse(today()) - Date.parse(r.as_of)) / 86400000;
+    if (age > FX_RATE_MAX_AGE_DAYS) throw badRequest(`The latest approved ${wanted} rate is from ${r.as_of}, more than ${FX_RATE_MAX_AGE_DAYS} days old. Enter and approve a current rate first.`);
+    billing = { ccy: wanted, rate: r.rate, rateId: r.id, asOf: r.as_of };
+  }
+  const conv = (minor: number) => (billing ? Math.round(minor / billing.rate) : null);
+  const bl = lines.map((l) => ({ unit: conv(Number(l.unit_minor)), net: conv(l.net), tax: conv(l.tax) }));
+  const bSub = billing ? bl.reduce((a, l) => a + l.net!, 0) : null, bTax = billing ? bl.reduce((a, l) => a + l.tax!, 0) : null;
   const no = await nextNumber(c, ctx.tenantId, "invoice", ent.invoice_prefix);
   const conn = (await c.query<any>(`SELECT status FROM accounting_connections`)).rows[0];
   const sync = conn && ["connected", "live", "validating"].includes(conn.status) ? "pending" : "not_connected";
   const inv = await c.query<{ id: string }>(
-    `INSERT INTO invoices(tenant_id,entity_id,no,party_id,job_id,transport_order_id,wh_run_id,dlv_run_id,cus_case_id,specialist_case_id,currency,subtotal_minor,tax_minor,total_minor,due_at,sync_status,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now() + ($15 || ' days')::interval, $16,$17) RETURNING id`,
-    [ctx.tenantId, src.entityId, no, src.partyId, src.jobId ?? null, src.transportOrderId ?? null, src.whRunId ?? null, src.dlvRunId ?? null, src.customsCaseId ?? null, src.specialistCaseId ?? null, ent.currency, subtotal, tax, subtotal + tax, String(termsDays), sync, ctx.userId]);
+    `INSERT INTO invoices(tenant_id,entity_id,no,party_id,job_id,transport_order_id,wh_run_id,dlv_run_id,cus_case_id,specialist_case_id,currency,subtotal_minor,tax_minor,total_minor,due_at,sync_status,created_by,billing_currency,fx_rate,fx_rate_id,fx_rate_as_of,billing_subtotal_minor,billing_tax_minor,billing_total_minor)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now() + ($15 || ' days')::interval, $16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`,
+    [ctx.tenantId, src.entityId, no, src.partyId, src.jobId ?? null, src.transportOrderId ?? null, src.whRunId ?? null, src.dlvRunId ?? null, src.customsCaseId ?? null, src.specialistCaseId ?? null, ent.currency, subtotal, tax, subtotal + tax, String(termsDays), sync, ctx.userId,
+      billing?.ccy ?? null, billing?.rate ?? null, billing?.rateId || null, billing?.asOf ?? null, bSub, bTax, billing ? bSub! + bTax! : null]);
   const id = inv.rows[0].id;
-  for (const l of lines) {
-    await c.query(`INSERT INTO invoice_lines(tenant_id,invoice_id,description,qty,unit_minor,tax_code,net_minor,tax_minor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [ctx.tenantId, id, l.description, l.qty, l.unit_minor, l.tax_code, l.net, l.tax]);
+  for (const [i, l] of lines.entries()) {
+    await c.query(`INSERT INTO invoice_lines(tenant_id,invoice_id,description,qty,unit_minor,tax_code,net_minor,tax_minor,billing_unit_minor,billing_net_minor,billing_tax_minor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [ctx.tenantId, id, l.description, l.qty, l.unit_minor, l.tax_code, l.net, l.tax, bl[i].unit, bl[i].net, bl[i].tax]);
     await src.markCharge(l.id, id);
   }
   if (sync === "pending") {
     await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'accounting.invoice',$2,$3) ON CONFLICT (key) DO NOTHING`,
       [ctx.tenantId, `invoice:${id}`, JSON.stringify({ invoiceId: id })]);
   }
-  await audit(c, ctx.tenantId, actorOf(ctx), "invoice.issued", "invoice", id, { no, total: subtotal + tax });
+  await audit(c, ctx.tenantId, actorOf(ctx), "invoice.issued", "invoice", id, { no, total: subtotal + tax, ...(billing ? { billing_currency: billing.ccy, fx_rate: billing.rate } : {}) });
   return { id, no };
 }
 

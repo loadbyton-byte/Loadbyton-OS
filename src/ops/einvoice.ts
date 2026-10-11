@@ -1,4 +1,5 @@
 import type { Conn } from "../db/client.js";
+import "../adapters/einvoice-asp.js";
 import { adapterFor, sandboxAdapter, type EInvoiceAdapter } from "../adapters/einvoice.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
@@ -71,7 +72,7 @@ ${trn ? `      <cac:PartyTaxScheme><cbc:CompanyID>${esc(trn.replace(/\s/g, ""))}
   </cac:${tag}>`;
 }
 
-export interface DocSource { kind: "invoice" | "credit_note"; number: string; issuedAt: unknown; dueAt?: unknown; currency: string; subtotal: number; tax: number; total: number; reason?: string; invoiceRef?: string;
+export interface DocSource { taxCurrency?: { code: string; taxMinor: number }; kind: "invoice" | "credit_note"; number: string; issuedAt: unknown; dueAt?: unknown; currency: string; subtotal: number; tax: number; total: number; reason?: string; invoiceRef?: string;
   lines: { description: string; qty: number | string; unit_minor: number | string; net_minor: number | string; tax_minor: number | string; tax_code: string }[] }
 
 export function buildUbl(src: DocSource, supplier: any, buyer: any, settings: { customization_id?: string | null; profile_id?: string | null }): string {
@@ -91,7 +92,7 @@ export function buildUbl(src: DocSource, supplier: any, buyer: any, settings: { 
   <cbc:IssueDate>${day(src.issuedAt)}</cbc:IssueDate>
 ${src.kind === "invoice" && src.dueAt ? `  <cbc:DueDate>${day(src.dueAt)}</cbc:DueDate>\n` : ""}  <cbc:${src.kind === "invoice" ? "InvoiceTypeCode" : "CreditNoteTypeCode"}>${src.kind === "invoice" ? "380" : "381"}</cbc:${src.kind === "invoice" ? "InvoiceTypeCode" : "CreditNoteTypeCode"}>
 ${src.reason ? `  <cbc:Note>${esc(src.reason)}</cbc:Note>\n` : ""}  <cbc:DocumentCurrencyCode>${esc(src.currency)}</cbc:DocumentCurrencyCode>
-${src.invoiceRef ? `  <cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>${esc(src.invoiceRef)}</cbc:ID></cac:InvoiceDocumentReference></cac:BillingReference>\n` : ""}${party("AccountingSupplierParty", supplier.name, supplier.legal_name ?? supplier.name, supplier.tax_id, supplier.einvoice_scheme, supplier.einvoice_endpoint, { line: supplier.address_line, city: supplier.city, emirate: supplier.emirate, country: supplier.country })}
+${src.taxCurrency ? `  <cbc:TaxCurrencyCode>${esc(src.taxCurrency.code)}</cbc:TaxCurrencyCode>\n` : ""}${src.invoiceRef ? `  <cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>${esc(src.invoiceRef)}</cbc:ID></cac:InvoiceDocumentReference></cac:BillingReference>\n` : ""}${party("AccountingSupplierParty", supplier.name, supplier.legal_name ?? supplier.name, supplier.tax_id, supplier.einvoice_scheme, supplier.einvoice_endpoint, { line: supplier.address_line, city: supplier.city, emirate: supplier.emirate, country: supplier.country })}
 ${party("AccountingCustomerParty", buyer.name, buyer.name, buyer.tax_id, buyer.einvoice_scheme, buyer.einvoice_endpoint, { line: buyer.address_line, city: buyer.city, emirate: buyer.emirate, country: buyer.country })}
   <cac:TaxTotal>
     <cbc:TaxAmount currencyID="${esc(src.currency)}">${amt(src.tax)}</cbc:TaxAmount>
@@ -101,7 +102,7 @@ ${[...groups.values()].map((g) => `    <cac:TaxSubtotal>
       <cac:TaxCategory><cbc:ID>${g.cat.id}</cbc:ID><cbc:Percent>${g.cat.percent.toFixed(2)}</cbc:Percent>${g.cat.reason ? `<cbc:TaxExemptionReason>${esc(g.cat.reason)}</cbc:TaxExemptionReason>` : ""}<cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:TaxCategory>
     </cac:TaxSubtotal>`).join("\n")}
   </cac:TaxTotal>
-  <cac:LegalMonetaryTotal>
+${src.taxCurrency ? `  <cac:TaxTotal>\n    <cbc:TaxAmount currencyID="${esc(src.taxCurrency.code)}">${amt(src.taxCurrency.taxMinor)}</cbc:TaxAmount>\n  </cac:TaxTotal>\n` : ""}  <cac:LegalMonetaryTotal>
     <cbc:LineExtensionAmount currencyID="${esc(src.currency)}">${amt(src.subtotal)}</cbc:LineExtensionAmount>
     <cbc:TaxExclusiveAmount currencyID="${esc(src.currency)}">${amt(src.subtotal)}</cbc:TaxExclusiveAmount>
     <cbc:TaxInclusiveAmount currencyID="${esc(src.currency)}">${amt(src.total)}</cbc:TaxInclusiveAmount>
@@ -148,8 +149,10 @@ export async function updatePartyDetails(c: Conn, ctx: Ctx, id: string, f: Recor
   await assertWritable(c, ctx.tenantId);
   const trn = optStr(f.tax_id, 40)?.replace(/\s/g, "") ?? null, country = code2(f.country, "Country");
   if (trn && country === "AE" && !/^\d{15}$/.test(trn)) throw badRequest("A UAE tax registration number is 15 digits.");
-  await must(c.query(`UPDATE parties SET tax_id=$2, name_ar=$3, address_line=$4, city=$5, emirate=$6, country=$7, einvoice_scheme=$8, einvoice_endpoint=$9 WHERE id=$1 RETURNING id`,
-    [recordId(id, "Party"), trn, optStr(f.name_ar, 200), optStr(f.address_line, 200), optStr(f.city, 100), optStr(f.emirate, 60), country, optStr(f.einvoice_scheme, 20), optStr(f.einvoice_endpoint, 100)]), "Party");
+  const billing = optStr(f.billing_currency, 20)?.toUpperCase() ?? null;
+  if (billing && !/^[A-Z]{3}$/.test(billing)) throw badRequest("The billing currency is a three-letter code such as USD, or blank to bill in the company currency.");
+  await must(c.query(`UPDATE parties SET tax_id=$2, name_ar=$3, address_line=$4, city=$5, emirate=$6, country=$7, einvoice_scheme=$8, einvoice_endpoint=$9, billing_currency=$10 WHERE id=$1 RETURNING id`,
+    [recordId(id, "Party"), trn, optStr(f.name_ar, 200), optStr(f.address_line, 200), optStr(f.city, 100), optStr(f.emirate, 60), country, optStr(f.einvoice_scheme, 20), optStr(f.einvoice_endpoint, 100), billing]), "Party");
   await audit(c, ctx.tenantId, actorOf(ctx), "party.details_updated", "party", id);
 }
 
@@ -159,11 +162,22 @@ async function sourceFor(c: Conn, kind: "invoice" | "credit_note", id: string) {
     const inv = await must(c.query<any>(`SELECT * FROM invoices WHERE id=$1`, [recordId(id, "Invoice")]), "Invoice");
     if (inv.status === "void") throw badRequest("A void invoice cannot be sent.");
     const lines = (await c.query<any>(`SELECT * FROM invoice_lines WHERE invoice_id=$1 ORDER BY id`, [inv.id])).rows;
+    if (inv.billing_currency) {                // presented in the customer's billing currency; VAT is also stated in the base currency
+      const bl = lines.map((l: any) => ({ ...l, unit_minor: l.billing_unit_minor, net_minor: l.billing_net_minor, tax_minor: l.billing_tax_minor }));
+      const bi = { ...inv, subtotal_minor: inv.billing_subtotal_minor, tax_minor: inv.billing_tax_minor, total_minor: inv.billing_total_minor };
+      return { inv: bi, lines: bl, src: { kind, number: inv.no, issuedAt: inv.issued_at, dueAt: inv.due_at, currency: inv.billing_currency, subtotal: Number(inv.billing_subtotal_minor), tax: Number(inv.billing_tax_minor), total: Number(inv.billing_total_minor), taxCurrency: { code: inv.currency, taxMinor: Number(inv.tax_minor) }, lines: bl } as DocSource, entityId: inv.entity_id, partyId: inv.party_id };
+    }
     return { inv, lines, src: { kind, number: inv.no, issuedAt: inv.issued_at, dueAt: inv.due_at, currency: inv.currency, subtotal: Number(inv.subtotal_minor), tax: Number(inv.tax_minor), total: Number(inv.total_minor), lines } as DocSource, entityId: inv.entity_id, partyId: inv.party_id };
   }
-  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
+  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no, i.billing_currency, i.fx_rate::float8 AS fx_rate FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
   if (n.status !== "issued") throw badRequest("Only an issued credit note can be sent.");
   const lines = (await c.query<any>(`SELECT * FROM credit_note_lines WHERE credit_note_id=$1 ORDER BY id`, [n.id])).rows;
+  if (n.billing_currency) {                    // a credit note against a foreign-currency invoice is presented at that invoice's own rate
+    const r = Number(n.fx_rate), conv = (m: unknown) => Math.round(Number(m) / r);
+    const bl = lines.map((l: any) => ({ ...l, unit_minor: conv(l.unit_minor), net_minor: conv(l.net_minor), tax_minor: conv(l.tax_minor) }));
+    const sub = bl.reduce((a: number, l: any) => a + l.net_minor, 0), tax = bl.reduce((a: number, l: any) => a + l.tax_minor, 0);
+    return { inv: { ...n, subtotal_minor: sub, tax_minor: tax, total_minor: sub + tax }, lines: bl, src: { kind, number: n.no, issuedAt: n.issued_at, currency: n.billing_currency, subtotal: sub, tax, total: sub + tax, taxCurrency: { code: n.currency, taxMinor: Number(n.tax_minor) }, reason: n.reason, invoiceRef: n.invoice_no, lines: bl } as DocSource, entityId: n.entity_id, partyId: n.party_id };
+  }
   return { inv: n, lines, src: { kind, number: n.no, issuedAt: n.issued_at, currency: n.currency, subtotal: Number(n.subtotal_minor), tax: Number(n.tax_minor), total: Number(n.total_minor), reason: n.reason, invoiceRef: n.invoice_no, lines } as DocSource, entityId: n.entity_id, partyId: n.party_id };
 }
 
@@ -212,6 +226,20 @@ export async function submitEInvoice(c: Conn, ctx: Ctx, docId: string, adapterOv
   await c.query(`UPDATE einvoice_documents SET status=$2, provider=$3, provider_ref=$4, provider_response=$5, submitted_by=$6, submitted_at=now(), decided_at=CASE WHEN $2 IN ('accepted','rejected') THEN now() ELSE NULL END WHERE id=$1`,
     [d.id, status, adapter.name, result.providerRef, JSON.stringify({ reasons: result.reasons, sandbox: adapter.name === "sandbox" }), ctx.userId]);
   await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.submitted", d.kind, d.invoice_id ?? d.credit_note_id, { status, provider: adapter.name });
+  return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
+}
+
+/** Asks the provider for the current state of a document it has not yet decided. A decision is final; an unreachable provider changes nothing. */
+export async function refreshEInvoice(c: Conn, ctx: Ctx, docId: string, adapterOverride?: EInvoiceAdapter) {
+  require(ctx, "finance.write");
+  const d = await must(c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1 FOR UPDATE`, [recordId(docId, "E-invoice")]), "E-invoice");
+  if (d.status !== "submitted" || !d.provider_ref) return d;
+  const adapter = adapterOverride ?? adapterFor(d.provider);
+  if (!adapter) throw forbidden("The provider adapter for this document is no longer installed.");
+  const r = await adapter.status(d.provider_ref);
+  if (r.status !== "accepted" && r.status !== "rejected") return d;
+  await c.query(`UPDATE einvoice_documents SET status=$2, provider_response=$3, decided_at=now() WHERE id=$1`, [d.id, r.status, JSON.stringify({ reasons: r.reasons, sandbox: adapter.name === "sandbox" })]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.refreshed", d.kind, d.invoice_id ?? d.credit_note_id, { status: r.status, provider: adapter.name });
   return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
 }
 

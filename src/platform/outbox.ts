@@ -30,7 +30,7 @@ export async function drainOutbox(db: Db, handlers: OutboxHandlers = defaultHand
       if (!h) throw new Error(`no handler for ${row.topic}`);
       const res = await h(row);
       // once delivered, one-time credentials and personal data (an invitation link or its encrypted token, a delivery code in an SMS, a phone number) must not stay readable in the database
-      await db.query(`UPDATE outbox SET status='sent', attempts=attempts+1, external_id=coalesce($2,external_id), last_error=NULL, lease_until=NULL, lease_token=NULL, payload = payload - 'link' - 'tokenEncrypted' - 'body' - 'to' WHERE id=$1 AND lease_token=$3`, [row.id, (res as any)?.externalId ?? null, lease]);
+      await db.query(`UPDATE outbox SET status='sent', attempts=attempts+1, external_id=coalesce($2,external_id), last_error=NULL, lease_until=NULL, lease_token=NULL, payload = payload - 'link' - 'tokenEncrypted' - 'body' - 'to' - 'params' WHERE id=$1 AND lease_token=$3`, [row.id, (res as any)?.externalId ?? null, lease]);
       sent++;
     } catch (e: any) {
       const attempts = row.attempts + 1;

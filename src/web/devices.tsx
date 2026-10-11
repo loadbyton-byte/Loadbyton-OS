@@ -39,7 +39,7 @@ function Chart({ m }: { m: Awaited<ReturnType<typeof caseMonitor>> }) {
 deviceUi.get(`${U}/devices`, async (c) => {
   need(c, "specialist.write");
   const csrf = c.get("csrf");
-  const d = await withT(c, async (cn) => ({ devices: await deviceOverview(cn), cases: (await cn.query<any>(`SELECT id,no,subject_ref,status FROM specialist_cases WHERE sector='cold-chain' AND status IN ('ready','active','hold') ORDER BY created_at DESC LIMIT 100`)).rows }));
+  const d = await withT(c, async (cn) => ({ devices: await deviceOverview(cn), cases: (await cn.query<any>(`SELECT id,no,subject_ref,status,sector FROM specialist_cases WHERE sector IN ('cold-chain','automotive-logistics') AND status IN ('ready','active','hold') ORDER BY created_at DESC LIMIT 100`)).rows }));
   return appPage(c, "Temperature loggers", <>
     <PageHead title="Temperature loggers" sub="Register a logger, bind it to a cold-chain case, and its signed pushes or downloaded CSV become temperature readings. Every reading is kept, with why it was or was not accepted." />
     <Table head={["Logger", "Serial", "Case", "Last reading", "Accepted", "Rejected", "State", ""]} empty={d.devices.length ? undefined : "No loggers registered."}>
@@ -48,21 +48,22 @@ deviceUi.get(`${U}/devices`, async (c) => {
         <td>{x.status === "retired" ? <Badge s="closed" label="retired" /> : x.silent ? <Badge s="bad" label="silent" /> : x.bound ? <Badge s="ok" label="reporting" /> : <Badge s="info" label="idle" />}</td>
         <td>{x.status === "active" && can(c, "specialist.write") ? (x.bound
           ? <form method="post" action={`${U}/devices/${x.id}/unbind`}><Csrf t={csrf} /><button class="btn ghost sm">Unbind</button></form>
-          : <form method="post" action={`${U}/devices/${x.id}/bind`} class="inline-form"><Csrf t={csrf} /><select name="case_id">{d.cases.map((k: any) => <option value={k.id}>{k.no} · {k.subject_ref}</option>)}</select><input name="since" type="datetime-local" title="Monitoring started (optional)" aria-label="Monitoring started (optional)" /><button class="btn sm">Bind</button></form>) : null}</td></tr>)}</Table>
+          : <form method="post" action={`${U}/devices/${x.id}/bind`} class="inline-form"><Csrf t={csrf} /><select name="case_id">{d.cases.map((k: any) => <option value={k.id}>{k.no} · {k.subject_ref}{k.sector === "automotive-logistics" ? " (yard)" : ""}</option>)}</select><input name="since" type="datetime-local" title="Monitoring started (optional)" aria-label="Monitoring started (optional)" /><button class="btn sm">Bind</button></form>) : null}</td></tr>)}</Table>
     {can(c, "specialist.write") ? <>
-      <form class="card" method="post" action={`${U}/devices`}><Csrf t={csrf} /><h2>Register a logger</h2>
+      <form class="card" method="post" action={`${U}/devices`}><Csrf t={csrf} /><h2>Register a device</h2>
+        <div class="field"><label for="sector">Kind</label><select id="sector" name="sector"><option value="cold-chain">Temperature logger (cold chain)</option><option value="automotive-logistics">Yard scanner / telematics (automotive logistics)</option></select></div>
         {field("label", "Label", { required: true })}{field("serial", "Serial number", { required: true })}{field("interval_minutes", "Logging interval (minutes)", { type: "number", value: "15", min: "1", max: "1440" })}<button class="btn">Register</button></form>
       <form class="card" method="post" action={`${U}/devices/import`}><Csrf t={csrf} /><h2>Import a logger download (CSV)</h2>
         <div class="field"><label for="device_id">Logger</label><select id="device_id" name="device_id">{d.devices.filter((x: any) => x.status === "active").map((x: any) => <option value={x.id}>{x.label} · {x.serial}</option>)}</select></div>
         <div class="field"><label for="csv">CSV with a UTC ISO-8601 time column and a temperature column in °C</label><textarea id="csv" name="csv" rows={6} required placeholder={"time,celsius\n2026-10-11T04:00:00Z,4.2"}></textarea></div><button class="btn">Import readings</button></form></> : null}
-    <section class="card"><h2>Push format</h2><p class="small">POST JSON <code>{'{"readings":[{"id":"1","at":"2026-10-11T04:00:00Z","celsius":4.2}]}'}</code> (1–500 readings) to the logger's secret URL with <code>X-LBT-Signature: t=…,v1=HMAC-SHA256(secret, "t.body")</code>. The URL and secret are shown once when you register the logger. Readings repeat safely.</p></section>
+    <section class="card"><h2>Push format</h2><p class="small">POST JSON <code>{'{"readings":[{"id":"1","at":"2026-10-11T04:00:00Z","celsius":4.2}]}'}</code> (1–500 readings) to the device's secret URL. Yard scanners send <code>{'{"readings":[{"id":"1","at":"2026-10-11T04:00:00Z","location":"Bay C4"}]}'}</code> instead, and each accepted scan becomes a yard-movement event on the bound automotive case. Sign every push with <code>X-LBT-Signature: t=…,v1=HMAC-SHA256(secret, "t.body")</code>. The URL and secret are shown once when you register the device. Readings repeat safely.</p></section>
   </>);
 });
 deviceUi.post(`${U}/devices`, async (c) => {
   need(c, "specialist.write");
   const b = await formBody(c);
   try {
-    const r = await withT(c, (cn, ctx) => registerDevice(cn, ctx, { label: str(b.label), serial: str(b.serial), interval_minutes: str(b.interval_minutes) }));
+    const r = await withT(c, (cn, ctx) => registerDevice(cn, ctx, { label: str(b.label), serial: str(b.serial), interval_minutes: str(b.interval_minutes), sector: str(b.sector) || undefined }));
     return appPage(c, "Logger registered", <><PageHead title="Logger registered" sub="Copy these now. They are not shown again." />
       <section class="card"><p><strong>Push URL</strong><br /><code>{r.url}</code></p><p><strong>Signing secret</strong><br /><code>{r.secret}</code></p></section><p><a class="btn" href={`${U}/devices`}>Back to loggers</a></p></>);
   } catch (e: any) { if (e?.status && e.status < 500) { const { back } = await import("./appkit.js"); return back(c, `${U}/devices`, undefined, e.message); } throw e; }
