@@ -1,0 +1,21 @@
+/* Right-to-left adjustments for the Arabic interface. Loaded only for Arabic sessions. */
+[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", "Noto Naskh Arabic", Arial, sans-serif; }
+[dir="rtl"] .side { border-right: 0; border-left: 1px solid var(--line, #d7dee6); }
+[dir="rtl"] th, [dir="rtl"] td { text-align: right; }
+[dir="rtl"] .num, [dir="rtl"] th.num, [dir="rtl"] td.num { text-align: left; }
+[dir="rtl"] .right { text-align: left; }
+[dir="rtl"] input[type="number"], [dir="rtl"] input[type="email"], [dir="rtl"] input[type="tel"], [dir="rtl"] input[type="url"], [dir="rtl"] input[type="date"],
+[dir="rtl"] code, [dir="rtl"] bdi, [dir="rtl"] .nowrap { direction: ltr; unicode-bidi: isolate; }
+[dir="rtl"] .badge { margin-inline-start: .35em; margin-inline-end: 0; }
+[dir="rtl"] .alert { border-left: 0; border-right: 4px solid currentColor; }
+[dir="rtl"] ul, [dir="rtl"] ol { padding-inline-start: 1.4em; padding-inline-end: 0; }
+[dir="rtl"] .inline-form > * { margin-inline-end: .4em; margin-inline-start: 0; }
+[dir="rtl"] select { background-position: left .6em center; padding-inline-start: 1.8em; padding-inline-end: .6em; }
+[dir="rtl"] .nav { margin-left: 0; margin-right: auto; }
+[dir="rtl"] .card.flat, [dir="rtl"] .card.flag { border-left-width: 1px; border-right: 4px solid var(--navy); }
+[dir="rtl"] .card.flag { border-right-color: var(--red); }
+[dir="rtl"] caption { text-align: right; }
+[dir="rtl"] .side nav a { border-left: 0; border-right: 4px solid transparent; }
+[dir="rtl"] .side nav a[aria-current=page] { border-right-color: var(--red); }
+[dir="rtl"] .stages li { margin-right: 0; margin-left: -1px; }
+[dir="rtl"] .plan ul { padding-left: 0; padding-right: 1.1em; }

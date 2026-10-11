@@ -158,7 +158,7 @@ describe("retention, churn and contribution reports", () => {
     expect(mine.revenue).toBe(Number(order.total_minor));
     expect(mine.partner_commission).toBe(Math.round(Number(order.total_minor) * 0.2));
     expect(mine.contribution).toBe(mine.revenue - mine.partner_commission);
-    expect(mine.ai_cost).toBeNull();
+    expect(mine.ai_cost_usd_micro).toBe(0);
     const coh = await cohortRetention(db);
     const row = coh.find((r) => r.signup === new Date().toISOString().slice(0, 7))!;
     expect(row.paid).toBeGreaterThan(0);

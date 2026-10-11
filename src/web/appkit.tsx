@@ -49,6 +49,7 @@ export function navFor(c: C): NavItem[] {
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
   }
   for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
+  if(t?.sectors.includes('cold-chain')&&ctx.perms.has('specialist.write'))n.push({href:'/app/cold-chain/devices',label:'Temperature loggers',section:'Specialist cases'});
   if (t?.sectors.includes("courier-last-mile")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Delivery" });
     w("/app/delivery", "Delivery board"); w("/app/delivery/shipments", "Parcels"); w("/app/delivery/runs", "Runs"); w("/app/delivery/riders", "Riders"); w("/app/delivery/cash", "Cash desk");
@@ -66,8 +67,10 @@ export function navFor(c: C): NavItem[] {
   if (fwd && ctx.perms.has('quote.write')) n.push({href:'/app/freight/weight',label:'Chargeable weight',section:'Sell'});
   if (fwd) n.push({ href: "/app/freight/opportunities", label: "Opportunities & tenders", section: "Sell" }, { href: "/app/freight/contracts", label: "Supplier contracts", section: "Sell" }, { href: "/app/freight/masters", label: "Master shipments", section: "Operate" });
   n.push({ href: "/app/documents", label: "Documents", section: "Operate" });
+  if (ctx.perms.has("doc.write")) n.push({ href: "/app/extractions", label: "Document extraction", section: "Operate" });
   if (t && t.sectors.length) n.push({ href: "/app/tasks", label: "Tasks & exceptions", section: "Operate" },
     { href: "/app/invoices", label: "Invoices & collections", section: "Money" });
+  if (t && t.sectors.length && ctx.perms.has("finance.write")) n.push({ href: "/app/finance/credit-notes", label: "Credit notes", section: "Money" }, { href: "/app/finance/payables", label: "Supplier bills", section: "Money" }, { href: "/app/finance/fx", label: "Exchange rates", section: "Money" }, { href: "/app/einvoice", label: "E-invoicing readiness", section: "Money" });
   if (fwd && ctx.perms.has("dashboard.owner")) n.push({ href: "/app/reports", label: "Owner dashboard", section: "Money" });   // job-margin view: freight only
   if (ctx.perms.has("team.manage")) n.push({ href: "/app/team", label: "Team", section: "Admin" });
   if (ctx.perms.has("billing.manage")) n.push({ href: "/app/billing", label: "Plan & billing", section: "Admin" });
@@ -76,9 +79,10 @@ export function navFor(c: C): NavItem[] {
   if (ctx.perms.has("settings.manage")) n.push({href:'/app/privacy',label:'Your data',section:'Admin'});
   if (ctx.perms.has("settings.manage")) n.push({href:'/app/onboarding',label:'Setup and onboarding',section:'Admin'});
   if (ctx.perms.has("settings.manage")) n.push({href:'/app/api-keys',label:'API keys',section:'Admin'});
-  if(ctx.perms.has('inbox.write'))n.push({href:'/app/inbox',label:'Shared inbox',section:'Operate'});
+  if(ctx.perms.has('inbox.write'))n.push({href:'/app/inbox',label:'Shared inbox',section:'Operate'},{href:'/app/inbox-unmatched',label:'Unmatched messages',section:'Operate'});
+  if(ctx.perms.has('settings.manage'))n.push({href:'/app/inbox-channels',label:'Inbound channels',section:'Admin'});
   if(fwd&&(ctx.perms.has('enquiry.write')||ctx.perms.has('job.write')))n.push({href:'/app/assistant',label:'Assistant drafts',section:'Operate'});
-  if(fwd&&(ctx.perms.has('job.write')||ctx.perms.has('job.cost')))n.push({href:'/app/document-drafts',label:'Document drafts',section:'Operate'});
+  if(fwd&&(ctx.perms.has('job.write')||ctx.perms.has('job.cost')))n.push({href:'/app/document-drafts',label:'Document drafts',section:'Operate'},{href:'/app/document-drafts/versions',label:'Template versions',section:'Operate'});
   if(ctx.perms.has('dashboard.owner'))n.push({href:'/app/management-reports',label:'Management reports',section:'Money'});
   if(ctx.perms.has('settings.manage'))n.push({href:'/app/migration',label:'Migration and calendar',section:'Admin'});
   n.push({href:'/account/security',label:'Account security',section:'Admin'});

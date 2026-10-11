@@ -129,7 +129,7 @@ adminConsole.get("/admin/reports", async (c) => {
   const mrr = (m: Record<string, number>) => Object.entries(m).map(([k, v]) => money(v, k)).join(" · ") || "—";
   return c.html(<AdminShell p={pg(c, "Reports")}>
     <header class="page"><h1>Retention, churn and contribution</h1></header>
-    <p class="small mute">Computed from recorded orders, subscriptions and the partner ledger. Money is shown per currency and never converted. No AI-model cost is recorded in the platform yet, so contribution excludes it.</p>
+    <p class="small mute">Computed from recorded orders, subscriptions and the partner ledger. Money is shown per currency and never converted. AI assistant cost is recorded in US dollars and shown beside contribution, not subtracted from it.</p>
     <h2>Subscription state</h2>
     <Table head={["State", "Subscriptions", "Monthly value"]}>
       {Object.entries(churn).map(([k, v]: any) => <tr><td>{k.replace(/_/g, " ")}</td><td>{v.count}</td><td>{mrr(v.mrr)}</td></tr>)}</Table>
@@ -140,8 +140,8 @@ adminConsole.get("/admin/reports", async (c) => {
     <Table head={["Month", "Currency", ["Gross", "num"], ["Refunded", "num"], ["Net", "num"], "New", "Returning"]} empty={mov.length ? undefined : "No paid orders yet."}>
       {mov.map((r) => <tr><td>{r.month}</td><td>{r.currency}</td><td>{money(r.gross, r.currency)}</td><td>{money(r.refunded, r.currency)}</td><td>{money(r.net, r.currency)}</td><td>{r.new_tenants}</td><td>{r.returning_tenants}</td></tr>)}</Table>
     <h2>Contribution by customer</h2>
-    <Table head={["Customer", "Currency", ["Revenue", "num"], ["Refunds", "num"], ["Partner commission", "num"], ["Contribution", "num"]]} empty={contrib.length ? undefined : "No paid orders yet."}>
-      {contrib.map((r) => <tr><td><a href={`/admin/tenants/${r.tenant_id}`}>{r.tenant}</a></td><td>{r.currency}</td><td>{money(r.revenue, r.currency)}</td><td>{money(r.refunds, r.currency)}</td><td>{money(r.partner_commission, r.currency)}</td><td>{money(r.contribution, r.currency)}</td></tr>)}</Table>
+    <Table head={["Customer", "Currency", ["Revenue", "num"], ["Refunds", "num"], ["Partner commission", "num"], ["Contribution", "num"], ["AI cost (USD)", "num"]]} empty={contrib.length ? undefined : "No paid orders yet."}>
+      {contrib.map((r) => <tr><td><a href={`/admin/tenants/${r.tenant_id}`}>{r.tenant}</a></td><td>{r.currency}</td><td>{money(r.revenue, r.currency)}</td><td>{money(r.refunds, r.currency)}</td><td>{money(r.partner_commission, r.currency)}</td><td>{money(r.contribution, r.currency)}</td><td>{`USD ${(r.ai_cost_usd_micro / 1_000_000).toFixed(4)}`}</td></tr>)}</Table>
   </AdminShell>);
 });
 void badRequest; void fmtMoney;

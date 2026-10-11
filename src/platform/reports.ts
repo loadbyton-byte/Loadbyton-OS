@@ -72,9 +72,10 @@ export async function tenantContribution(db: Db) {
     `SELECT t.id, t.name, o.currency,
             coalesce(sum(o.total_minor) FILTER (WHERE o.status IN ('paid','refunded')),0)::bigint AS revenue,
             coalesce(sum(o.total_minor) FILTER (WHERE o.status='refunded'),0)::bigint AS refunds,
-            coalesce((SELECT sum(l.amount_minor) FROM partner_ledger l WHERE l.tenant_id=t.id AND l.currency=o.currency AND l.kind IN ('commission','reversal')),0)::bigint AS commission
+            coalesce((SELECT sum(l.amount_minor) FROM partner_ledger l WHERE l.tenant_id=t.id AND l.currency=o.currency AND l.kind IN ('commission','reversal')),0)::bigint AS commission,
+            coalesce((SELECT sum(coalesce(a.cost_micro_usd, a.reserved_micro_usd)) FROM assistant_drafts a WHERE a.tenant_id=t.id),0)::bigint AS ai_cost
        FROM tenants t JOIN orders o ON o.tenant_id=t.id AND o.status IN ('paid','refunded')
       GROUP BY t.id, t.name, o.currency ORDER BY t.name`)).rows;
   return rows.map((r: any) => ({ tenant_id: r.id, tenant: r.name, currency: r.currency, revenue: Number(r.revenue), refunds: Number(r.refunds), partner_commission: Number(r.commission),
-    contribution: Number(r.revenue) - Number(r.refunds) - Number(r.commission), ai_cost: null as null }));
+    contribution: Number(r.revenue) - Number(r.refunds) - Number(r.commission), ai_cost_usd_micro: Number(r.ai_cost) }));
 }

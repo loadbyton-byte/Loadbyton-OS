@@ -8,7 +8,18 @@ import {assertWritable,consumeQuota,getLimit,usedThisMonth} from '../platform/en
 import {must,recordId} from './common.js';
 import type {Fetcher} from '../adapters/http.js';
 
-const input=z.object({resource:z.enum(['enquiry','job']),source_id:z.uuid(),purpose:z.enum(['summary','reply','classification']),reference:z.uuid()}).strict();
+const RESOURCES={
+ enquiry:{perm:'enquiry.write',sector:'freight-forwarding',table:'enquiries',path:'enquiries',label:'enquiry'},
+ job:{perm:'job.write',sector:'freight-forwarding',table:'jobs',path:'jobs',label:'job'},
+ fulfil_order:{perm:'wh.write',sector:'ecommerce-fulfilment',table:'fulfil_orders',path:'fulfilment/orders',label:'fulfilment order'},
+ wh_outbound:{perm:'wh.write',sector:'contract-warehouse-3pl',table:'wh_outbound',path:'warehouse/outbound',label:'warehouse dispatch'},
+ dlv_shipment:{perm:'dlv.write',sector:'courier-last-mile',table:'dlv_shipments',path:'delivery/shipments',label:'parcel'},
+ transport_order:{perm:'transport.write',sector:'road-transport',table:'transport_orders',path:'transport/orders',label:'transport order'},
+ cus_case:{perm:'cus.write',sector:'customs-brokerage',table:'cus_cases',path:'customs/cases',label:'customs case'},
+} as const;
+export type AssistantResource=keyof typeof RESOURCES;
+export const ASSISTANT_RESOURCES=RESOURCES;
+const input=z.object({resource:z.enum(Object.keys(RESOURCES) as [AssistantResource,...AssistantResource[]]),source_id:z.uuid(),purpose:z.enum(['summary','reply','classification']),reference:z.uuid()}).strict();
 export type AssistantInput=z.infer<typeof input>;
 export type AssistantSettings=typeof config.assistant;
 const outputSchema=z.object({text:z.string().min(1).max(4000),confidence:z.enum(['low','medium','high']),citations:z.array(z.uuid()).min(1).max(20)}).strict();
@@ -22,16 +33,33 @@ const codes=new Set(['booked','received','departed','arrived','cleared','deliver
 
 async function gate(c:Conn,ctx:Ctx,resource:string,write=false){
  if(ctx.supportStaffId||ctx.readOnly||ctx.partyId||ctx.driverId)throw forbidden('Assistant drafts require an operating company session.');
- const permission=resource==='enquiry'?'enquiry.write':'job.write';require(ctx,permission);
+ const spec=RESOURCES[resource as AssistantResource];if(!spec)throw badRequest('Choose a supported source.');
+ const permission=spec.perm as any;require(ctx,permission);
  const m=await must(c.query<any>(`SELECT roles FROM memberships WHERE user_id=$1 AND active`,[ctx.userId]),'Active company membership');
  if(!permsFor(m.roles).has(permission))throw forbidden('Your current role cannot access this assistant source.');
- if(!(await c.query(`SELECT 1 FROM tenant_sectors WHERE sector='freight-forwarding'`)).rows.length)throw forbidden('Freight forwarding is not selected.');
+ if(!(await c.query(`SELECT 1 FROM tenant_sectors WHERE sector=$1`,[spec.sector])).rows.length)throw forbidden('That sector is not selected for this workspace.');
  if(write)await assertWritable(c,ctx.tenantId);
 }
 /** Only fixed, structured operating fields enter a prompt. Documents, notes, routes, party/contact names,
  * addresses, financial charges and arbitrary user instructions are deliberately absent from this retriever. */
+const iso=(v:any)=>v?new Date(v).toISOString().slice(0,10):null;
+/** Status and counts only: no names, addresses, contact details, free text, prices or cash amounts. */
+async function factsSnapshot(c:Conn,resource:string,id:string){
+ const q=async(sql:string)=>must(c.query<any>(sql,[id]),'Record');
+ if(resource==='fulfil_order'){const o=await q(`SELECT o.status,o.ordered_at,o.shipped_at,(SELECT count(*) FROM fulfil_order_lines l WHERE l.order_id=o.id) AS lines,(SELECT coalesce(sum(qty),0) FROM fulfil_order_lines l WHERE l.order_id=o.id) AS units,(SELECT coalesce(sum(shipped_qty),0) FROM fulfil_order_lines l WHERE l.order_id=o.id) AS shipped,(SELECT coalesce(sum(closed_qty),0) FROM fulfil_order_lines l WHERE l.order_id=o.id) AS closed FROM fulfil_orders o WHERE o.id=$1`);
+  return {id,resource,status:o.status,facts:{ordered:iso(o.ordered_at),shipped_on:iso(o.shipped_at),lines:Number(o.lines),units_ordered:Number(o.units),units_shipped:Number(o.shipped),units_closed_short:Number(o.closed)}};}
+ if(resource==='wh_outbound'){const o=await q(`SELECT o.status,o.dispatched_at,(SELECT count(*) FROM wh_outbound_lines l WHERE l.outbound_id=o.id) AS lines,(SELECT coalesce(sum(qty_ordered),0) FROM wh_outbound_lines l WHERE l.outbound_id=o.id) AS ordered,(SELECT coalesce(sum(qty_allocated),0) FROM wh_outbound_lines l WHERE l.outbound_id=o.id) AS allocated,(SELECT coalesce(sum(qty_picked),0) FROM wh_outbound_lines l WHERE l.outbound_id=o.id) AS picked,(SELECT coalesce(sum(qty_dispatched),0) FROM wh_outbound_lines l WHERE l.outbound_id=o.id) AS dispatched FROM wh_outbound o WHERE o.id=$1`);
+  return {id,resource,status:o.status,facts:{dispatched_on:iso(o.dispatched_at),lines:Number(o.lines),qty_ordered:Number(o.ordered),qty_allocated:Number(o.allocated),qty_picked:Number(o.picked),qty_dispatched:Number(o.dispatched)}};}
+ if(resource==='dlv_shipment'){const o=await q(`SELECT status,attempts,max_attempts,delivered_at FROM dlv_shipments WHERE id=$1`);
+  return {id,resource,status:o.status,facts:{attempts:Number(o.attempts),attempts_allowed:Number(o.max_attempts),delivered_on:iso(o.delivered_at)}};}
+ if(resource==='transport_order'){const o=await q(`SELECT o.status,o.ready_at,o.delivered_at,(SELECT count(DISTINCT x.trip_id) FROM trip_legs x WHERE x.order_id=o.id) AS trips FROM transport_orders o WHERE o.id=$1`);
+  return {id,resource,status:o.status,facts:{ready_on:iso(o.ready_at),delivered_on:iso(o.delivered_at),trips_linked:Number(o.trips)}};}
+ const o=await q(`SELECT k.status,k.mode,(SELECT count(*) FILTER(WHERE status='missing') FROM cus_checklist x WHERE x.case_id=k.id) AS missing,(SELECT count(*) FILTER(WHERE status='received') FROM cus_checklist x WHERE x.case_id=k.id) AS received,(SELECT count(*) FILTER(WHERE status NOT IN ('missing','received')) FROM cus_checklist x WHERE x.case_id=k.id) AS waived,(SELECT count(*) FROM cus_queries x WHERE x.case_id=k.id AND x.answered_at IS NULL) AS open_queries,(SELECT count(*) FROM cus_inspections x WHERE x.case_id=k.id AND x.result='pending') AS pending_inspections FROM cus_cases k WHERE k.id=$1`);
+ return {id,resource,status:o.status,facts:{mode:o.mode,evidence_missing:Number(o.missing),evidence_received:Number(o.received),evidence_waived_or_other:Number(o.waived),open_queries:Number(o.open_queries),pending_inspections:Number(o.pending_inspections)}};
+}
 async function snapshot(c:Conn,ctx:Ctx,resource:string,id:string){
  await gate(c,ctx,resource);
+ if(!['enquiry','job'].includes(resource))return factsSnapshot(c,resource,id);
  if(resource==='enquiry'){
   const e=await must(c.query<any>(`SELECT id,mode,trade,status,pieces,weight_kg,volume_cbm,ready_date FROM enquiries WHERE id=$1`,[id]),'Enquiry');
   return {id:e.id,resource,mode:e.mode,trade:e.trade,status:e.status,pieces:e.pieces,weight_kg:e.weight_kg,volume_cbm:e.volume_cbm,ready_date:e.ready_date?new Date(e.ready_date).toISOString().slice(0,10):null};
@@ -41,9 +69,14 @@ async function snapshot(c:Conn,ctx:Ctx,resource:string,id:string){
  const x=(await c.query<any>(`SELECT count(*) FILTER(WHERE status='open') AS open,count(*) FILTER(WHERE status='open' AND due_at<now()) AS overdue FROM job_exceptions WHERE job_id=$1`,[id])).rows[0];
  return {id:j.id,resource,mode:j.mode,status:j.status,milestones,exceptions:{open:Number(x.open),overdue:Number(x.overdue)}};
 }
+const factLine=(f:Record<string,any>)=>Object.entries(f).map(([k,v])=>`${k.replace(/_/g,' ')}: ${v??'not recorded'}`).join('; ');
 export function deterministicDraft(source:any,purpose:string){
  let text:string;
- if(source.resource==='enquiry'){
+ if(source.facts){
+  const label=(RESOURCES[source.resource as AssistantResource]?.label)??'record';
+  text=purpose==='reply'?`Your ${label} is recorded as “${source.status}”. ${factLine(source.facts)}. Our team will verify the latest position before confirming anything further.`
+   :`Recorded ${label} state: ${source.status}. ${factLine(source.facts)}. Fields shown as not recorded are not evidence that an event occurred.`;
+ }else if(source.resource==='enquiry'){
   const missing=['pieces','weight_kg','volume_cbm','ready_date'].filter(k=>source[k]==null);
   text=purpose==='classification'?`Suggested classification: ${source.mode} / ${source.trade}. Current enquiry state: ${source.status}. This uses the recorded mode and trade; cargo restrictions require a human review.`:
    purpose==='reply'?`Thank you for your enquiry. The recorded service is ${source.mode} / ${source.trade}. ${missing.length?'Please confirm these missing details: '+missing.join(', ')+'.':'We will review the recorded cargo measurements and readiness.'} Our team will confirm availability and an approved quotation separately.`:
@@ -107,8 +140,11 @@ export async function recoverAssistantDraft(c:Conn,ctx:Ctx,id:string){
  if(!recovered)throw badRequest('Generation may still be running; wait one minute before recovering it.');await audit(c,ctx.tenantId,actorOf(ctx),'assistant.recovered','assistant_draft',id);return recovered;
 }
 export async function assistantWorkspace(c:Conn,ctx:Ctx,page=1){
- if(!ctx.perms.has('enquiry.write')&&!ctx.perms.has('job.write'))throw forbidden();await gate(c,ctx,ctx.perms.has('enquiry.write')?'enquiry':'job');
- const allowed=['enquiry','job'].filter(r=>ctx.perms.has(r==='enquiry'?'enquiry.write':'job.write'));
+ const sectors=new Set((await c.query<any>(`SELECT sector FROM tenant_sectors`)).rows.map(r=>r.sector));
+ const allowed=(Object.keys(RESOURCES) as AssistantResource[]).filter(r=>ctx.perms.has(RESOURCES[r].perm as any)&&sectors.has(RESOURCES[r].sector));
+ if(!allowed.length)throw forbidden();await gate(c,ctx,allowed[0]);
  const rows=(await c.query<any>(`SELECT id,resource,source_id,purpose,status,created_at,cost_micro_usd,cost_status FROM assistant_drafts WHERE created_by=$1 AND resource=ANY($3::text[]) ORDER BY created_at DESC,id LIMIT 51 OFFSET $2`,[ctx.userId,(Math.max(1,Math.min(100000,page))-1)*50,allowed])).rows;
- return {rows,enquiries:ctx.perms.has('enquiry.write')?(await c.query<any>(`SELECT id,no,mode,status FROM enquiries ORDER BY created_at DESC LIMIT 300`)).rows:[],jobs:ctx.perms.has('job.write')?(await c.query<any>(`SELECT id,no,mode,status FROM jobs ORDER BY created_at DESC LIMIT 300`)).rows:[],limit:await getLimit(c,ctx.tenantId,'ai_drafts_per_month'),used:await usedThisMonth(c,ctx.tenantId,'ai_drafts_per_month')};
+ const sources:Record<string,any[]>={};
+ for(const r of allowed)sources[r]=(await c.query<any>(`SELECT id,no,status${r==='enquiry'||r==='job'?',mode':''} FROM ${RESOURCES[r].table} ORDER BY created_at DESC LIMIT 300`)).rows;
+ return {rows,sources,allowed,enquiries:sources.enquiry??[],jobs:sources.job??[],limit:await getLimit(c,ctx.tenantId,'ai_drafts_per_month'),used:await usedThisMonth(c,ctx.tenantId,'ai_drafts_per_month')};
 }
