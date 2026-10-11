@@ -20,6 +20,8 @@ import { customs } from "./web/app-customs.js";
 import { deliveryApi } from "./web/api-delivery.js";
 import { driver } from "./web/app-driver.js";
 import { admin } from "./web/admin.js";
+import { adminConsole } from "./web/admin-console.js";
+import { stockMigration } from "./web/stock-migration.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
 import { connections } from "./web/connections.js";
@@ -81,6 +83,8 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", auth);
   app.route("/", security);
   app.route("/", admin);
+  app.route("/", adminConsole);
+  app.route("/", stockMigration);
   app.route("/", core);
   app.route("/", connections);
   app.route("/", privacy);
