@@ -147,6 +147,36 @@ Moving existing files from the VM disk to the bucket is a one-off copy of `data/
 and only for “out for delivery” and “could not deliver” (the delivery code is included only for parcels that require it). The phone number, text and link are removed from the database after sending.
 Sender-ID registration and consent for marketing/transactional SMS in the UAE are your responsibility with your SMS provider.
 
+## 9a. UAE e-invoicing provider (optional)
+
+Set `EINVOICE_ASP_NAME` (a short label such as `acme-asp`), `EINVOICE_ASP_BASE_URL` (https) and `EINVOICE_ASP_API_KEY` from your accredited service provider, then adjust the
+`EINVOICE_ASP_*` paths, body format and status vocabulary to that provider's API (every variable is documented in `.env.example`). Submissions send the generated UBL with an idempotency
+key; the provider's answer decides the state, and any answer the mapping does not recognise is recorded as *submitted*, never *accepted*. Choose the provider under *E-invoicing readiness → Settings* (mode *live*).
+**Still yours:** accreditation with the provider, the provider's customization/profile identifiers, validation of the payloads against the official specification, and acceptance of real documents. Until the provider has accepted a document it is not a tax invoice issued through the national system. Mirsal (customs) has no adapter: it needs authorised access and an integration scope from the authority.
+
+## 9b. WhatsApp delivery notices (optional)
+
+`WHATSAPP_PROVIDER=cloud` with `WHATSAPP_ACCESS_TOKEN` (a permanent system-user token), `WHATSAPP_PHONE_NUMBER_ID`, and the names of two templates Meta has approved
+(`WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY`, `WHATSAPP_TEMPLATE_ATTEMPT_FAILED`; variable order is in `.env.example`). Notices go to UAE mobiles only, for merchants switched on under *Delivery → Integrations*, and
+the number, delivery code and link are erased once sent. Inbound WhatsApp and telephony channels (signed webhooks) already exist; replies to customers remain recorded by a person.
+**Still yours:** Meta business verification, the number, template approval, and your consent policy. Telephony needs only the Twilio account and numbers (the inbound webhook is built).
+
+## 9c. Live statement feeds (optional)
+
+List the provider hosts in `FEED_ALLOWED_HOSTS`; each workspace then adds its own feed (bank or card settlement, fuel card, Salik) under *Money → Statement feeds* with its own credential, sealed in the database.
+A feed is a JSON API returning a list of transactions; the field names are mapped in the form. Pulls run about every `FEED_PULL_INTERVAL_MINUTES` and go through the same importers as CSV uploads: bank lines wait for matching, fuel and Salik lines
+still need receipt-evidence approval, and each provider transaction id is remembered so overlapping pulls add nothing twice. The host list is re-checked on every pull. Provider-specific APIs (for example a particular open-banking scheme with its own consent flow) may need a small adapter beyond this generic JSON pull.
+
+## 9d. OCR for scanned documents (optional)
+
+`OCR_PROVIDER=google-vision` with `OCR_API_KEY` and `OCR_DATA_PROCESSING_REVIEWED=true` (document content is sent to Google). Scanned PDFs and photographed documents that have no text layer are read by OCR and then go through the same
+field extraction and validation as any other document; the result is labelled as OCR and is a proposal a person must accept.
+
+## 9e. Ledger and foreign-currency invoicing
+
+No configuration. The owner enables the general ledger under *Money → General ledger* (start date fixed once enabled; earlier balances enter as an opening-balance manual entry). A customer is billed in a foreign currency by setting
+its *billing currency* on the customer details page; invoices then need a current approved exchange rate (no older than seven days) and are issued in both currencies with VAT also stated in AED. The books and receipts stay in AED.
+
 ## 10. Monitoring
 
 See [`MONITORING.md`](MONITORING.md): `/healthz` (liveness), `/readyz` (database + background workers), `/metrics` (Prometheus text, bearer `METRICS_TOKEN`), recommended alerts.
