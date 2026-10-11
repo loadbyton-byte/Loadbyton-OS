@@ -1,0 +1,4 @@
+fonttools==4.61.1
+brotli==1.2.0
+Pillow==12.3.0
+python-pptx==1.0.2

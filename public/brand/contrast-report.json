@@ -1,0 +1,98 @@
+{
+  "method": "WCAG 2 sRGB relative luminance",
+  "pairs": [
+    {
+      "pair": "Body on warm white",
+      "foreground": "#0F2129",
+      "background": "#FFFDF7",
+      "ratio": 16.258,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Secondary on warm white",
+      "foreground": "#586A72",
+      "background": "#FFFDF7",
+      "ratio": 5.55,
+      "normalTextAA": true
+    },
+    {
+      "pair": "White on navy",
+      "foreground": "#FFFFFF",
+      "background": "#0F2B3D",
+      "ratio": 14.652,
+      "normalTextAA": true
+    },
+    {
+      "pair": "White on accessible action red",
+      "foreground": "#FFFFFF",
+      "background": "#C62828",
+      "ratio": 5.622,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Blue link on warm white",
+      "foreground": "#2563EB",
+      "background": "#FFFDF7",
+      "ratio": 5.081,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Success on white",
+      "foreground": "#2E7D32",
+      "background": "#FFFFFF",
+      "ratio": 5.127,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Warning on white",
+      "foreground": "#8A5A00",
+      "background": "#FFFFFF",
+      "ratio": 5.927,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Dark secondary text",
+      "foreground": "#CBD5E1",
+      "background": "#0F2B3D",
+      "ratio": 9.869,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Dark link",
+      "foreground": "#93C5FD",
+      "background": "#0F2B3D",
+      "ratio": 8.125,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Dark success",
+      "foreground": "#86EFAC",
+      "background": "#0F2B3D",
+      "ratio": 10.435,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Dark warning",
+      "foreground": "#FCD34D",
+      "background": "#0F2B3D",
+      "ratio": 10.162,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Dark danger",
+      "foreground": "#FF8B93",
+      "background": "#0F2B3D",
+      "ratio": 6.535,
+      "normalTextAA": true
+    },
+    {
+      "pair": "Identity red / white \u2014 restricted to logo, decoration or large text",
+      "foreground": "#FFFFFF",
+      "background": "#E53935",
+      "ratio": 4.227,
+      "normalTextAA": false,
+      "largeTextAA": true
+    }
+  ],
+  "scope": "Defined token pairs only; not a whole-application accessibility certification."
+}
