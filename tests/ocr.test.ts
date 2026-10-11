@@ -21,10 +21,10 @@ describe("OCR for scanned documents", () => {
     expect(pdf).toEqual({ text: "Page one\nPage two", pages: 2 });
     expect(calls[1].url).toContain("files:annotate"); expect(calls[1].body.requests[0].pages).toEqual([1, 2, 3, 4, 5]);
     for (const status of [401, 429, 503, 400]) {
-      const e = await mk(status, {}).recognise(Buffer.from("x"), "image/png").catch((x) => x as Error);
+      const e = await mk(status, {}).recognise(Buffer.from("x"), "image/png").catch((x) => x as Error) as Error;
       expect(e.message).not.toContain("KEY-SECRET");
     }
-    const unreachable = await googleVisionOcr(cfg, (async () => { throw new Error("connect ECONNREFUSED ?key=KEY-SECRET"); }) as any).recognise(Buffer.from("x"), "image/png").catch((x) => x as Error);
+    const unreachable = await googleVisionOcr(cfg, (async () => { throw new Error("connect ECONNREFUSED ?key=KEY-SECRET"); }) as any).recognise(Buffer.from("x"), "image/png").catch((x) => x as Error) as Error;
     expect(unreachable.message).not.toContain("KEY-SECRET");
   });
 
