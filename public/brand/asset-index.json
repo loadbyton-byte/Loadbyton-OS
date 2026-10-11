@@ -1,0 +1,909 @@
+{
+  "version": "1.0.0",
+  "approval": "pending_owner_approval",
+  "assets": [
+    {
+      "path": "masters/logo-parent-navy.svg",
+      "title": "LOAD BY TON parent wordmark \u2014 navy",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "logo-navy.svg",
+      "title": "LOAD BY TON.store \u2014 navy",
+      "category": "Logo masters",
+      "width": 560,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/logo-os-navy.svg",
+      "title": "Loadbyton operating platform \u2014 navy",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 150,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/logo-parent-white.svg",
+      "title": "LOAD BY TON parent wordmark \u2014 white",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "logo-white.svg",
+      "title": "LOAD BY TON.store \u2014 white",
+      "category": "Logo masters",
+      "width": 560,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/logo-os-white.svg",
+      "title": "Loadbyton operating platform \u2014 white",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 150,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/logo-parent-black.svg",
+      "title": "LOAD BY TON parent wordmark \u2014 black",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "logo-black.svg",
+      "title": "LOAD BY TON.store \u2014 black",
+      "category": "Logo masters",
+      "width": 560,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/logo-os-black.svg",
+      "title": "Loadbyton operating platform \u2014 black",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 150,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/logo-parent-mono-white.svg",
+      "title": "LOAD BY TON parent wordmark \u2014 mono-white",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "logo-mono-white.svg",
+      "title": "LOAD BY TON.store \u2014 mono-white",
+      "category": "Logo masters",
+      "width": 560,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/logo-os-mono-white.svg",
+      "title": "Loadbyton operating platform \u2014 mono-white",
+      "category": "Logo masters",
+      "width": 450,
+      "height": 150,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "logo-silver.svg",
+      "title": "LOAD BY TON.store on a dark surface",
+      "category": "Logo masters",
+      "width": 560,
+      "height": 112,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "by-mark.svg",
+      "title": "Loadbyton stacked BY icon",
+      "category": "App icons",
+      "width": 128,
+      "height": 128,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/by-mark-reverse.svg",
+      "title": "Loadbyton BY icon on light tile",
+      "category": "App icons",
+      "width": 128,
+      "height": 128,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/by-mark-mono.svg",
+      "title": "Loadbyton BY icon monochrome",
+      "category": "App icons",
+      "width": 128,
+      "height": 128,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/by-mark-transparent.svg",
+      "title": "Loadbyton BY mark without tile",
+      "category": "Logo masters",
+      "width": 128,
+      "height": 128,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "masters/by-mark-transparent-white.svg",
+      "title": "Loadbyton BY mark on dark without tile",
+      "category": "Logo masters",
+      "width": 128,
+      "height": 128,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "favicon.svg",
+      "title": "Loadbyton small-size BY favicon",
+      "category": "App icons",
+      "width": 32,
+      "height": 32,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "app-icon-maskable.svg",
+      "title": "Loadbyton maskable app icon; mark inside 80% safe circle",
+      "category": "App icons",
+      "width": 512,
+      "height": 512,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/freight-navy.svg",
+      "title": "LOAD BY TON Freight",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/freight-white.svg",
+      "title": "LOAD BY TON Freight",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/transport-navy.svg",
+      "title": "LOAD BY TON Transport",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/transport-white.svg",
+      "title": "LOAD BY TON Transport",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/warehouse-navy.svg",
+      "title": "LOAD BY TON Warehouse",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/warehouse-white.svg",
+      "title": "LOAD BY TON Warehouse",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/fulfilment-navy.svg",
+      "title": "LOAD BY TON Fulfilment",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/fulfilment-white.svg",
+      "title": "LOAD BY TON Fulfilment",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/delivery-navy.svg",
+      "title": "LOAD BY TON Delivery",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/delivery-white.svg",
+      "title": "LOAD BY TON Delivery",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/customs-navy.svg",
+      "title": "LOAD BY TON Customs",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/customs-white.svg",
+      "title": "LOAD BY TON Customs",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/finance-navy.svg",
+      "title": "LOAD BY TON Finance",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/finance-white.svg",
+      "title": "LOAD BY TON Finance",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/intelligence-navy.svg",
+      "title": "LOAD BY TON Intelligence",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "products/intelligence-white.svg",
+      "title": "LOAD BY TON Intelligence",
+      "category": "Product lockups",
+      "width": 450,
+      "height": 160,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/freight-forwarding.svg",
+      "title": "Freight Forwarding",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/road-transport.svg",
+      "title": "Road Transport",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/contract-warehouse-3pl.svg",
+      "title": "Contract Warehouse 3Pl",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/courier-last-mile.svg",
+      "title": "Courier Last Mile",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/ecommerce-fulfilment.svg",
+      "title": "Ecommerce Fulfilment",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/customs-brokerage.svg",
+      "title": "Customs Brokerage",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/consolidation-nvocc.svg",
+      "title": "Consolidation Nvocc",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/cold-chain.svg",
+      "title": "Cold Chain",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/project-heavy-cargo.svg",
+      "title": "Project Heavy Cargo",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/automotive-logistics.svg",
+      "title": "Automotive Logistics",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/marine-agency.svg",
+      "title": "Marine Agency",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/aviation-logistics.svg",
+      "title": "Aviation Logistics",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/moving-relocation.svg",
+      "title": "Moving Relocation",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/import-export-trading.svg",
+      "title": "Import Export Trading",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/distribution.svg",
+      "title": "Distribution",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/container-depot.svg",
+      "title": "Container Depot",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/dangerous-cargo.svg",
+      "title": "Dangerous Cargo",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/cross-border-transit.svg",
+      "title": "Cross Border Transit",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/finance.svg",
+      "title": "Finance",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/intelligence.svg",
+      "title": "Intelligence",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/documents.svg",
+      "title": "Documents",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/security.svg",
+      "title": "Security",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/support.svg",
+      "title": "Support",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "icons/settings.svg",
+      "title": "Settings",
+      "category": "Sector and UI icons",
+      "width": 24,
+      "height": 24,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "patterns/dividers.svg",
+      "title": "Loadbyton divider rhythm",
+      "category": "Patterns",
+      "width": 1200,
+      "height": 300,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "patterns/container-grid.svg",
+      "title": "Container grid pattern",
+      "category": "Patterns",
+      "width": 1200,
+      "height": 800,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "patterns/route.svg",
+      "title": "Connected route graphic; illustrative only",
+      "category": "Patterns",
+      "width": 1200,
+      "height": 700,
+      "physicalMm": null,
+      "editableText": false
+    },
+    {
+      "path": "illustrations/shipment.svg",
+      "title": "Every movement, connected",
+      "category": "Illustrations",
+      "width": 800,
+      "height": 600,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "illustrations/warehouse.svg",
+      "title": "Stock with a source",
+      "category": "Illustrations",
+      "width": 800,
+      "height": 600,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "illustrations/documents.svg",
+      "title": "Keep the record together",
+      "category": "Illustrations",
+      "width": 800,
+      "height": 600,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "illustrations/cash-control.svg",
+      "title": "Know what was received",
+      "category": "Illustrations",
+      "width": 800,
+      "height": 600,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "illustrations/empty-jobs.svg",
+      "title": "Start with an enquiry",
+      "category": "Empty states",
+      "width": 640,
+      "height": 400,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "illustrations/empty-documents.svg",
+      "title": "Keep the source close",
+      "category": "Empty states",
+      "width": 640,
+      "height": 400,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "illustrations/restricted.svg",
+      "title": "Access needs a role",
+      "category": "Empty states",
+      "width": 640,
+      "height": 400,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "illustrations/maintenance.svg",
+      "title": "A controlled pause",
+      "category": "Empty states",
+      "width": 640,
+      "height": 400,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/social-square.svg",
+      "title": "Social Square",
+      "category": "Digital templates",
+      "width": 1080,
+      "height": 1080,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/social-portrait.svg",
+      "title": "Social Portrait",
+      "category": "Digital templates",
+      "width": 1080,
+      "height": 1350,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/social-story.svg",
+      "title": "Social Story",
+      "category": "Digital templates",
+      "width": 1080,
+      "height": 1920,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/open-graph.svg",
+      "title": "Open Graph",
+      "category": "Digital templates",
+      "width": 1200,
+      "height": 630,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/linkedin-post.svg",
+      "title": "Linkedin Post",
+      "category": "Digital templates",
+      "width": 1200,
+      "height": 627,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/linkedin-cover.svg",
+      "title": "Linkedin Cover",
+      "category": "Digital templates",
+      "width": 1584,
+      "height": 396,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/company-cover.svg",
+      "title": "Company Cover",
+      "category": "Digital templates",
+      "width": 1128,
+      "height": 191,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/x-cover.svg",
+      "title": "X Cover",
+      "category": "Digital templates",
+      "width": 1500,
+      "height": 500,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/email-header.svg",
+      "title": "Email Header",
+      "category": "Digital templates",
+      "width": 1200,
+      "height": 320,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/presentation-cover.svg",
+      "title": "Presentation Cover",
+      "category": "Digital templates",
+      "width": 1920,
+      "height": 1080,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/web-hero.svg",
+      "title": "Web Hero",
+      "category": "Digital templates",
+      "width": 1920,
+      "height": 960,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/launch-announcement.svg",
+      "title": "Launch Announcement",
+      "category": "Digital templates",
+      "width": 1080,
+      "height": 1080,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/youtube-cover.svg",
+      "title": "YouTube cover; content within centred safe area",
+      "category": "Digital templates",
+      "width": 2560,
+      "height": 1440,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/business-card-front.svg",
+      "title": "Business card front; 85 x 55 mm trim + 3 mm bleed",
+      "category": "Print templates",
+      "width": 910,
+      "height": 610,
+      "physicalMm": [
+        91,
+        61
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/business-card-back.svg",
+      "title": "Business card back; 85 x 55 mm trim + 3 mm bleed",
+      "category": "Print templates",
+      "width": 910,
+      "height": 610,
+      "physicalMm": [
+        91,
+        61
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/letterhead-a4.svg",
+      "title": "A4 letterhead; 210 x 297 mm trim + 3 mm bleed",
+      "category": "Print templates",
+      "width": 2160,
+      "height": 3030,
+      "physicalMm": [
+        216,
+        303
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/sales-one-pager-a4.svg",
+      "title": "Sales one-pager; scoped pilot claims",
+      "category": "Print templates",
+      "width": 2160,
+      "height": 3030,
+      "physicalMm": [
+        216,
+        303
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/proposal-cover-a4.svg",
+      "title": "Editable proposal cover",
+      "category": "Print templates",
+      "width": 2160,
+      "height": 3030,
+      "physicalMm": [
+        216,
+        303
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/invoice-layout.svg",
+      "title": "Invoice Layout / Draft Template",
+      "category": "Document templates",
+      "width": 2160,
+      "height": 3030,
+      "physicalMm": [
+        216,
+        303
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/packing-list-layout.svg",
+      "title": "Packing List / Draft Template",
+      "category": "Document templates",
+      "width": 2160,
+      "height": 3030,
+      "physicalMm": [
+        216,
+        303
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/pod-layout.svg",
+      "title": "Proof Of Delivery / Blank Template",
+      "category": "Document templates",
+      "width": 2160,
+      "height": 3030,
+      "physicalMm": [
+        216,
+        303
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/envelope-dl.svg",
+      "title": "DL envelope; 220 x 110 mm + 3 mm bleed",
+      "category": "Print templates",
+      "width": 2260,
+      "height": 1160,
+      "physicalMm": [
+        226,
+        116
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/staff-badge.svg",
+      "title": "Internal staff badge; not government identity",
+      "category": "Print templates",
+      "width": 600,
+      "height": 960,
+      "physicalMm": [
+        60,
+        96
+      ],
+      "editableText": true
+    },
+    {
+      "path": "templates/presentation-content.svg",
+      "title": "Presentation content frame",
+      "category": "Digital templates",
+      "width": 1920,
+      "height": 1080,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "templates/presentation-closing.svg",
+      "title": "Presentation closing frame",
+      "category": "Digital templates",
+      "width": 1920,
+      "height": 1080,
+      "physicalMm": null,
+      "editableText": true
+    },
+    {
+      "path": "brand-overview.svg",
+      "title": "Loadbyton OS identity overview; review candidate",
+      "category": "Brand guide",
+      "width": 1800,
+      "height": 1440,
+      "physicalMm": null,
+      "editableText": true
+    }
+  ]
+}
