@@ -41,14 +41,14 @@ export const dbMw = (db: Db): MiddlewareHandler<Env> => async (c, next) => { c.s
 /** Signed double-submit CSRF token (cookie + hidden field), on top of SameSite=Lax. */
 export const csrfMw: MiddlewareHandler<Env> = async (c, next) => {
   let tok = getCookie(c, CSRF_COOKIE);
-  const valid = (t?: string) => !!t && t.includes(".") && safeEqual(t.split(".")[1], hmac(config.sessionSecret, `csrf:${t.split(".")[0]}`));
+  const valid = (t?: string) => !!t && t.includes(".") && [config.sessionSecret, config.previousSessionSecret].filter(Boolean).some((k) => safeEqual(t.split(".")[1], hmac(k, `csrf:${t.split(".")[0]}`)));
   if (!valid(tok)) {
     const r = randomToken(16);
     tok = `${r}.${hmac(config.sessionSecret, `csrf:${r}`)}`;
     setCookie(c, CSRF_COOKIE, tok, cookieOpts);
   }
   c.set("csrf", tok!);
-  if (c.req.method === "POST" && c.req.path === "/app/driver/sync") {
+  if (c.req.method === "POST" && (c.req.path === "/app/driver/sync" || c.req.path === "/app/driver/positions")) {
     // JSON batch from the offline queue: signed double-submit token in a header (cookie is HttpOnly=false-equivalent via JS read)
     const h = c.req.header("x-csrf-token") ?? "";
     if (!(c.req.header("content-type") ?? "").includes("application/json")) throw new HttpError(415, "Unsupported content type");

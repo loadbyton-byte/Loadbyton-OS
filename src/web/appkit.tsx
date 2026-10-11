@@ -33,7 +33,7 @@ export function navFor(c: C): NavItem[] {
   if (t?.sectors.includes("courier-last-mile")) n.push({href:"/app/delivery",label:"Delivery & COD",section:"Delivery"});
   if (t?.sectors.includes("road-transport")) {
     n.push({ href: "/app/transport", label: "Planning board", section: "Transport" }, { href: "/app/transport/orders", label: "Transport orders", section: "Transport" },
-      { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" });
+      { href: "/app/transport/trips", label: "Trips", section: "Transport" }, { href: "/app/transport/fleet", label: "Fleet & drivers", section: "Transport" }, { href: "/app/transport/live", label: "Live trips", section: "Transport" }, { href: "/app/transport/feeds", label: "Fuel & Salik", section: "Transport" });
   }
   if (t?.sectors.includes("ecommerce-fulfilment")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Fulfilment" });
@@ -45,7 +45,7 @@ export function navFor(c: C): NavItem[] {
     n.push({ href: "/app/warehouse", label: "Warehouse board", section: "Warehouse" }, { href: "/app/warehouse/inbound", label: "Inbound", section: "Warehouse" },
       { href: "/app/warehouse/outbound", label: "Dispatch", section: "Warehouse" }, { href: "/app/warehouse/stock", label: "Stock", section: "Warehouse" },
       { href: "/app/warehouse/counts", label: "Counts", section: "Warehouse" }, { href: "/app/warehouse/setup", label: "Locations & SKUs", section: "Warehouse" }, {href:"/app/warehouse/traceability",label:"Lots, expiry & serials",section:"Warehouse"});
-    n.push({href:'/app/warehouse/count-schedules',label:'Count schedules',section:'Warehouse'});
+    n.push({href:'/app/warehouse/count-schedules',label:'Count schedules',section:'Warehouse'},{href:'/app/warehouse/returns',label:'Customer returns',section:'Warehouse'},{href:'/app/warehouse/policy',label:'Custody policy',section:'Warehouse'},{href:'/app/warehouse/labels',label:'Labels',section:'Warehouse'},{href:'/app/warehouse/rf',label:'Handheld',section:'Warehouse'});
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
   }
   for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
@@ -64,6 +64,7 @@ export function navFor(c: C): NavItem[] {
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });
   if (fwd && ctx.perms.has('quote.write')) n.push({href:'/app/freight/weight',label:'Chargeable weight',section:'Sell'});
+  if (fwd) n.push({ href: "/app/freight/opportunities", label: "Opportunities & tenders", section: "Sell" }, { href: "/app/freight/contracts", label: "Supplier contracts", section: "Sell" }, { href: "/app/freight/masters", label: "Master shipments", section: "Operate" });
   n.push({ href: "/app/documents", label: "Documents", section: "Operate" });
   if (t && t.sectors.length) n.push({ href: "/app/tasks", label: "Tasks & exceptions", section: "Operate" },
     { href: "/app/invoices", label: "Invoices & collections", section: "Money" });
