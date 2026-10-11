@@ -7,6 +7,7 @@ import {forbidden,formatDate} from '../lib/util.js';
 import {formBody,str,type Env,type C} from './mw.js';
 import {act,appPage,can,need,PageHead,withT} from './appkit.js';
 import {Badge,Csrf,Money,Table} from './ui.js';
+import {identifierChecks} from '../ops/identifiers.js';
 export const specialists=new Hono<Env>();
 const S='/app/specialists';
 const fields=(items:Field[],prefix:string)=>items.map(f=><div class="field"><label for={`${prefix}-${f.key}`}>{f.label}</label>{f.options?<select id={`${prefix}-${f.key}`} name={f.key} required>{f.options.map(o=><option value={o}>{o.replaceAll('_',' ')}</option>)}</select>:<input id={`${prefix}-${f.key}`} name={f.key} required type={f.type==='number'||f.type==='money'?'number':f.type==='datetime'?'datetime-local':f.type} step={f.type==='money'?'0.01':f.type==='number'?'any':undefined} min={f.type==='money'?'0':undefined}/>}</div>);
@@ -19,7 +20,7 @@ specialists.get(`${S}/:sector`,async c=>{
  const data=await withT(c,async cn=>({rows:await listSpecialistCases(cn,s,page),review:(await cn.query<any>(`SELECT reviewer,valid_until FROM specialist_reviews WHERE sector=$1`,[s])).rows[0],parties:(await cn.query<any>(`SELECT id,name FROM parties WHERE kind='customer' ORDER BY name`)).rows}));
  const documents=can(c,'specialist.write')||can(c,'settings.manage')?await docs(c):[];
  return appPage(c,sectorBySlug(s)!.name,<><PageHead title={sectorBySlug(s)!.name} sub="Controlled manual workflow; reviewed evidence is required before operational release."/>
- <p class="alert info">These records support your qualified staff and authorised partners. Regulatory submissions, certifications and automatic device/carrier feeds require separate approved access.</p>
+ <p class="alert info">These records support your qualified staff and authorised partners. Regulatory submissions and certifications require separate approved access. Signed temperature-logger feeds are available for cold chain; other device and carrier feeds are not built.</p>
  <p>Subject-matter review: {data.review?`${data.review.reviewer}, valid until ${formatDate(data.review.valid_until)}`:'Required before the first case.'}</p>
  {can(c,'settings.manage')?<details class="card"><summary>Record readiness review</summary><form method="post" action={`${url}/review`}><Csrf t={csrf}/>{text('reviewer','Qualified reviewer / organisation','review')}{documentSelect(documents,'review')}{fields([{key:'valid_until',label:'Review valid until',type:'date'}],'review')}<button class="btn">Record reviewed evidence</button></form></details>:null}
  <Table head={['Case','Customer','Subject','Status',['Service fee','num']]}>{data.rows.slice(0,50).map(r=><tr><td><a href={`${url}/${r.id}`}>{r.no}</a></td><td>{r.customer}</td><td>{r.subject_ref}</td><td><Badge s={r.status}/></td><td class="num"><Money v={r.fee_minor}/></td></tr>)}</Table>
@@ -34,6 +35,8 @@ specialists.get(`${S}/:sector/:id`,async c=>{
  const next:Record<string,string[]>={draft:['ready','cancelled'],ready:['active','cancelled'],active:['hold','completed'],hold:['ready','active'],completed:['closed']};
  return appPage(c,d.row.no,<><PageHead title={`${d.row.no} · ${d.row.subject_ref}`}><Badge s={d.row.status}/></PageHead>
  <dl>{profile.fields.map(f=><><dt>{f.label}</dt><dd>{f.type==='money'?<Money v={d.row.attributes[f.key]}/>:String(d.row.attributes[f.key])}</dd></>)}</dl>
+ {identifierChecks(s,d.row.attributes).map(k=><p class={k.valid?'small':'alert warn'}>{k.label} <code>{k.value}</code>: {k.valid?`passes its ${k.rule} check`:`fails its ${k.rule} check — confirm it against the source document`}.</p>)}
+ {s==='cold-chain'?<p><a href={`/app/cold-chain/cases/${d.row.id}`}>Temperature monitoring</a> · <a href="/app/cold-chain/devices">Loggers</a></p>:null}
  <p>Ready evidence: {profile.readyEvidence.join(', ')}. Completion evidence: {profile.completionEvidence.join(', ')}.</p>
  {can(c,'specialist.write')&&!['completed','closed','cancelled'].includes(d.row.status)?Object.entries(profile.events).filter(([,e])=>!e.approval||can(c,'specialist.approve')).map(([kind,e])=><details class="card"><summary>{e.label}</summary><form method="post" action={`${url}/event`}><Csrf t={csrf}/><input type="hidden" name="kind" value={kind}/><input type="hidden" name="client_ref" value={randomUUID()}/>{fields(e.fields,kind)}{text('note','Evidence / explanation',kind)}{documentSelect(documents,kind,!!e.evidence)}<button class="btn">Record {e.label.toLowerCase()}</button></form></details>):null}
  {can(c,'specialist.write')&&next[d.row.status]?.length?<form class="card" method="post" action={`${url}/status`}><Csrf t={csrf}/><h2>Review case status</h2><div class="field"><label for="status">Decision</label><select id="status" name="status">{next[d.row.status].filter(n=>can(c,'specialist.approve')||['hold','cancelled'].includes(n)).map(n=><option>{n}</option>)}</select></div>{text('reason','Decision evidence','status')}<button class="btn red">Record decision</button></form>:null}

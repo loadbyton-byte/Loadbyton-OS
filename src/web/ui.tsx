@@ -125,6 +125,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
               {p.user?.name}<br /><span class="small">{roles.join(", ")}</span>
               {switcher}
               <form method="post" action="/logout" style="margin-top:8px"><Csrf t={p.csrf} /><button class="btn ghost sm" style="color:#fff;border-color:#8EA3BA" type="submit">Sign out</button></form>
+              <p class="small" style="margin-top:10px" data-notranslate><a href={`/lang/ar?next=${encodeURIComponent(p.path)}`} style="color:#D7E0EA">العربية</a> · <a href={`/lang/en?next=${encodeURIComponent(p.path)}`} style="color:#D7E0EA">English</a></p>
             </div>
           </aside>
           <main id="main" class="main">
@@ -139,7 +140,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
 
 export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
   const nav: [string, string][] = [["/admin", "Overview"], ["/admin/tenants", "Tenants"], ["/admin/orders", "Orders & payments"], ["/admin/provisioning", "Provisioning"],
-    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/service", "Setup & privacy"], ["/admin/partners", "Partners"], ["/admin/rollout", "Rollout"], ["/admin/reports", "Reports"], ["/admin/leads", "Leads"]];
+    ["/admin/catalog", "Catalog & prices"], ["/admin/queues", "Queues & reviews"], ["/admin/service", "Setup & privacy"], ["/admin/partners", "Partners"], ["/admin/rollout", "Rollout"], ["/admin/reports", "Reports"], ["/admin/readiness", "Readiness"], ["/admin/leads", "Leads"]];
   return (
     <html lang="en">
       <Head p={p} />

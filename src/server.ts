@@ -4,10 +4,12 @@ import { config } from "./config.js";
 import { openDb } from "./db/client.js";
 import { buildApp } from "./app.js";
 import { ensureCatalog } from "./platform/catalog.js";
+import { seedGates } from "./platform/readiness.js";
 import { startWorkers } from './platform/workers.js';
 
 const db = await openDb();
 await db.system((c) => ensureCatalog(c));
+await seedGates(db);
 const metrics = new RuntimeMetrics();
 const app = buildApp(db, { metrics });
 
