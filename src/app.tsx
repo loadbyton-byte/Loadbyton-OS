@@ -30,6 +30,7 @@ import { financeBridge } from "./web/finance-bridge.js";
 import { inboundHooks, inboundUi } from "./web/inbound.js";
 import { extraction } from "./web/extraction.js";
 import { einvoice } from "./web/einvoice.js";
+import { feeds } from "./web/feeds.js";
 import { deviceHooks, deviceUi } from "./web/devices.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
@@ -111,6 +112,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", inboundUi);
   app.route("/", extraction);
   app.route("/", einvoice);
+  app.route("/", feeds);
   app.route("/", deviceUi);
   app.route("/", connections);
   app.route("/", privacy);
