@@ -9,6 +9,11 @@ export function seal(plain: string, secret = config.sessionSecret): string {
   return ["v1", iv.toString("base64url"), c.getAuthTag().toString("base64url"), ct.toString("base64url")].join(".");
 }
 export function unseal(sealed: string, secret = config.sessionSecret): string {
+  // rotation window: a value sealed under the previous session secret remains readable until it is re-sealed
+  if (secret === config.sessionSecret && config.previousSessionSecret) { try { return unsealWith(sealed, secret); } catch { return unsealWith(sealed, config.previousSessionSecret); } }
+  return unsealWith(sealed, secret);
+}
+export function unsealWith(sealed: string, secret: string): string {
   const [v, iv, tag, ct] = sealed.split(".");
   if (v !== "v1" || !iv || !tag || !ct) throw new Error("bad sealed value");
   const d = crypto.createDecipheriv("aes-256-gcm", key(secret), Buffer.from(iv, "base64url"));

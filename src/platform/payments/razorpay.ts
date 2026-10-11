@@ -3,7 +3,7 @@ import { config } from "../../config.js";
 import { safeEqual } from "../../lib/util.js";
 import { ProviderError, WebhookSignatureError, type CheckoutOrder, type CheckoutSession, type CheckoutUrls, type Fetch, type HeaderGetter, type PaymentAdapter, type PaymentEvent } from "./types.js";
 
-export interface RazorpayConfig { keyId: string; keySecret: string; webhookSecret: string; apiBase: string }
+export interface RazorpayConfig { keyId: string; keySecret: string; webhookSecret: string; webhookSecretPrevious?: string; apiBase: string }
 
 /** X-Razorpay-Signature = hex HMAC-SHA256 of the RAW body with the webhook secret. Razorpay sends no timestamp, so replay safety is the event-id uniqueness. */
 export const signRazorpayPayload = (raw: string, secret: string) => crypto.createHmac("sha256", secret).update(raw).digest("hex");
@@ -48,7 +48,7 @@ export function razorpayAdapter(cfg: RazorpayConfig = config.razorpay, fetchImpl
     },
 
     parseWebhook(raw: string, header: HeaderGetter) {
-      if (!verifyRazorpaySignature(raw, header("x-razorpay-signature"), cfg.webhookSecret)) throw new WebhookSignatureError("invalid signature");
+      if (![cfg.webhookSecret, cfg.webhookSecretPrevious].filter(Boolean).some((k) => verifyRazorpaySignature(raw, header("x-razorpay-signature"), k as string))) throw new WebhookSignatureError("invalid signature");
       let ev: any;
       try { ev = JSON.parse(raw); } catch { throw new WebhookSignatureError("invalid payload"); }
       // Razorpay may redeliver with the same X-Razorpay-Event-Id; without the header, the body hash is a stable identity for the same payload

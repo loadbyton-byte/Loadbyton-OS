@@ -41,7 +41,7 @@ export const dbMw = (db: Db): MiddlewareHandler<Env> => async (c, next) => { c.s
 /** Signed double-submit CSRF token (cookie + hidden field), on top of SameSite=Lax. */
 export const csrfMw: MiddlewareHandler<Env> = async (c, next) => {
   let tok = getCookie(c, CSRF_COOKIE);
-  const valid = (t?: string) => !!t && t.includes(".") && safeEqual(t.split(".")[1], hmac(config.sessionSecret, `csrf:${t.split(".")[0]}`));
+  const valid = (t?: string) => !!t && t.includes(".") && [config.sessionSecret, config.previousSessionSecret].filter(Boolean).some((k) => safeEqual(t.split(".")[1], hmac(k, `csrf:${t.split(".")[0]}`)));
   if (!valid(tok)) {
     const r = randomToken(16);
     tok = `${r}.${hmac(config.sessionSecret, `csrf:${r}`)}`;

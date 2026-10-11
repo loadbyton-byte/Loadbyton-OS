@@ -34,6 +34,8 @@ Source: user-uploaded **LOAD_BY_TON.store — Master Blueprint (1).pdf**, extrac
 
 - Fulfilment inventory depth (migrations 031–034): lot/batch/expiry/serial tracking with issued source evidence, FEFO/FIFO allocation with minimum shelf life, quality holds with second-person release, recall trace, serial pack scanning and lot-aware returns/counts/transfers; multi-site fulfilment with site-pinned orders and two-step TRANSIT transfers with controlled shortfalls; closing/peak pallet-position, location and stock-cbm storage bases with future-dated contract amendments; paginated stock/catalogue/location/adjustment/pick lists with code lookups; assembled and virtual kits; carton types and heuristic cartonisation recorded against shipments; zones and wave/zone/batch picking tasks. Cartonisation is a volume/weight/dimension heuristic the packer confirms, not a 3-D packing proof, and pallet/cbm pricing uses declared location pallet positions and SKU volumes.
 
+- Privacy and security operations (migration 035): owner-set retention policies with an hourly bounded minimisation worker for fulfilment recipients and delivery consignees, immutable legal holds, counts-only run evidence, a two-person platform erasure plan with execution-time blocker re-checks, per-field authorisation for parties, consignees and drivers in exports, and dual-key session-secret, webhook-secret and backup-key rotation procedures with re-seal/re-encrypt tooling.
+
 ## External acceptance — code is present; deployment evidence remains
 
 `RELEASE_ACCEPTANCE.md` lists merchant/provider credentials, live payment and wallet eligibility, actual regions/private buckets/tunnel, SMTP delivery, provider failover/PITR/restore, alert delivery, legal/tax/retention review, controller acceptance, specialist reviews and real pilot customers. These are not obtainable by inventing credentials, certifications or customer evidence.
@@ -54,7 +56,7 @@ These remain real work, not items that merely need environment variables:
 | Finance | Receipt/credit-note/correction bridge, vendor payables and formally reconciled multi-currency books; native ledger only after its roadmap justification and controller review |
 | UAE readiness | Verified accredited e-invoicing ASP/Mirsal access and integration acceptance; full Arabic application/content localisation beyond invoice rendering |
 | Migration/service console | Reconciled stock/opening-balance migration, final-delta tooling, partner commission/refund ledger, rollout cohorts and richer SaaS cohort/contribution/churn reports |
-| Legal/data operations | Retention/anonymisation execution and independently reviewed tenant erasure procedure, provider/session/backup-key rotation procedures, finer per-field authorization across legacy modules |
+| Legal/data operations | Legal/regulatory confirmation of the retention periods and erasure scope chosen per customer (a decision, not software); field policy is applied to exports, not yet to every legacy list screen |
 | Brand/business | Approved vector brand master/domain ownership, verified market/unit-economics/GTM evidence, assigned coverage/support/governance owners |
 
 The blueprint's release roadmap explicitly stages foundation → first paid workflow → commercial launch → supervised pilots → expansion. Public statuses preserve that distinction. This change closes many software gaps but does not claim that every future portfolio item above is complete.

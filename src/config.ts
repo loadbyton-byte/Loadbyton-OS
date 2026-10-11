@@ -35,6 +35,8 @@ export const config = {
   pgliteDir: env.PGLITE_DIR ?? path.resolve("data/pg"),
 
   sessionSecret: secret("SESSION_SECRET", "dev-session-secret-dev-session-secret-0000"),
+  /** During a session-secret rotation the previous value still verifies signed tokens/links and unseals stored secrets. */
+  previousSessionSecret: env.SESSION_SECRET_PREVIOUS && env.SESSION_SECRET_PREVIOUS.length >= 32 ? env.SESSION_SECRET_PREVIOUS : "",
   /** Encrypts company-user MFA seeds, accounting connection secrets and queued invitation tokens. MFA_ENCRYPTION_PREVIOUS_KEY enables dual-key reads during rotation. */
   encryptionSecret: secret("MFA_ENCRYPTION_KEY", "dev-mfa-encryption-dev-mfa-encryption-0000"),
   previousEncryptionSecret: env.MFA_ENCRYPTION_PREVIOUS_KEY ?? "",
@@ -59,12 +61,12 @@ export const config = {
   paymentProviders,
   paymentProvider: paymentProviders[0] ?? "mock",
   stripe: {
-    secretKey: text("STRIPE_SECRET_KEY"), webhookSecret: text("STRIPE_WEBHOOK_SECRET"), apiBase: env.STRIPE_API_BASE ?? "https://api.stripe.com",
+    secretKey: text("STRIPE_SECRET_KEY"), webhookSecret: text("STRIPE_WEBHOOK_SECRET"), webhookSecretPrevious: text("STRIPE_WEBHOOK_SECRET_PREVIOUS"), apiBase: env.STRIPE_API_BASE ?? "https://api.stripe.com",
     /** Optional comma list (e.g. "card"). Empty = Stripe's dynamic payment methods from the dashboard (cards, Google Pay, Apple Pay, Link…). */
     paymentMethods: list(env.STRIPE_PAYMENT_METHODS),
   },
   razorpay: {
-    keyId: text("RAZORPAY_KEY_ID"), keySecret: text("RAZORPAY_KEY_SECRET"), webhookSecret: text("RAZORPAY_WEBHOOK_SECRET"), apiBase: env.RAZORPAY_API_BASE ?? "https://api.razorpay.com",
+    keyId: text("RAZORPAY_KEY_ID"), keySecret: text("RAZORPAY_KEY_SECRET"), webhookSecret: text("RAZORPAY_WEBHOOK_SECRET"), webhookSecretPrevious: text("RAZORPAY_WEBHOOK_SECRET_PREVIOUS"), apiBase: env.RAZORPAY_API_BASE ?? "https://api.razorpay.com",
   },
 
   // ── transactional email: "log" (default; prints a line, invitations stay visible as links in the UI) or "resend" (Resend REST API)
