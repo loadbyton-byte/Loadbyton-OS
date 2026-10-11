@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { formatDay } from "../lib/util.js";
-import { FORMAT_LABEL, generateEInvoice, getEInvoice, getSettings, listEInvoices, previewReadiness, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../ops/einvoice.js";
+import { FORMAT_LABEL, generateEInvoice, getEInvoice, getSettings, listEInvoices, previewReadiness, refreshEInvoice, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../ops/einvoice.js";
 import { act, appPage, can, need, PageHead, withT } from "./appkit.js";
 import { Badge, Csrf, Table } from "./ui.js";
 import { formBody, str, type Env } from "./mw.js";
@@ -50,6 +50,10 @@ einvoice.post(`${U}/:id/submit`, async (c) => {
   const id = c.req.param("id");
   return act(c, `${U}/${id}`, async () => { const d = await withT(c, (cn, ctx) => submitEInvoice(cn, ctx, id)); return { to: `${U}/${id}`, ok: `Provider result: ${d.status}.` }; });
 });
+einvoice.post(`${U}/:id/refresh`, async (c) => {
+  const id = c.req.param("id");
+  return act(c, `${U}/${id}`, async () => { const d = await withT(c, (cn, ctx) => refreshEInvoice(cn, ctx, id)); return { to: `${U}/${id}`, ok: `Provider state: ${d.status}.` }; });
+});
 einvoice.get(`${U}/:id/xml`, async (c) => {
   need(c, "finance.write");
   const d = await withT(c, (cn) => getEInvoice(cn, c.req.param("id")));
@@ -63,6 +67,7 @@ einvoice.get(`${U}/:id`, async (c) => {
     <PageHead title={`${d.number} · ${d.kind.replace("_", " ")}`} sub={d.format_label}><Badge s={d.status} /><a class="btn ghost sm" href={`${U}/${id}/xml`}>Download XML</a></PageHead>
     {(d.issues as any[]).length ? <Table head={["", "Check"]}>{(d.issues as any[]).map((i) => <tr><td><Badge s={i.level === "blocker" ? "bad" : "warn"} label={i.level} /></td><td>{i.message}</td></tr>)}</Table> : <p class="good">Every readiness check passed.</p>}
     {d.provider ? <p class="small">Provider: {d.provider}{d.provider_ref ? ` · reference ${d.provider_ref}` : ""}{d.provider_response?.sandbox ? " · sandbox result — not evidence of acceptance by any authority" : ""}{d.provider_response?.reasons?.length ? ` · ${d.provider_response.reasons.join("; ")}` : ""}</p> : null}
+    {d.status === "submitted" ? <form method="post" action={`${U}/${id}/refresh`}><Csrf t={c.get("csrf")} /><button class="btn ghost sm">Check provider status</button></form> : null}
     <p class="small mute">Payload integrity: <code>{d.payload_sha256}</code></p>
     <p><a href={U}>Back</a></p></>);
 });

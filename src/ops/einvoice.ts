@@ -1,4 +1,5 @@
 import type { Conn } from "../db/client.js";
+import "../adapters/einvoice-asp.js";
 import { adapterFor, sandboxAdapter, type EInvoiceAdapter } from "../adapters/einvoice.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
@@ -212,6 +213,20 @@ export async function submitEInvoice(c: Conn, ctx: Ctx, docId: string, adapterOv
   await c.query(`UPDATE einvoice_documents SET status=$2, provider=$3, provider_ref=$4, provider_response=$5, submitted_by=$6, submitted_at=now(), decided_at=CASE WHEN $2 IN ('accepted','rejected') THEN now() ELSE NULL END WHERE id=$1`,
     [d.id, status, adapter.name, result.providerRef, JSON.stringify({ reasons: result.reasons, sandbox: adapter.name === "sandbox" }), ctx.userId]);
   await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.submitted", d.kind, d.invoice_id ?? d.credit_note_id, { status, provider: adapter.name });
+  return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
+}
+
+/** Asks the provider for the current state of a document it has not yet decided. A decision is final; an unreachable provider changes nothing. */
+export async function refreshEInvoice(c: Conn, ctx: Ctx, docId: string, adapterOverride?: EInvoiceAdapter) {
+  require(ctx, "finance.write");
+  const d = await must(c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1 FOR UPDATE`, [recordId(docId, "E-invoice")]), "E-invoice");
+  if (d.status !== "submitted" || !d.provider_ref) return d;
+  const adapter = adapterOverride ?? adapterFor(d.provider);
+  if (!adapter) throw forbidden("The provider adapter for this document is no longer installed.");
+  const r = await adapter.status(d.provider_ref);
+  if (r.status !== "accepted" && r.status !== "rejected") return d;
+  await c.query(`UPDATE einvoice_documents SET status=$2, provider_response=$3, decided_at=now() WHERE id=$1`, [d.id, r.status, JSON.stringify({ reasons: r.reasons, sandbox: adapter.name === "sandbox" })]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.refreshed", d.kind, d.invoice_id ?? d.credit_note_id, { status: r.status, provider: adapter.name });
   return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
 }
 
