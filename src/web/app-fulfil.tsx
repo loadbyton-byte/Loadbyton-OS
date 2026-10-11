@@ -39,7 +39,7 @@ fulfil.get(F, async (c) => {
   return appPage(c, "Fulfilment board", (<>
     <PageHead title="Fulfilment board" sub="What is waiting at each stage — and what is late.">
       {can(c, "wh.write") ? <><a class="btn red sm" href={`${F}/orders/new`}>New order</a><a class="btn sm" href={`${F}/inbound/new`}>Expect a delivery</a></> : null}
-      <a class="btn ghost sm" href={`${F}/lots`}>Lots &amp; expiry</a><a class="btn ghost sm" href={`${F}/sites`}>Sites</a>
+      <a class="btn ghost sm" href={`${F}/lots`}>Lots &amp; expiry</a><a class="btn ghost sm" href={`${F}/sites`}>Sites</a><a class="btn ghost sm" href={`${F}/waves`}>Waves</a><a class="btn ghost sm" href={`${F}/kits`}>Kits</a><a class="btn ghost sm" href={`${F}/cartons`}>Cartons</a>
     </PageHead>
     <div class="grid g4">
       <div class="card"><h3>Waiting for stock</h3><div class={`kpi ${n("backordered") ? "bad" : "good"}`}>{n("backordered")}</div></div>
@@ -160,6 +160,7 @@ fulfil.get(`${F}/orders/:id`, async (c) => {
     <PageHead title={`${o.no} · ${o.party_name}`} sub={`${o.channel} · ${o.external_ref}`}>
       <OSt s={o.status} />
       {o.status === "shipped" ? <a class="btn ghost sm" href={`${F}/orders/${id}/slip`}>Packing slip</a> : null}
+      {["picking", "picked", "packed"].includes(o.status) ? <a class="btn ghost sm" href={`${F}/orders/${id}/cartons`}>Cartons</a> : null}
       {live && wr && waiting > 0 ? <PostBtn action={`${F}/orders/${id}/allocate`} csrf={csrf} label="Allocate again" cls="sm" /> : null}
       {live && wr ? <Confirm action={`${F}/orders/${id}/cancel`} csrf={csrf} label="Cancel order" confirm="Cancel this order? Reservations are released and picked stock goes back to its bin." /> : null}
     </PageHead>
@@ -442,6 +443,7 @@ fulfil.get(`${F}/locations`, async (c) => {
       {rows.map((l: any) => <tr><td><strong>{l.code}</strong></td><td>{l.kind}</td><td>{l.site_code ?? "—"}</td><td class="num">{l.units}</td><td class="num">{l.skus}</td><td class="small">{l.note ?? ""}</td><td><Badge s={l.active ? "ok" : "info"} label={l.active ? "active" : "off"} /></td>
         <td>{wr && l.kind === "bin" ? <PostBtn action={`${F}/locations/${l.id}`} csrf={csrf} label={l.active ? "Switch off" : "Switch on"} cls="ghost sm" fields={{ active: l.active ? "0" : "1" }} /> : null}</td></tr>)}</Table>
     <Pages page={page} more={all.length > 50} q={q} />
+    {wr ? <form method="post" action={`${F}/location-zone`} class="inline-form" style="margin-top:12px"><Csrf t={csrf} /><input name="location_code" type="text" placeholder="Bin code" required /><input name="zone" type="text" placeholder="Zone (blank clears)" /><button class="btn ghost sm" type="submit">Set zone</button></form> : null}
     {wr ? <form method="post" action={`${F}/locations`} class="inline-form" style="margin-top:12px"><Csrf t={csrf} /><input name="code" type="text" placeholder="Bin code, e.g. A-01-02" required /><input name="note" type="text" placeholder="Note (optional)" /><button class="btn ghost sm" type="submit">Add bin</button></form> : null}
   </>));
 });

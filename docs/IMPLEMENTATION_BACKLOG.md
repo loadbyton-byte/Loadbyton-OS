@@ -32,6 +32,8 @@ Source: user-uploaded **LOAD_BY_TON.store — Master Blueprint (1).pdf**, extrac
 - Privacy request/decision records, tenant operational exports, management reports, bilingual English/Arabic RTL invoice documents, queue/SLA metrics and ten alert rules.
 - Consistent encrypted database/object backups and isolated restore checks of files, all recorded table counts, financial/stock/platform invariants and tenant isolation.
 
+- Fulfilment inventory depth (migrations 031–034): lot/batch/expiry/serial tracking with issued source evidence, FEFO/FIFO allocation with minimum shelf life, quality holds with second-person release, recall trace, serial pack scanning and lot-aware returns/counts/transfers; multi-site fulfilment with site-pinned orders and two-step TRANSIT transfers with controlled shortfalls; closing/peak pallet-position, location and stock-cbm storage bases with future-dated contract amendments; paginated stock/catalogue/location/adjustment/pick lists with code lookups; assembled and virtual kits; carton types and heuristic cartonisation recorded against shipments; zones and wave/zone/batch picking tasks. Cartonisation is a volume/weight/dimension heuristic the packer confirms, not a 3-D packing proof, and pallet/cbm pricing uses declared location pallet positions and SKU volumes.
+
 ## External acceptance — code is present; deployment evidence remains
 
 `RELEASE_ACCEPTANCE.md` lists merchant/provider credentials, live payment and wallet eligibility, actual regions/private buckets/tunnel, SMTP delivery, provider failover/PITR/restore, alert delivery, legal/tax/retention review, controller acceptance, specialist reviews and real pilot customers. These are not obtainable by inventing credentials, certifications or customer evidence.
@@ -45,7 +47,7 @@ These remain real work, not items that merely need environment variables:
 | Freight commercial depth | Richer opportunities/tenders/rate tiers and supplier contract restrictions; integrated forwarding master/house operations and authoritative issuer integration |
 | Transport | Offline first-open/service-worker strategy, GPS/route optimisation, fuel-card/Salik provider feeds |
 | Delivery/COD | Offline parcel/cash policy, automated bank matching/provider refund feeds and approved liability/write-off accounting |
-| Fulfilment | Controlled lot/batch/expiry/serial/FEFO, multi-site transfers, scheduled personal-data minimisation, pallet/cbm/peak storage pricing and contract amendments, pagination of remaining stock/catalogue lists, kitting/cartonisation/wave/zone/batch picking |
+| Fulfilment | Scheduled personal-data minimisation (see Legal/data operations); everything else in the former row is implemented |
 | Custody warehouse | Backorder/return policy, approved bonded/liability boundary, richer scanner/printer/RF integrations; the new traceability controls require real quality/sector review |
 | Specialist profiles | Full sector-specific advanced interfaces/provider feeds, automated physical/device evidence and industry validation beyond the tested manual workflows |
 | Communications/AI | Approved inbound email/WhatsApp/telephony connectors, verified identity/consent policy, AI document extraction, report explanations and wider-sector retrieval, versioned automated templates and safe deterministic fallback |
