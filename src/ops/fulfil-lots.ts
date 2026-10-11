@@ -127,3 +127,6 @@ export async function recordDecision(c: Conn, ctx: Ctx, lotId: string, hold: boo
   await c.query(`UPDATE fulfil_lots SET hold=$2 WHERE id=$1`, [lotId, hold]);
   await audit(c, ctx.tenantId, actorOf(ctx), hold ? "fulfil_lot.held" : "fulfil_lot.release_approved", "fulfil_lot", lotId, { reason: why });
 }
+
+/** Issued, non-held documents that can stand as lot source evidence. */
+export const issuedEvidence = (c: Conn) => c.query<any>(`SELECT id, title, issuer FROM documents WHERE status='issued' AND NOT hold ORDER BY created_at DESC LIMIT 200`).then((r) => r.rows);
