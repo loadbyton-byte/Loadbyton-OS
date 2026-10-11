@@ -7,6 +7,7 @@ import { HttpError, badRequest } from "../lib/util.js";
 import { registerCompany } from "../platform/tenants.js";
 import { SECTORS } from "../platform/catalog.js";
 import { completeMfa, endSession, login, newSession } from "../platform/auth.js";
+import { paymentAdapter } from "../adapters/payments.js";
 import { acceptInvite, inviteInfo } from "../ops/team.js";
 import { buildMockEvent, processPaymentEvent, signPayload, verifySignature, type PaymentEvent } from "../platform/billing.js";
 import { SESSION_COOKIE, arr, clearSessionCookie, formBody, safeNext, setSessionCookie, str, type Env } from "./mw.js";
@@ -139,7 +140,7 @@ auth.get("/invite/:token", async (c) => {
         <Alerts p={p} />
         <form method="post" action={`/invite/${c.req.param("token")}`}>
           <Csrf t={p.csrf} />
-          {existing ? <p class="alert info">You already have an account. Accepting adds this workspace to it; sign in afterwards.</p> : (<>
+          {existing ? <><p class="alert info">Enter your existing account password to add this workspace.</p><div class="field"><label for="pw">Account password</label><input id="pw" name="password" type="password" required autocomplete="current-password"/></div></> : (<>
             <div class="field"><label for="n">Your name</label><input id="n" name="name" type="text" required /></div>
             <div class="field"><label for="pw">Choose a password</label><input id="pw" name="password" type="password" required minlength={10} autocomplete="new-password" /></div>
           </>)}
@@ -197,23 +198,34 @@ auth.post("/admin/mfa", async (c) => {
 // ── payment webhook (authenticated by signature, not by cookie/CSRF)
 const EventSchema = z.object({
   event_id: z.string().min(3).max(120),
-  type: z.enum(["payment.succeeded", "payment.failed", "payment.refunded"]),
+  type: z.enum(["payment.succeeded", "payment.failed", "payment.refunded", "payment.review"]),
   order_id: z.string().uuid(),
   reference: z.string().min(3).max(120),
   amount_minor: z.number().int().nonnegative(),
   currency: z.string().length(3),
+  provider_session: z.string().max(200).optional(),
 });
-export async function handlePaymentWebhook(db: Db, provider: string, raw: string, sigHeader: string | null | undefined) {
-  if (!verifySignature(raw, sigHeader)) return { status: 401, body: { error: "invalid signature" } };
+export async function handlePaymentWebhook(db: Db, provider: string, raw: string, sigHeader: string | null | undefined, eventId?: string) {
+  if (raw.length > 256_000) return { status: 413, body: { error: 'payload too large' } };
+  let decoded: unknown;
+  if(provider==='mock') {
+    if(config.isProd || !verifySignature(raw,sigHeader)) return {status:401,body:{error:'invalid signature'}};
+    try { decoded=JSON.parse(raw); } catch { return {status:400,body:{error:'invalid payload'}}; }
+  } else {
+    try { decoded=await paymentAdapter(provider).decode(raw,sigHeader??'',eventId); }
+    catch(e) { return {status:e instanceof HttpError?e.status:e instanceof SyntaxError?400:503,body:{error:e instanceof HttpError&&e.status===401?'invalid signature':'provider event could not be verified'}}; }
+    if(decoded===null) return {status:200,body:{outcome:'ignored'}};
+  }
   let parsed: PaymentEvent;
-  try { parsed = EventSchema.parse(JSON.parse(raw)); } catch { return { status: 400, body: { error: "invalid payload" } }; }
+  try { parsed = EventSchema.parse(decoded); } catch { return { status: 400, body: { error: "invalid payload" } }; }
   const r = await processPaymentEvent(db, provider, parsed);
   return { status: r.outcome === "rejected" ? 422 : 200, body: r };
 }
 auth.post("/webhooks/payments/:provider", async (c) => {
-  if (c.req.param("provider") !== config.paymentProvider) throw new HttpError(404, "Unknown provider");
+  if (!config.enabledPaymentProviders.includes(c.req.param("provider"))) throw new HttpError(404, "Unknown provider");
   const raw = await c.req.text();
-  const r = await handlePaymentWebhook(c.get("db"), c.req.param("provider"), raw, c.req.header("x-lbt-signature"));
+  const p=c.req.param('provider');
+  const r = await handlePaymentWebhook(c.get("db"), p, raw, c.req.header(p==='stripe'?'stripe-signature':p==='razorpay'?'x-razorpay-signature':'x-lbt-signature'),c.req.header('x-razorpay-event-id'));
   return c.json(r.body, r.status as any);
 });
 

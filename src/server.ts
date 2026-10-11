@@ -1,29 +1,19 @@
 import { serve } from "@hono/node-server";
+import { RuntimeMetrics } from "./platform/metrics.js";
 import { config } from "./config.js";
 import { openDb } from "./db/client.js";
 import { buildApp } from "./app.js";
 import { ensureCatalog } from "./platform/catalog.js";
-import { processProvisioningQueue } from "./platform/provisioning.js";
-import { drainOutbox, defaultHandlers } from "./platform/outbox.js";
-import { accountingHandlers } from "./adapters/accounting.js";
-import { applyDueSubscriptionChanges } from "./platform/billing.js";
+import {startWorkers} from './platform/workers.js';
 
 const db = await openDb();
 await db.system((c) => ensureCatalog(c));
-const app = buildApp(db);
+const metrics = new RuntimeMetrics();
+const app = buildApp(db, { metrics });
 
 const server = serve({ fetch: app.fetch, port: config.port }, (i) => console.log(`LOAD|BY|TON.store listening on :${i.port} (${config.isProd ? "production" : "development"})`));
 
 // In-process workers for the pilot. Run as a separate process (RUN_WORKERS=false on web) once load justifies it.
-let timers: NodeJS.Timeout[] = [];
-if (config.runWorkers) {
-  const handlers = { ...defaultHandlers, ...accountingHandlers(db) };
-  const safe = (name: string, fn: () => Promise<unknown>) => () => fn().catch((e) => console.error(`[worker:${name}]`, e));
-  timers = [
-    setInterval(safe("provisioning", () => processProvisioningQueue(db)), 5_000),
-    setInterval(safe("outbox", () => drainOutbox(db, handlers)), 5_000),
-    setInterval(safe("subscriptions", () => applyDueSubscriptionChanges(db)), 10 * 60_000),
-  ];
-}
-const shutdown = async () => { timers.forEach(clearInterval); server.close(); await db.close(); process.exit(0); };
+const stopWorkers=config.runWorkers?startWorkers(db,metrics):async()=>{};
+const shutdown = async () => { await Promise.all([new Promise<void>(resolve=>server.close(()=>resolve())),stopWorkers()]); await db.close(); process.exit(0); };
 process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);

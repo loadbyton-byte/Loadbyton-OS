@@ -1,4 +1,10 @@
 node_modules
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+.env.production
+backups/
 data/*
 !data/.gitkeep
 .env

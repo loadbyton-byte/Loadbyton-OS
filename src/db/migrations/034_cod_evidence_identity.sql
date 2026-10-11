@@ -1,0 +1,1 @@
+ALTER TABLE delivery_cash_adjustments ADD CONSTRAINT cod_one_adjustment_per_evidence UNIQUE(tenant_id,document_id);

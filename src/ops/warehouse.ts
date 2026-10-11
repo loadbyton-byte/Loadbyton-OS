@@ -1,3 +1,4 @@
+import {validateTrackedStock} from './traceability.js';
 import type { Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
@@ -27,6 +28,7 @@ function qtyOf(v: unknown, label: string, allowZero = false): number {
   if (r3(n) !== n) throw badRequest(`${label} can have at most 3 decimal places.`);
   return n;
 }
+const stockLock=(c:Conn,ctx:Ctx)=>c.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${ctx.tenantId}:wh-stock`]);
 const lotOf = (v: unknown) => (optStr(v, 60) ?? "").toUpperCase();
 const refOf = (v: unknown) => {
   const s = optStr(v, 80);
@@ -77,8 +79,8 @@ export async function createSku(c: Conn, ctx: Ctx, f: Record<string, any>) {
   const owner = await must(c.query<any>(`SELECT kind FROM parties WHERE id=$1`, [f.owner_id]), "Owner");
   if (owner.kind !== "customer") throw badRequest("Stock is held for a customer; choose a customer as the owner.");
   try {
-    const r = await c.query<{ id: string }>(`INSERT INTO wh_skus(tenant_id,owner_id,code,description,uom) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [ctx.tenantId, f.owner_id, reqStr(f.code, "SKU code", 60).toUpperCase(), reqStr(f.description, "Description", 200), optStr(f.uom, 20) ?? "unit"]);
+    const r = await c.query<{ id: string }>(`INSERT INTO wh_skus(tenant_id,owner_id,code,description,uom,rotation,tracking) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [ctx.tenantId, f.owner_id, reqStr(f.code, "SKU code", 60).toUpperCase(), reqStr(f.description, "Description", 200), optStr(f.uom, 20) ?? "unit", f.rotation==='fefo'?'fefo':'fifo', ['lot','serial'].includes(f.tracking)?f.tracking:'none']);
     await audit(c, ctx.tenantId, actorOf(ctx), "wh_sku.created", "wh_sku", r.rows[0].id);
     return r.rows[0].id;
   } catch (e: any) {
@@ -127,6 +129,8 @@ async function post(c: Conn, ctx: Ctx, p: Post): Promise<{ id: string; duplicate
     const dup = await c.query<any>(`SELECT id FROM wh_movements WHERE client_ref=$1`, [p.clientRef]);
     if (dup.rows.length) return { id: dup.rows[0].id, duplicate: true };
   }
+  await stockLock(c,ctx);
+  await validateTrackedStock(c,p.skuId,p.lot,p.delta,p.kind);
   await c.query(
     `INSERT INTO wh_stock(tenant_id,owner_id,sku_id,location_id,lot,qty_on_hand,first_received_at)
      VALUES ($1,$2,$3,$4,$5,0,coalesce($6::timestamptz, now())) ON CONFLICT (tenant_id,owner_id,sku_id,location_id,lot) DO NOTHING`,
@@ -203,6 +207,7 @@ export async function createInbound(c: Conn, ctx: Ctx, f: InboundInput) {
 /** Receive some or all of a line. Damaged goods go to quarantine; over-receipt needs an explicit acceptance. */
 export async function receiveLine(c: Conn, ctx: Ctx, lineId: string, f: Record<string, any>) {
   require(ctx, "wh.write");
+  await stockLock(c,ctx);
   await assertWritable(c, ctx.tenantId);
   const clientRef = refOf(f.client_ref);
   if (await alreadyPosted(c, ctx, clientRef)) return { duplicate: true as const };
@@ -216,6 +221,8 @@ export async function receiveLine(c: Conn, ctx: Ctx, lineId: string, f: Record<s
   if (damaged && loc.kind !== "quarantine") throw badRequest("Damaged goods must be received into a quarantine location.");
   if (!damaged && loc.kind === "quarantine") throw badRequest("Good-condition goods are not received into quarantine; mark them damaged or choose another location.");
   const qty = qtyOf(f.qty, "Quantity received");
+  const metadata=await validateTrackedStock(c,line.sku_id,lotOf(f.lot),qty,'receipt');
+  if(metadata&&(metadata.hold||metadata.document_hold||metadata.document_status!=='issued'||metadata.expires_at&&new Date(metadata.expires_at).toISOString().slice(0,10)<=dubaiDay())&&loc.kind!=='quarantine')throw badRequest('Held or expired tracked stock must be marked non-conforming and received into quarantine');
   const sofar = r3(Number(line.qty_received) + Number(line.qty_damaged));
   const over = r3(sofar + qty) > Number(line.qty_expected);
   if (over && f.accept_over !== "1") throw badRequest(`Receiving ${qty} would exceed the ${Number(line.qty_expected)} expected (${sofar} already received). Tick "accept over-receipt" if the extra goods are really here.`);
@@ -252,6 +259,7 @@ export async function cancelInbound(c: Conn, ctx: Ctx, id: string) {
 /** Move free stock to another location in the same warehouse: two ledger legs sharing a group id. */
 export async function moveStock(c: Conn, ctx: Ctx, f: { stock_id: string; to_location_id: string; qty: string | number; client_ref?: string }) {
   require(ctx, "wh.write");
+  await stockLock(c,ctx);
   await assertWritable(c, ctx.tenantId);
   const base = refOf(f.client_ref);
   if (await alreadyPosted(c, ctx, base ? `${base}:out` : null)) return { duplicate: true as const };
@@ -313,6 +321,7 @@ export async function createOutbound(c: Conn, ctx: Ctx, f: OutboundInput) {
  */
 export async function allocateOutbound(c: Conn, ctx: Ctx, id: string, opts: { allowPartial?: boolean } = {}) {
   require(ctx, "wh.write");
+  await stockLock(c,ctx);
   await assertWritable(c, ctx.tenantId);
   const o = await must(c.query<any>(`SELECT * FROM wh_outbound WHERE id=$1 FOR UPDATE`, [id]), "Order");
   if (o.status !== "new") throw badRequest(`Order is ${o.status}.`);
@@ -322,9 +331,9 @@ export async function allocateOutbound(c: Conn, ctx: Ctx, id: string, opts: { al
   for (const l of lines) {
     let need = Number(l.qty_ordered), have = 0;
     const cand = (await c.query<any>(
-      `SELECT s.id, s.qty_on_hand, s.qty_reserved FROM wh_stock s JOIN warehouse_locations loc ON loc.id=s.location_id
-       WHERE s.owner_id=$1 AND s.sku_id=$2 AND loc.warehouse_id=$3 AND loc.kind='storage' AND loc.active AND s.qty_on_hand > s.qty_reserved
-       ORDER BY s.first_received_at, loc.code, s.id FOR UPDATE OF s`, [o.owner_id, l.sku_id, o.warehouse_id])).rows;
+      `SELECT s.id, s.qty_on_hand, s.qty_reserved FROM wh_stock s JOIN warehouse_locations loc ON loc.id=s.location_id JOIN wh_skus k ON k.id=s.sku_id LEFT JOIN wh_lots m ON m.sku_id=s.sku_id AND m.lot=s.lot LEFT JOIN documents d ON d.id=m.document_id
+       WHERE s.owner_id=$1 AND s.sku_id=$2 AND loc.warehouse_id=$3 AND loc.kind='storage' AND loc.active AND s.qty_on_hand > s.qty_reserved AND (m.id IS NULL OR (NOT m.hold AND NOT d.hold AND d.status='issued' AND (m.expires_at IS NULL OR m.expires_at>current_date))) AND (k.tracking='none' AND k.rotation='fifo' OR m.id IS NOT NULL)
+       ORDER BY CASE WHEN k.rotation='fefo' THEN m.expires_at END NULLS LAST, s.first_received_at, loc.code, s.id FOR UPDATE OF s`, [o.owner_id, l.sku_id, o.warehouse_id])).rows;
     for (const s of cand) {
       if (need <= 0) break;
       const take = Math.min(need, r3(Number(s.qty_on_hand) - Number(s.qty_reserved)));
@@ -348,6 +357,7 @@ export async function allocateOutbound(c: Conn, ctx: Ctx, id: string, opts: { al
 /** Confirm what was physically picked. A short pick releases the difference at once and is the trigger for a count. */
 export async function confirmPick(c: Conn, ctx: Ctx, id: string, picked: Record<string, string | number>) {
   require(ctx, "wh.write");
+  await stockLock(c,ctx);
   const o = await must(c.query<any>(`SELECT * FROM wh_outbound WHERE id=$1 FOR UPDATE`, [id]), "Order");
   if (o.status !== "allocated") throw badRequest(`Order is ${o.status}; picking applies to allocated orders.`);
   const allocs = (await c.query<any>(
@@ -373,6 +383,7 @@ export async function confirmPick(c: Conn, ctx: Ctx, id: string, picked: Record<
 /** Dispatch ships exactly what was picked and posts the ledger movements; the unshipped remainder is closed (no backorders yet). */
 export async function dispatchOutbound(c: Conn, ctx: Ctx, id: string, f: { carrier_ref?: string } = {}) {
   require(ctx, "wh.write");
+  await stockLock(c,ctx);
   await assertWritable(c, ctx.tenantId);
   const o = await must(c.query<any>(`SELECT * FROM wh_outbound WHERE id=$1 FOR UPDATE`, [id]), "Order");
   if (o.status !== "picked") throw badRequest(`Order is ${o.status}; only picked orders can be dispatched.`);
@@ -400,6 +411,7 @@ export async function dispatchOutbound(c: Conn, ctx: Ctx, id: string, f: { carri
 
 export async function cancelOutbound(c: Conn, ctx: Ctx, id: string) {
   require(ctx, "wh.write");
+  await stockLock(c,ctx);
   const o = await must(c.query<any>(`SELECT * FROM wh_outbound WHERE id=$1 FOR UPDATE`, [id]), "Order");
   if (!["new", "allocated", "picked"].includes(o.status)) throw badRequest(`A ${o.status} order cannot be cancelled.`);
   const allocs = (await c.query<any>(
@@ -420,6 +432,7 @@ export async function cancelOutbound(c: Conn, ctx: Ctx, id: string) {
 export async function startCount(c: Conn, ctx: Ctx, f: { warehouse_id: string; location_id?: string }) {
   require(ctx, "wh.write");
   await assertWritable(c, ctx.tenantId);
+  await stockLock(c,ctx);
   await must(c.query(`SELECT id FROM warehouses WHERE id=$1 AND active`, [f.warehouse_id]), "Warehouse");
   const loc = f.location_id ? String(f.location_id) : null;
   if (loc) {
@@ -507,16 +520,17 @@ async function settleCount(c: Conn, countId: string) {
 export type CountDecision = "approved" | "rejected" | "stale";
 
 /**
- * Approve or reject one variance. The approver must not be the counter (owners excepted, and audited). If the stock moved
+ * Approve or reject one variance. The approver must not be the counter, including owners. If the stock moved
  * after the snapshot the count is no longer evidence of the current balance, so the line is sent back for a recount.
  */
 export async function decideCountLine(c: Conn, ctx: Ctx, lineId: string, approve: boolean): Promise<{ outcome: CountDecision; delta?: number }> {
   require(ctx, "wh.approve");
+  await stockLock(c,ctx);
   const l = await must(c.query<any>(
     `SELECT l.*, k.status AS count_status, k.no AS count_no FROM wh_count_lines l JOIN wh_counts k ON k.id=l.count_id WHERE l.id=$1 FOR UPDATE OF l`, [lineId]), "Count line");
   if (l.count_status !== "submitted") throw badRequest(`The count is ${l.count_status}; decisions apply to submitted counts.`);
   if (l.status !== "counted") throw badRequest(`This line is already ${l.status}; decisions are final.`);
-  if (l.counted_by === ctx.userId && !ctx.roles.includes("owner")) throw forbidden("Count variances cannot be approved by the person who counted them.");
+  if (l.counted_by === ctx.userId) throw forbidden("Count variances cannot be approved by the person who counted them.");
   let outcome: CountDecision, delta: number | undefined;
   if (!approve) {
     await c.query(`UPDATE wh_count_lines SET status='rejected', decided_by=$2, decided_at=now() WHERE id=$1`, [lineId, ctx.userId]);
@@ -687,7 +701,7 @@ export const listCounts = (c: Conn) => c.query<any>(
    FROM wh_counts k JOIN warehouses w ON w.id=k.warehouse_id LEFT JOIN warehouse_locations l ON l.id=k.location_id ORDER BY k.created_at DESC`).then((r) => r.rows);
 
 export async function getCount(c: Conn, id: string) {
-  const count = await must(c.query<any>(`SELECT k.*, w.code AS warehouse_code, l.code AS loc_code FROM wh_counts k JOIN warehouses w ON w.id=k.warehouse_id LEFT JOIN warehouse_locations l ON l.id=k.location_id WHERE k.id=$1`, [id]), "Count");
+  const count = await must(c.query<any>(`SELECT k.*, w.code AS warehouse_code, l.code AS loc_code,a.name AS assigned_counter FROM wh_counts k JOIN warehouses w ON w.id=k.warehouse_id LEFT JOIN warehouse_locations l ON l.id=k.location_id LEFT JOIN team_members a ON a.user_id=k.assigned_to WHERE k.id=$1`, [id]), "Count");
   const lines = (await c.query<any>(
     `SELECT x.*, p.name AS owner_name, s.code AS sku_code, s.description AS sku_desc, loc.code AS loc_code, cb.name AS counted_by_name
      FROM wh_count_lines x JOIN parties p ON p.id=x.owner_id JOIN wh_skus s ON s.id=x.sku_id JOIN warehouse_locations loc ON loc.id=x.location_id LEFT JOIN team_members cb ON cb.user_id=x.counted_by

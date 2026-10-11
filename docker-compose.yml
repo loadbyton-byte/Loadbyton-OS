@@ -20,5 +20,6 @@ services:
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?configure a real provider adapter (mock is refused in production)}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       ROOT_DOMAIN: ${ROOT_DOMAIN:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
     volumes: [files:/app/data/files]
 volumes: { pgdata: {}, files: {} }

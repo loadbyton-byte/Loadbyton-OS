@@ -4,8 +4,16 @@ import { audit } from "../lib/audit.js";
 import { HttpError, badRequest, hmac, randomToken, safeEqual } from "../lib/util.js";
 import { applyPlanEntitlements, previewPlanChange } from "./entitlements.js";
 import { currentPlans, type PlanVersion } from "./catalog.js";
+import { paymentAdapter, type PaymentAdapter } from "../adapters/payments.js";
 
 export interface OrderLine { label: string; amount_minor: number; kind: "setup" | "subscription" }
+export function paymentQuote(total:number,currency:string,provider:string) {
+ if(provider!=='razorpay'||config.razorpayPresentment.currency===currency)return {currency,total,rate:1,note:''};
+ if(currency!=='AED'||config.razorpayPresentment.currency!=='INR')throw badRequest('Unsupported payment currency conversion');
+ const rate=config.razorpayPresentment.aedToInr,converted=Math.round(total*rate);
+ if(!Number.isFinite(rate)||rate<=0||!config.razorpayPresentment.note||!Number.isSafeInteger(converted)||converted<=0)throw badRequest('A reviewed INR checkout quote is required');
+ return {currency:'INR',total:converted,rate,note:config.razorpayPresentment.note};
+}
 
 /**
  * Net incremental pricing: setup already paid at a lower tier is credited; shared Finance/CRM is priced once
@@ -26,24 +34,29 @@ export async function priceCheckout(c: Conn, tenantId: string, plan: PlanVersion
   const tax = Math.round((subtotal * config.vatBps) / 10_000);
   return {
     lines, subtotal, tax, total: subtotal + tax, currency: plan.currency,
-    taxNote: `VAT at ${(config.vatBps / 100).toFixed(2)}% shown for this checkout. Final tax treatment depends on your registration and the transaction.`,
+    taxNote: `${config.taxLabel} at ${(config.vatBps / 100).toFixed(2)}%. ${config.taxNote}`,
     setupCredit: credit,
   };
 }
 
-export async function createOrder(db: Db, tenantId: string, userId: string, planCode: string) {
+export async function createOrder(db: Db, tenantId: string, userId: string, planCode: string, provider = config.paymentProvider) {
+  if (!config.enabledPaymentProviders.includes(provider)) throw badRequest("Payment provider is not enabled");
   return db.system(async (c) => {
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`checkout:${tenantId}`]);
     const plan = (await currentPlans(c)).find((p) => p.plan_code === planCode);
     if (!plan) throw badRequest("Unknown plan");
-    const sub = (await c.query<{ plan_version_id: string }>(`SELECT plan_version_id FROM subscriptions WHERE tenant_id=$1`, [tenantId])).rows[0];
-    if (sub?.plan_version_id === plan.id) throw badRequest("You are already on this plan version.");
+    const sub = (await c.query<any>(`SELECT * FROM subscriptions WHERE tenant_id=$1`, [tenantId])).rows[0];
+    if (sub?.plan_version_id === plan.id && sub.status === 'active' && new Date(sub.period_end).getTime() > Date.now() + 7 * 86400000) throw badRequest("Renewal checkout opens seven days before the paid period ends.");
+    const existing = (await c.query<any>(`SELECT id, reference FROM orders WHERE tenant_id=$1 AND plan_version_id=$2 AND provider=$3 AND status='pending' ORDER BY created_at DESC LIMIT 1`, [tenantId,plan.id,provider])).rows[0];
+    if (existing) return { orderId: existing.id, reference: existing.reference };
     const p = await priceCheckout(c, tenantId, plan);
+    const payment=paymentQuote(p.total,p.currency,provider);
     const reference = `LBT-${Date.now().toString(36).toUpperCase()}-${randomToken(4).toUpperCase().replace(/[^A-Z0-9]/g, "X")}`;
     const o = (await c.query<{ id: string }>(
-      `INSERT INTO orders(tenant_id,plan_version_id,lines,currency,subtotal_minor,tax_minor,total_minor,tax_note,reference,provider,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-      [tenantId, plan.id, JSON.stringify(p.lines), p.currency, p.subtotal, p.tax, p.total, p.taxNote, reference, config.paymentProvider, userId])).rows[0];
-    await c.query(`UPDATE orders SET provider_session=$2 WHERE id=$1`, [o.id, `sess_${randomToken(10)}`]);
+      `INSERT INTO orders(tenant_id,plan_version_id,lines,currency,subtotal_minor,tax_minor,total_minor,tax_note,reference,provider,created_by,merchant_snapshot,payment_currency,payment_total_minor,fx_rate,fx_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+      [tenantId, plan.id, JSON.stringify(p.lines), p.currency, p.subtotal, p.tax, p.total, p.taxNote, reference, provider, userId, JSON.stringify(config.merchant),payment.currency,payment.total,payment.rate,payment.note])).rows[0];
+    if (provider === 'mock') await c.query(`UPDATE orders SET provider_session=$2 WHERE id=$1`, [o.id, `sess_${randomToken(10)}`]);
     await audit(c, tenantId, { kind: "user", userId }, "order.created", "order", o.id, { plan: plan.plan_code, total: p.total });
     return { orderId: o.id, reference };
   });
@@ -63,8 +76,9 @@ export function verifySignature(rawBody: string, header: string | undefined | nu
 }
 
 export interface PaymentEvent {
-  event_id: string; type: "payment.succeeded" | "payment.failed" | "payment.refunded";
+  event_id: string; type: "payment.succeeded" | "payment.failed" | "payment.refunded" | "payment.review";
   order_id: string; reference: string; amount_minor: number; currency: string;
+  provider_session?: string;
 }
 export type PaymentOutcome = "applied" | "duplicate" | "ignored" | "rejected";
 
@@ -88,15 +102,23 @@ export async function processPaymentEvent(db: Db, provider: string, ev: PaymentE
 
     const o = (await c.query<any>(`SELECT * FROM orders WHERE id=$1 FOR UPDATE`, [ev.order_id])).rows[0];
     if (!o) return finish("rejected", "unknown order");
+    if (o.provider !== provider) return finish("rejected", "provider mismatch", o.id);
     if (o.reference !== ev.reference) return finish("rejected", "reference mismatch", o.id);
-    if (Number(o.total_minor) !== ev.amount_minor || o.currency !== ev.currency) return finish("rejected", "amount/currency mismatch", o.id);
+    if (Number(o.payment_total_minor??o.total_minor) !== ev.amount_minor || (o.payment_currency??o.currency) !== ev.currency) return finish("rejected", "amount/currency mismatch", o.id);
+    if (ev.provider_session && o.provider_session && ev.provider_session !== o.provider_session) return finish("rejected", "checkout session mismatch", o.id);
+    await c.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`billing:${o.tenant_id}`]);
+    if (ev.type === 'payment.review') {
+      await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'staff.review',$2,$3) ON CONFLICT(key) DO NOTHING`, [o.tenant_id,`payment-review:${provider}:${ev.event_id}`,JSON.stringify({orderId:o.id,event:ev.event_id,note:'Partial refund or dispute: review provider records and entitlement treatment.'})]);
+      await audit(c,o.tenant_id,{kind:'system'},'payment.review','order',o.id,{event:ev.event_id});
+      return finish('applied',undefined,o.id);
+    }
 
     if (ev.type === "payment.failed") {
       if (o.status === "pending") await c.query(`UPDATE orders SET status='failed' WHERE id=$1`, [o.id]);
       return finish(o.status === "pending" ? "applied" : "ignored", o.status === "pending" ? undefined : `order already ${o.status}`, o.id);
     }
     if (ev.type === "payment.refunded") {
-      if (o.status !== "paid") return finish("ignored", `order is ${o.status}`, o.id);
+      if (['refunded','cancelled'].includes(o.status)) return finish("ignored", `order is ${o.status}`, o.id);
       await c.query(`UPDATE orders SET status='refunded' WHERE id=$1`, [o.id]);
       await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'staff.review',$2,$3) ON CONFLICT (key) DO NOTHING`,
         [o.tenant_id, `refund:${o.id}`, JSON.stringify({ orderId: o.id, note: "Refund received — decide entitlement treatment." })]);
@@ -107,11 +129,17 @@ export async function processPaymentEvent(db: Db, provider: string, ev: PaymentE
     // payment.succeeded
     if (o.status === "paid") return finish("ignored", "order already paid", o.id);
     if (o.status === "cancelled" || o.status === "refunded") return finish("rejected", `order is ${o.status}`, o.id);
+    const newer = await c.query(`SELECT 1 FROM orders WHERE tenant_id=$1 AND status='paid' AND created_at>$2 AND id<>$3`,[o.tenant_id,o.created_at,o.id]);
+    if(newer.rows.length) {
+      await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'staff.review',$2,$3) ON CONFLICT(key) DO NOTHING`,[o.tenant_id,`stale-payment:${o.id}`,JSON.stringify({orderId:o.id,note:'Delayed payment after a newer paid order. Review/refund without overwriting current entitlements.'})]);
+      await c.query(`UPDATE orders SET status='paid',paid_at=now() WHERE id=$1`,[o.id]);
+      return finish('ignored','newer paid order exists',o.id);
+    }
     await c.query(`UPDATE orders SET status='paid', paid_at=now() WHERE id=$1`, [o.id]);
 
     const plan = (await c.query<PlanVersion>(`SELECT * FROM plan_versions WHERE id=$1`, [o.plan_version_id])).rows[0];
     await c.query(
-      `UPDATE subscriptions SET plan_version_id=$2, status='active', period_start=now(), period_end=now() + interval '1 month',
+      `UPDATE subscriptions SET status='active', period_start=now(), period_end=CASE WHEN plan_version_id=$2 THEN greatest(now(),period_end) ELSE now() END + interval '1 month', plan_version_id=$2,
          scheduled_plan_version_id=NULL, cancel_at_period_end=false, grace_until=NULL, updated_at=now()
        WHERE tenant_id=$1`, [o.tenant_id, plan.id]);
     await applyPlanEntitlements(c, o.tenant_id, plan, `order:${o.id}`);
@@ -140,6 +168,8 @@ export async function scheduleDowngrade(db: Db, tenantId: string, userId: string
   return db.system(async (c) => {
     const plan = (await currentPlans(c)).find((p) => p.plan_code === planCode);
     if (!plan) throw badRequest("Unknown plan");
+    const current=(await c.query<any>(`SELECT p.monthly_minor FROM subscriptions s JOIN plan_versions p ON p.id=s.plan_version_id WHERE s.tenant_id=$1`,[tenantId])).rows[0];
+    if(plan.contact_sales||plan.monthly_minor>Number(current?.monthly_minor??0))throw badRequest('Use verified checkout for upgrades. This action schedules a downgrade only.');
     const preview = await previewPlanChange(c, tenantId, plan);
     await c.query(`UPDATE subscriptions SET scheduled_plan_version_id=$2, updated_at=now() WHERE tenant_id=$1`, [tenantId, plan.id]);
     await audit(c, tenantId, { kind: "user", userId }, "subscription.downgrade_scheduled", "subscription", tenantId, { plan: planCode, issues: preview.issues });
@@ -171,7 +201,7 @@ export async function applyDueSubscriptionChanges(db: Db, now = new Date(), grac
         const isFree = target.monthly_minor === 0;
         await c.query(
           `UPDATE subscriptions SET plan_version_id=$2, status='active', period_start=$3,
-             period_end = CASE WHEN $4 THEN NULL ELSE $3::timestamptz + interval '1 month' END,
+             period_end = CASE WHEN $4 THEN NULL ELSE $3::timestamptz END,
              scheduled_plan_version_id=NULL, cancel_at_period_end=false, updated_at=now() WHERE id=$1`,
           [s.id, target.id, now, isFree]);
         await applyPlanEntitlements(c, s.tenant_id, target, `renewal:${now.toISOString().slice(0, 10)}`);
@@ -188,6 +218,30 @@ export async function applyDueSubscriptionChanges(db: Db, now = new Date(), grac
     }
     return changed;
   });
+}
+
+/** Session creation is retryable on the same immutable order. The provider owns payment-method changes. */
+export async function beginCheckout(db: Db, tenantId: string, orderId: string, adapter?: PaymentAdapter) {
+  return db.system(async c => {
+    const o=(await c.query<any>(`SELECT * FROM orders WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,[orderId,tenantId])).rows[0];
+    if(!o) throw new HttpError(404,'Order not found');
+    if(o.status!=='pending') throw badRequest('This order is no longer pending');
+    if(o.provider==='mock') return `/app/billing/pay/${o.id}`;
+    if(o.checkout_url) return o.checkout_url;
+    const session=await (adapter??paymentAdapter(o.provider)).create(o);
+    await c.query(`UPDATE orders SET provider_session=$2,checkout_url=$3 WHERE id=$1`,[o.id,session.id,session.url]);
+    return session.url;
+  });
+}
+
+export async function reconcilePayments(db: Db) {
+  const rows=await db.query<any>(`SELECT * FROM orders WHERE provider<>'mock' AND provider_session IS NOT NULL AND status IN ('pending','failed') AND created_at>now()-interval '90 days' ORDER BY created_at LIMIT 50`);
+  let failed=0;
+  for(const o of rows.rows) {
+    try { const ev=await paymentAdapter(o.provider).reconcile(o); if(ev) await processPaymentEvent(db,o.provider,ev); }
+    catch { failed++; }
+  }
+  if(failed)throw new Error('Payment reconciliation provider failures; scheduled retries remain pending');
 }
 
 export function requireProvider(name: string) {
