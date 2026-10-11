@@ -1,5 +1,5 @@
 import {providerJson,type Fetcher} from './http.js';
-import type {AccountingAdapter,AccountingInvoice} from './accounting.js';
+import type {AccountingAdapter,AccountingCreditNote,AccountingInvoice,AccountingPayment} from './accounting.js';
 
 export interface ZohoSettings {region:'com'|'in'|'eu'|'com.au'|'jp'|'ca'|'sa';clientId:string;clientSecret:string;refreshToken:string;organizationId:string;currencyIds:Record<string,string>;taxIds:Record<string,string>}
 export function zohoBooksAdapter(settings:ZohoSettings,fetcher:Fetcher=fetch):AccountingAdapter {
@@ -43,6 +43,39 @@ export function zohoBooksAdapter(settings:ZohoSettings,fetcher:Fetcher=fetch):Ac
    // Create a DRAFT only. Sending/posting remains a controller's decision in the system of record.
    const r=await api('invoices',{method:'POST',body:JSON.stringify({customer_id:customer.contact_id,currency_id:currencyId,reference_number:inv.reference,date:inv.issuedAt.slice(0,10),due_date:inv.dueAt.slice(0,10),line_items})});
    return check(r.invoice,inv);
+  },
+  async findPayment(reference,expected) {
+   const r=await api(`customerpayments?reference_number=${encodeURIComponent(reference)}`);
+   const matches=(r.customerpayments??[]).filter((p:any)=>p.reference_number===reference);
+   if(matches.length>1)throw new Error('Multiple Zoho payments share the reference; controller review required');
+   if(!matches.length)return null;
+   if(expected&&Math.round(Number(matches[0].amount)*100)!==expected.amountMinor)throw new Error('Zoho payment amount differs; controller review required');
+   return {externalId:String(matches[0].payment_id)};
+  },
+  async createPayment(p:AccountingPayment) {
+   const invoice=(await api(`invoices/${encodeURIComponent(p.invoiceExternalId)}`)).invoice;
+   if(!invoice||invoice.reference_number===undefined)throw new Error('The Zoho invoice for this receipt could not be found');
+   const r=await api('customerpayments',{method:'POST',body:JSON.stringify({customer_id:invoice.customer_id,payment_mode:p.method,amount:p.amountMinor/100,date:p.date,reference_number:p.reference,description:p.note??'',invoices:[{invoice_id:p.invoiceExternalId,amount_applied:p.amountMinor/100}]})});
+   return {externalId:String(r.payment.payment_id)};
+  },
+  async findCreditNote(reference,expected) {
+   const r=await api(`creditnotes?reference_number=${encodeURIComponent(reference)}`);
+   const matches=(r.creditnotes??[]).filter((n:any)=>n.reference_number===reference);
+   if(matches.length>1)throw new Error('Multiple Zoho credit notes share the reference; controller review required');
+   if(!matches.length)return null;
+   const full=await api(`creditnotes/${encodeURIComponent(matches[0].creditnote_id)}`);
+   if(expected&&(full.creditnote.currency_code!==expected.currency||Math.round(Number(full.creditnote.total)*100)!==expected.totalMinor))throw new Error('Zoho credit note amount/currency differs; controller review required');
+   return {externalId:String(full.creditnote.creditnote_id)};
+  },
+  async createCreditNote(n:AccountingCreditNote) {
+   const currencyId=settings.currencyIds[n.currency];if(!currencyId)throw new Error('Map this credit note currency in the accounting connection first');
+   const invoice=(await api(`invoices/${encodeURIComponent(n.invoiceExternalId)}`)).invoice;
+   if(!invoice)throw new Error('The Zoho invoice for this credit note could not be found');
+   const line_items=n.lines.map(l=>{const taxId=settings.taxIds[l.taxCode];if(!taxId)throw new Error(`Map accounting tax code ${l.taxCode} first`);return {name:l.description,description:l.description,quantity:l.qty,rate:l.unitMinor/100,tax_id:taxId};});
+   // A DRAFT for the controller to review and post; the reference ties it back to the issued credit note here.
+   const r=await api('creditnotes',{method:'POST',body:JSON.stringify({customer_id:invoice.customer_id,currency_id:currencyId,reference_number:n.reference,date:n.issuedAt.slice(0,10),notes:n.reason,line_items})});
+   if(Math.round(Number(r.creditnote.total)*100)!==n.totalMinor||r.creditnote.currency_code!==n.currency)throw new Error('Zoho credit note amount/currency differs; controller review required');
+   return {externalId:String(r.creditnote.creditnote_id)};
   },
  };
 }

@@ -23,6 +23,7 @@ import { admin } from "./web/admin.js";
 import { adminConsole } from "./web/admin-console.js";
 import { stockMigration } from "./web/stock-migration.js";
 import { freightCommercial } from "./web/freight-commercial.js";
+import { financeBridge } from "./web/finance-bridge.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
 import { connections } from "./web/connections.js";
@@ -88,6 +89,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", core);
   app.route("/", stockMigration);
   app.route("/", freightCommercial);
+  app.route("/", financeBridge);
   app.route("/", connections);
   app.route("/", privacy);
   app.route("/", service);
