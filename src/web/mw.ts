@@ -4,6 +4,7 @@ import type { Db } from "../db/client.js";
 import { config } from "../config.js";
 import type { Ctx } from "../lib/perms.js";
 import { HttpError, hmac, randomToken, safeEqual } from "../lib/util.js";
+import { isLocale, localisePage } from "../lib/i18n.js";
 import { loadSession, resolveCtx, type Session } from "../platform/auth.js";
 import { tenantForHost } from "../platform/admin.js";
 import type { ApiPrincipal } from "../ops/delivery-notify.js";
@@ -16,6 +17,7 @@ export type Env = {
     apiKey?: ApiPrincipal;
     apiAuth?: Awaited<ReturnType<typeof import('../platform/api.js').apiContext>>;
     traceId?: string;
+    locale?: 'en' | 'ar';
   };
 };
 export type C = Context<Env>;
@@ -125,3 +127,18 @@ export function clientIp(c: C): string {
   if (config.trustProxy === "xff") return (c.req.header("x-forwarded-for") ?? "").split(",")[0].trim();
   return "";
 }
+
+/** Arabic sessions get the rendered HTML translated; the language is a browser preference held in a cookie. */
+export const LANG_COOKIE = "lbt_lang";
+export const localeMw = async (c: C, next: () => Promise<void>) => {
+  const raw = getCookie(c, LANG_COOKIE);
+  const loc = isLocale(raw) ? raw : "en";
+  c.set("locale", loc);
+  await next();
+  if (loc !== "ar" || !(c.res.headers.get("content-type") ?? "").startsWith("text/html")) return;
+  const html = await c.res.text();
+  const res = new Response(localisePage(html), c.res);
+  res.headers.delete("content-length");
+  res.headers.set("content-language", "ar");
+  c.res = res;
+};

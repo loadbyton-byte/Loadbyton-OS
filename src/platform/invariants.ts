@@ -127,6 +127,10 @@ export async function verifyInvariants(db: Db): Promise<Violation[]> {
     ["a received message that became a conversation points to one", `SELECT id::text FROM inbound_events WHERE status IN ('conversation','resolved') AND conversation_id IS NULL`],
     ["a verified contact identity records who verified it and how", `SELECT id::text FROM contact_identities WHERE verified_at IS NOT NULL AND (verified_by IS NULL OR method IS NULL OR note IS NULL)`],
     ["a recorded WhatsApp or phone reply carries its evidence reference", `SELECT m.id::text FROM conversation_messages m JOIN conversations v ON v.id=m.conversation_id JOIN inbound_channels ch ON ch.id=v.channel_id WHERE m.direction='outbound' AND m.status='sent' AND ch.kind IN ('whatsapp','telephony') AND (m.external_id IS NULL OR m.external_id = '')`],
+    ["an e-invoice payload matches its recorded hash", `SELECT id::text FROM einvoice_documents WHERE payload_sha256 <> encode(sha256(convert_to(payload_xml,'UTF8')),'hex')`],
+    ["a submitted or decided e-invoice was a payload without blocking issues, sent by a named person", `SELECT id::text FROM einvoice_documents WHERE status IN ('submitted','accepted','rejected') AND (NOT submittable OR submitted_by IS NULL OR provider IS NULL)`],
+    ["an ingested logger reading points at a temperature event of its case", `SELECT r.id::text FROM device_readings r WHERE r.outcome='ingested' AND NOT EXISTS (SELECT 1 FROM specialist_events e WHERE e.id=r.event_id AND e.case_id=r.case_id AND e.kind='temperature')`],
+    ["a logger is bound to at most one open case", `SELECT d.id::text FROM specialist_devices d WHERE d.status='retired' AND d.case_id IS NOT NULL AND d.unbound_at IS NULL`],
     ["documents are stored under their tenant prefix", `SELECT id::text FROM documents WHERE storage_key NOT LIKE tenant_id::text || '/%'`],
   ];
   const out: Violation[] = [];

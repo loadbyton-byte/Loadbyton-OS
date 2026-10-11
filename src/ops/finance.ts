@@ -162,7 +162,7 @@ export async function voidInvoice(c: Conn, ctx: Ctx, invoiceId: string, reason: 
 }
 
 export async function getInvoice(c: Conn, id: string) {
-  const inv = await must(c.query<any>(`SELECT i.*, p.name AS party_name, p.tax_id AS party_tax_id, e.legal_name, e.name AS entity_name, e.tax_id AS entity_tax_id, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' WHEN i.dlv_run_id IS NOT NULL THEN 'Delivery activity' WHEN i.cus_case_id IS NOT NULL THEN 'Customs case' END) AS job_no
+  const inv = await must(c.query<any>(`SELECT i.*, p.name AS party_name, p.name_ar AS party_name_ar, p.tax_id AS party_tax_id, e.legal_name, e.legal_name_ar, e.name AS entity_name, e.tax_id AS entity_tax_id, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' WHEN i.dlv_run_id IS NOT NULL THEN 'Delivery activity' WHEN i.cus_case_id IS NOT NULL THEN 'Customs case' END) AS job_no
     FROM invoices i JOIN parties p ON p.id=i.party_id JOIN entities e ON e.id=i.entity_id LEFT JOIN jobs j ON j.id=i.job_id LEFT JOIN transport_orders o ON o.id=i.transport_order_id WHERE i.id=$1`, [id]), "Invoice");
   const lines = (await c.query<any>(`SELECT * FROM invoice_lines WHERE invoice_id=$1`, [id])).rows;
   const receipts = (await c.query<any>(`SELECT r.*, v.reason AS reversal_reason, (v.receipt_id IS NOT NULL) AS reversed FROM receipts r LEFT JOIN receipt_reversals v ON v.receipt_id=r.id WHERE r.invoice_id=$1 ORDER BY r.received_at, r.id`, [id])).rows;

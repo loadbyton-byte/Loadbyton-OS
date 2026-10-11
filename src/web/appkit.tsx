@@ -49,6 +49,7 @@ export function navFor(c: C): NavItem[] {
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
   }
   for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
+  if(t?.sectors.includes('cold-chain')&&ctx.perms.has('specialist.write'))n.push({href:'/app/cold-chain/devices',label:'Temperature loggers',section:'Specialist cases'});
   if (t?.sectors.includes("courier-last-mile")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Delivery" });
     w("/app/delivery", "Delivery board"); w("/app/delivery/shipments", "Parcels"); w("/app/delivery/runs", "Runs"); w("/app/delivery/riders", "Riders"); w("/app/delivery/cash", "Cash desk");
@@ -69,7 +70,7 @@ export function navFor(c: C): NavItem[] {
   if (ctx.perms.has("doc.write")) n.push({ href: "/app/extractions", label: "Document extraction", section: "Operate" });
   if (t && t.sectors.length) n.push({ href: "/app/tasks", label: "Tasks & exceptions", section: "Operate" },
     { href: "/app/invoices", label: "Invoices & collections", section: "Money" });
-  if (t && t.sectors.length && ctx.perms.has("finance.write")) n.push({ href: "/app/finance/credit-notes", label: "Credit notes", section: "Money" }, { href: "/app/finance/payables", label: "Supplier bills", section: "Money" }, { href: "/app/finance/fx", label: "Exchange rates", section: "Money" });
+  if (t && t.sectors.length && ctx.perms.has("finance.write")) n.push({ href: "/app/finance/credit-notes", label: "Credit notes", section: "Money" }, { href: "/app/finance/payables", label: "Supplier bills", section: "Money" }, { href: "/app/finance/fx", label: "Exchange rates", section: "Money" }, { href: "/app/einvoice", label: "E-invoicing readiness", section: "Money" });
   if (fwd && ctx.perms.has("dashboard.owner")) n.push({ href: "/app/reports", label: "Owner dashboard", section: "Money" });   // job-margin view: freight only
   if (ctx.perms.has("team.manage")) n.push({ href: "/app/team", label: "Team", section: "Admin" });
   if (ctx.perms.has("billing.manage")) n.push({ href: "/app/billing", label: "Plan & billing", section: "Admin" });
