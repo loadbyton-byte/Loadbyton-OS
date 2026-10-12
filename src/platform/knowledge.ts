@@ -176,6 +176,14 @@ export function buildKnowledge(plans: PlanVersion[]): Entry[] {
 }
 
 const DEFAULT_SUGGEST = ["What is LOAD|BY|TON.store?", "How much does it cost?", "Which sectors do you cover?", "Is my data secure?", "Talk to a person"];
+/** Phrases that decide the topic on their own, whatever else the sentence says. */
+const BOOST: [RegExp, string, number][] = [
+  [/\b(how much|cost|costs|price|prices|pricing|afford|affordable|cheap|expensive)\b/i, "pricing", 8],
+  [/\b(free plan|free forever|is it free|really free)\b/i, "free", 8],
+  [/\b(who (made|built|created|owns|runs)|founders?|freelancers?|subsidiary)\b/i, "about", 8],
+  [/\b(where|which (aws|cloud|region))\b.*\b(hosted|stored|data|server)|\b(hosted|hosting)\b|\baws\b/i, "hosting", 8],
+  [/\b(talk|speak|chat) (to|with)|\bwhatsapp\b|\bphone number\b|\bemail address\b|\bcontact (details|number|info)/i, "support", 6],
+];
 const HUMAN = /\b(human|person|someone|agent|representative|real person|live chat|talk to|speak to|speak with|call me|call back|callback|contact (you|us|sales))\b/i;
 
 export function answer(question: string, plans: PlanVersion[]): Reply {
@@ -193,6 +201,7 @@ export function answer(question: string, plans: PlanVersion[]): Reply {
     for (const t of new Set(qt)) { const w = idf(t); if (set.has(t)) s += 3 * w; else if (body.has(t)) s += 1 * w; }
     const low = q.toLowerCase();
     if (low.includes(e.title.toLowerCase())) s += 6;
+    for (const [re, id, w] of BOOST) if (e.id === id && re.test(q) && !(id === "pricing" && /\b(starter|business|operations|enterprise|free)\b/i.test(q))) s += w;
     if (e.id.startsWith("sector-") && !set.has(qt.find((t) => set.has(t) && t.length > 3 && !["sector", "pack", "support", "cover"].includes(t)) ?? "")) s *= 0.55;
     return { e, s: s / Math.sqrt(1 + Math.max(0, qt.length - 4)) };
   }).sort((a, b) => b.s - a.s);

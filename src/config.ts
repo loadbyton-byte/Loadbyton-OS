@@ -70,7 +70,11 @@ export const config = {
   },
 
   // ── transactional email: "log" (default; prints a line, invitations stay visible as links in the UI) or "resend" (Resend REST API)
-  mail: { provider: (text("MAIL_PROVIDER").toLowerCase() || "log"), resendApiKey: text("RESEND_API_KEY"), from: text("MAIL_FROM"), apiBase: env.RESEND_API_BASE ?? "https://api.resend.com" },
+  mail: {
+    provider: (text("MAIL_PROVIDER").toLowerCase() || "log"), resendApiKey: text("RESEND_API_KEY"), from: text("MAIL_FROM"), apiBase: env.RESEND_API_BASE ?? "https://api.resend.com",
+    /** "smtp": any SMTP relay, for example Amazon SES (email-smtp.<region>.amazonaws.com, port 587, STARTTLS). */
+    smtp: { host: text("SMTP_HOST"), port: Number(env.SMTP_PORT ?? 587), user: text("SMTP_USER"), pass: text("SMTP_PASSWORD"), secure: flag("SMTP_SECURE") },
+  },
 
   // ── SMS to consignees (opt-in per merchant): "log" (default) or "twilio"
   sms: { provider: (text("SMS_PROVIDER").toLowerCase() || "log"), accountSid: text("TWILIO_ACCOUNT_SID"), authToken: text("TWILIO_AUTH_TOKEN"), from: text("TWILIO_FROM"), apiBase: env.TWILIO_API_BASE ?? "https://api.twilio.com" },
@@ -183,7 +187,11 @@ export function validateConfig(c = config, production = isProd) {
     if (!c.ocr.reviewed) problems.push("OCR sends document content to the provider: set OCR_DATA_PROCESSING_REVIEWED=true once that processing has been reviewed");
     if (!Number.isInteger(c.ocr.maxPages) || c.ocr.maxPages < 1 || c.ocr.maxPages > 5) problems.push("OCR_MAX_PAGES must be 1–5 (the provider's limit for inline PDFs)");
   }
-  if (!["log", "resend"].includes(c.mail.provider)) problems.push(`MAIL_PROVIDER must be "log" or "resend" (got "${c.mail.provider}")`);
+  if (!["log", "resend", "smtp"].includes(c.mail.provider)) problems.push(`MAIL_PROVIDER must be "log", "resend" or "smtp" (got "${c.mail.provider}")`);
+  if (c.mail.provider === "smtp") {
+    if (!c.mail.smtp.host || !c.mail.smtp.user || !c.mail.smtp.pass) problems.push("SMTP_HOST, SMTP_USER and SMTP_PASSWORD are required when MAIL_PROVIDER=smtp");
+    if (!/^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$|<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(c.mail.from)) problems.push("MAIL_FROM must be an address on a verified sending domain, e.g. \"LOAD|BY|TON <noreply@loadbyton.com>\"");
+  }
   if (c.mail.provider === "resend") {
     if (!c.mail.resendApiKey.startsWith("re_")) problems.push("RESEND_API_KEY must be a Resend API key (re_…)");
     if (!/^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$|<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(c.mail.from)) problems.push('MAIL_FROM must be an address on a domain verified in Resend, e.g. "LOAD|BY|TON <noreply@yourdomain>"');

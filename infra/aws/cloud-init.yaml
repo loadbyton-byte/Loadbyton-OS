@@ -1,0 +1,12 @@
+#cloud-config
+# Same stack as infra/oracle: Docker + compose, the app behind a Cloudflare Tunnel, no inbound ports.
+package_update: true
+package_upgrade: true
+packages: [docker.io, docker-compose-v2, postgresql-client, unattended-upgrades, git, awscli, snapd]
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [snap, install, amazon-ssm-agent, --classic]
+  - [systemctl, enable, --now, snap.amazon-ssm-agent.amazon-ssm-agent.service]
+  - [install, -d, -m, '0700', /opt/loadbyton]
+  # a small swap file helps the 4 GB instance ride out a scanner signature refresh
+  - [bash, -c, 'fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo "/swapfile none swap sw 0 0" >> /etc/fstab']

@@ -38,7 +38,7 @@ npm run verify              # database-wide invariants (use after every restore 
 ```
 
 Production-like: `docker compose up` (PostgreSQL 16). Merchant API: [`docs/API.md`](docs/API.md) · monitoring: [`docs/MONITORING.md`](docs/MONITORING.md).
-Real deployment — Oracle Cloud VM, Cloudflare tunnel, Neon/Supabase, Upstash, Stripe/Razorpay — is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md); every setting (including your legal/GST identity) is an environment variable documented in `.env.example`.
+Real deployment — Cloudflare tunnel, Neon/Supabase, Upstash, Stripe/Razorpay on an Oracle Cloud VM — is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md); the same stack on AWS (two accounts, S3, SES, offsite backups) is in [`docs/DEPLOY_AWS.md`](docs/DEPLOY_AWS.md); every setting (including your legal/GST identity) is an environment variable documented in `.env.example`.
 `PAYMENT_PROVIDERS=mock` is refused in production, and a half-configured provider stops the process at start-up; secrets must be ≥32 chars.
 
 ## Surfaces
@@ -54,6 +54,8 @@ Real deployment — Oracle Cloud VM, Cloudflare tunnel, Neon/Supabase, Upstash, 
 | Driver app | `/app/driver/*` | Phone-first, large touch targets; `driver` seats are limited (no other pages); trips **and** delivery runs; offline queue + idempotent sync |
 | Control console | `admin` — `/admin/*` | Platform staff + TOTP; separate privilege; audited |
 | Guidance | `help` — `/help` | |
+| Marketing pages | `/features`, `/industries`, `/for-forwarders`, `/for-transporters`, `/trust`, `/compliance`, `/about`, `/blog`, `/contact` | Thirteen public pages with the 3D home; see [`docs/FRONTEND_SYSTEM.md`](docs/FRONTEND_SYSTEM.md) |
+| Chat | assistant `/chat/bot`, live chat `/chat/live/*`, staff inbox `/admin/chats` | Own implementation; no third-party service |
 | Operations | `/healthz` · `/readyz` · `/metrics` | Liveness · readiness (database + workers) · Prometheus metrics behind `METRICS_TOKEN` |
 
 Host → tenant is only a *hint* (verified `domain_mappings`); **authenticated membership** authorises access.

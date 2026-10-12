@@ -112,7 +112,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
       <body class="public-experience">
         <a class="skip" href="#main">Skip to content</a>
         {p.quiet ? null : <OfferBar />}
-        <header class={`site-head${p.heroDark ? " on-dark" : ""}`}>
+        <header class={`site-head${p.heroDark && !p.quiet ? " on-dark" : ""}${p.quiet ? " solid" : ""}`}>
           <div class="bar">
             <a class="brand" href="/" aria-label="LOAD|BY|TON home">
               <img class="logo-light" src="/brand/lbt-logo-navy.png" alt="LOAD|BY|TON" width="140" height="38" />
@@ -134,6 +134,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
           </div>
           <nav class="sheet-menu" id="sheet-menu" aria-label="All pages">
             {SHEET_NAV.map(([h, l]) => <a href={h}>{l}<Icon name="arrow" size={16} /></a>)}
+            <a href={waLink()} target="_blank" rel="noopener">WhatsApp {CONTACT.phoneDisplay}<Icon name="whatsapp" size={18} /></a>
           </nav>
         </header>
         <main id="main">{children}</main>
@@ -201,7 +202,7 @@ function DeskFrame({ p, nav, area, tenantName, roles, banner, switcher, rail, pi
         <div class="desk-frame">
           <header class="topbar no-print">
             <a class="brand" href={home} aria-label={area === "control" ? "LOAD|BY|TON control console" : "LOAD|BY|TON workspace home"}>
-              <img class="logo-light" src="/brand/lbt-logo-navy.png" alt="LOAD|BY|TON" width="110" height="30" />
+              <img class="logo-light" src="/brand/lbt-logo-navy.png" alt="" width="110" height="30" />
               <img class="logo-dark" src="/brand/lbt-logo-white.png" alt="" width="110" height="30" />
               <span class="os">{area === "control" ? "CONSOLE" : "OS"}</span>
             </a>
@@ -224,9 +225,9 @@ function DeskFrame({ p, nav, area, tenantName, roles, banner, switcher, rail, pi
             <div class="pop">
               <button class="me-chip" type="button" data-pop-toggle aria-haspopup="true" aria-expanded="false"><i>{initials(p.user?.name ?? "")}</i><span class="lbl">{(p.user?.name ?? "").split(" ")[0]}</span></button>
               <div class="popover" data-pop hidden>
-                <header><div><b>{p.user?.name}</b><br /><span class="small mute">{roles.join(", ")}</span></div></header>
+                <header><div data-notranslate><b>{p.user?.name}</b><br /><span class="small mute">{roles.join(", ")}</span></div></header>
                 <div class="list" style="padding:14px 18px;display:grid;gap:10px">
-                  {tenantName ? <span class="tenant-chip"><i></i>{tenantName}</span> : null}
+                  {tenantName ? <span class="tenant-chip" data-notranslate><i></i>{tenantName}</span> : null}
                   {switcher}
                   <a href="/account/security" class="btn ghost sm"><Icon name="lock" size={16} />Account security</a>
                   <span class="small" data-notranslate><a href={`/lang/ar?next=${encodeURIComponent(p.path)}`}>العربية</a> · <a href={`/lang/en?next=${encodeURIComponent(p.path)}`}>English</a></span>
@@ -256,10 +257,10 @@ function DeskFrame({ p, nav, area, tenantName, roles, banner, switcher, rail, pi
             </main>
           </div>
           <footer class="statusbar no-print">
-            <span class="live">Signed in · {p.user?.name}</span>
-            <span data-clock>Asia/Dubai</span>
+            <span class="live">Signed in</span><span data-notranslate>{p.user?.name}</span>
+            <span data-clock data-notranslate></span>
             <span class="grow"></span>
-            <span>Help: <a href={CONTACT.tel}>{CONTACT.phoneDisplay}</a> · <a href={waLink()} target="_blank" rel="noopener">WhatsApp</a> · <a href={`mailto:${CONTACT.emails.support}`}>{CONTACT.emails.support}</a></span>
+            <span>Help:</span><span data-notranslate><a href={CONTACT.tel}>{CONTACT.phoneDisplay}</a> · <a href={waLink()} target="_blank" rel="noopener">WhatsApp</a> · <a href={`mailto:${CONTACT.emails.support}`}>{CONTACT.emails.support}</a></span>
             <span><Lbt /> {area === "control" ? "control console" : "OS"}</span>
           </footer>
         </div>
@@ -277,7 +278,7 @@ function DeskFrame({ p, nav, area, tenantName, roles, banner, switcher, rail, pi
               <h2 id={`ws-${r.id}-t`}>{r.label}</h2>
               <p class="mute">{SECTION_BLURB[r.label] ?? "Choose a task below."}</p>
               <nav class="workspace-menu-links" aria-label={r.label}>{r.items!.map((i) => <a href={i.href}><span>{i.label}</span><Icon name="chevron" size={18} /></a>)}</nav>
-              <a class="btn red" href={r.href}>Open {r.label}<Icon name="arrow" size={16} /></a>
+              <a class="btn red" href={r.href}><span>Open</span> <span>{r.label}</span><Icon name="arrow" size={16} /></a>
             </div>
           </dialog>
         ))}

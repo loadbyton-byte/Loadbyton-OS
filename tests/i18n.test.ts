@@ -54,7 +54,7 @@ describe("Arabic interface layer", () => {
       expect(ar.trim(), en).not.toBe("");
       expect(/[<>{}]/.test(ar), en).toBe(false);
       const arabic = /[\u0600-\u06FF]/.test(ar);
-      const technical = /^[A-Za-z0-9 .\/&+\-:()_·→,%]*$/.test(ar);
+      const technical = /^[A-Za-z0-9 .\/&+\-:()_·→,%|]*$/.test(ar);
       expect(arabic || technical, `${en} → ${ar}`).toBe(true);
       if (en.endsWith(":")) expect(ar.endsWith(":"), en).toBe(true);
     }

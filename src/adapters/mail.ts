@@ -13,7 +13,7 @@ export const logMailer: Mailer = {
   async send(m) { if (process.env.NODE_ENV !== "test") console.log(`[mail:log] to=${m.to.replace(/^(.).*(@.*)$/, "$1***$2")} subject="${m.subject}"`); return {}; },
 };
 
-export function resendMailer(cfg = config.mail, fetchImpl: Fetch = fetch): Mailer {
+export function resendMailer(cfg: Pick<typeof config.mail, "provider" | "resendApiKey" | "from" | "apiBase"> = config.mail, fetchImpl: Fetch = fetch): Mailer {
   return {
     async send(m) {
       let res: Response;
@@ -33,7 +33,25 @@ export function resendMailer(cfg = config.mail, fetchImpl: Fetch = fetch): Maile
 /** A 4xx other than 429 will not succeed on retry (bad address, unverified domain, bad key): the row goes to the staff-visible dead queue promptly. */
 export class PermanentMailError extends Error { permanent = true; }
 
-export const defaultMailer = (): Mailer => (config.mail.provider === "resend" ? resendMailer() : logMailer);
+/** SMTP relay (Amazon SES, or any provider). Connection errors and 4xx replies are retried by the outbox; 5xx rejections are permanent. */
+export function smtpMailer(cfg = config.mail): Mailer {
+  let transport: any;
+  return {
+    async send(m) {
+      transport ??= (await import("nodemailer")).default.createTransport({ host: cfg.smtp.host, port: cfg.smtp.port, secure: cfg.smtp.secure, requireTLS: !cfg.smtp.secure, auth: { user: cfg.smtp.user, pass: cfg.smtp.pass }, connectionTimeout: 15_000, socketTimeout: 20_000 });
+      try {
+        const r = await transport.sendMail({ from: cfg.from, to: m.to, subject: m.subject, text: m.text, html: m.html });
+        return { id: String(r.messageId ?? "") || undefined };
+      } catch (e: any) {
+        const code = Number(e?.responseCode ?? 0);
+        if (code >= 500 && code < 600) throw new PermanentMailError(`SMTP relay rejected the message (${code}): ${String(e.response ?? e.message).slice(0, 200)}`);
+        throw new Error(`SMTP relay unavailable: ${e?.message ?? e}`);
+      }
+    },
+  };
+}
+
+export const defaultMailer = (): Mailer => (config.mail.provider === "resend" ? resendMailer() : config.mail.provider === "smtp" ? smtpMailer() : logMailer);
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const wrap = (title: string, paras: string[], cta?: { label: string; href: string }) => {

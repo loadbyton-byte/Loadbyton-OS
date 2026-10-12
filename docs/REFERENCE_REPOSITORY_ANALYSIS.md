@@ -89,3 +89,8 @@ Elvora source remains inaccessible; the all-features/all-enterprise-plan require
 The browser workflows used a separate development PGlite directory and local object directory under `/workspace/scratch`, reserved synthetic accounts and mock payments. Real PostgreSQL/provider acceptance and CI execution on GitHub were not run for this change. The full suite was started before the final navigation adjustment; the affected HTTP/Arabic tests were repeated afterward and passed. Browser acceptance was repeated after the final script and command changes.
 
 The default development database also passed `npm run verify` after applying migration 051. The default server was restarted with `npm run dev`; `/readyz` passed and the new `/enterprise` page was served successfully.
+
+
+## Update, 12 October 2026: Elvora source is now readable
+
+`elvorashippingllc/ElvoraLogisticsOS` became public and was read (README, `DESIGN.md`, `PRODUCT.md`, `.impeccable/`, `src/web` shell, dashboard, workspaces, account card, carousel, command palette, `index.css`). It is a different product (Fastify + React 19 + Tailwind 4 ERP for one freight forwarder, 97 entities across 18 permission modules, AI employees, calendar, e-mail, WhatsApp), so only its **dashboard design language** was transferred, re-coloured to LOAD|BY|TON navy and red and driven by this application's tenant data: capsule navigation, narrow workspace rail with a popup, back button + breadcrumb, command search, notifications popover, status bar, "needs attention", movement desk, KPI tiles, disclosure sections, workspaces hub, tilting plan card, dark theme. Its feature set (calendar, AI team, e-mail console, double-entry ERP modules) was not ported and is not claimed. See `docs/FRONTEND_SYSTEM.md`.
