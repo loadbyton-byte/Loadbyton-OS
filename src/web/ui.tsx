@@ -91,7 +91,7 @@ function OfferBar() {
   const o = activeOffer();
   if (!o) return null;
   return (
-    <div class="offer-bar" data-offer data-ends={o.endsAt} role="region" aria-label="Current offer">
+    <div class="offer-bar" data-offer data-ends={o.endsAt} data-code={o.code} data-title={o.title} data-detail={o.detail} data-label={o.endsLabel} role="region" aria-label="Current offer">
       <div class="wrap">
         <span class="tag">OFFER</span>
         <span><b>{o.title}.</b> Ends {o.endsLabel}.</span>

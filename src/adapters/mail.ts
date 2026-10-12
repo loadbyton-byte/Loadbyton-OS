@@ -49,6 +49,7 @@ export const templates: Record<string, (d: Record<string, any>) => { subject: st
   password_recovery: (d) => ({ subject: 'Reset your LOAD|BY|TON.store password', ...wrap('Reset your password', ['A password reset was requested for your account. This link expires in one hour and works once. If you did not request it, you can ignore this email.'], d.link ? { label: 'Reset password', href: d.link } : undefined) }),
   invitation: (d) => ({ subject: "You have been invited to LOAD|BY|TON.store", ...wrap("You have been invited", ["Someone on your team invited you to their workspace. Set your own password to join — the link works for 7 days."], d.link ? { label: "Accept the invitation", href: d.link } : undefined) }),
   payment_received: (d) => ({ subject: `Payment received · ${d.reference}`, ...wrap("Payment received", [`We received payment ${d.reference}. Your plan is being activated; you will get another email when your workspace is ready.`], d.link ? { label: "Open plan & billing", href: d.link } : undefined) }),
+  chat_started: (d) => ({ subject: `New live chat: ${String(d.name ?? "A visitor").slice(0, 60)}`, ...wrap("New live chat", [`${d.name ?? "A visitor"}${d.email ? ` (${d.email})` : ""} started a chat${d.page ? ` on ${d.page}` : ""}.`, `First message: ${d.first ?? ""}`], d.link ? { label: "Open the conversation", href: d.link } : undefined) }),
   workspace_ready: (d) => ({ subject: "Your workspace is ready", ...wrap("Your workspace is ready", ["Your upgraded workspace has been activated and checked. Everything you had before is still there."], d.link ? { label: "Open your workspace", href: d.link } : undefined) }),
 };
 
@@ -81,7 +82,8 @@ export function mailHandlers(db: Db, mailer: Mailer = defaultMailer()): OutboxHa
         if (!o) throw new PermanentMailError("order not found");
         d = { ...p, reference: o.reference, link: `${baseUrl()}/app/billing` };
         to = o.email ? [o.email] : await owners(row.tenant_id);
-      } else if (p.template === "workspace_ready") { to = await owners(row.tenant_id); d = { ...p, link: `${baseUrl()}/app` }; }
+      } else if (p.template === "chat_started") { to = [config.contact.emails.support]; d = { ...p, link: `${baseUrl()}/admin/chats/${p.threadId}` }; }
+      else if (p.template === "workspace_ready") { to = await owners(row.tenant_id); d = { ...p, link: `${baseUrl()}/app` }; }
       to = [...new Set(to.filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))];
       if (!to.length) throw new PermanentMailError("no recipient");
       const msg = tpl(d);

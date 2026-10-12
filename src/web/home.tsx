@@ -50,6 +50,7 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
           <ul class="hero-chips" aria-label="Business facts">
             <li><b>Udyam</b> registered MSME</li><li><b>GST</b> registered, India</li><li><b>AED</b> pricing</li><li><b>العربية</b> + English</li>
           </ul>
+          <p class="world-clock mono" data-world-clock aria-live="off"></p>
         </div>
         <div class="stage3d" id="stage3d" aria-label="Globe with shipping routes from Dubai. Decorative.">
           <div class="poster" aria-hidden="true"></div>

@@ -6,7 +6,8 @@ import { Hono } from "hono";
 import { currentPlans, INTEGRATIONS, PLAN_SEEDS, PRODUCTS, recommendBundle, SECTORS, withLiveAvailability, type PlanVersion } from "../platform/catalog.js";
 import { releasedSectors } from "../platform/readiness.js";
 import { HttpError, badRequest, fmtMoney } from "../lib/util.js";
-import { arr, formBody, str, type Env } from "./mw.js";
+import { arr, clientIp, formBody, str, type Env } from "./mw.js";
+import { rateLimit } from "../lib/ratelimit.js";
 import { Badge, Csrf, PublicShell, type Page } from "./ui.js";
 import { provisioningStats } from "../platform/provisioning.js";
 import { config } from "../config.js";
@@ -17,6 +18,7 @@ const pg = (c: any, title: string, extra: Partial<Page> = {}): Page => ({
   title, csrf: c.get("csrf"), path: c.req.path, user: c.get("session") ? { name: c.get("session").name } : null,
   ok: c.req.query("ok"), err: c.req.query("err"), heroDark: true, ...extra,
 });
+const aed = (v: number) => fmtMoney(v).replace(/\.00$/, "");
 const AVAIL_LABEL = { available: "Available", pilot: "Pilot", planned: "Planned" } as const;
 const AvailBadge = ({ s }: { s: keyof typeof AVAIL_LABEL }) => <Badge s={s} label={AVAIL_LABEL[s]} />;
 
@@ -200,7 +202,7 @@ pub.get("/pricing", async (c) => {
             <div class={`card plan spot ${pl.plan_code === "starter" ? "hot" : ""}`} data-reveal>
               {pl.plan_code === "starter" ? <span class="badge ok" style="width:fit-content;margin-bottom:10px">Most chosen</span> : null}
               <h3>{pl.name}</h3>
-              <div class="price">{pl.contact_sales ? `From ${fmtMoney(pl.monthly_minor)}` : fmtMoney(pl.monthly_minor)}<span class="small mute"> / month</span></div>
+              <div class="price">{pl.contact_sales ? `From ${aed(pl.monthly_minor)}` : aed(pl.monthly_minor)}<small class="mute"> / month</small></div>
               <p class="small mute">{pl.contact_sales ? "Scoped setup" : pl.setup_minor ? `${fmtMoney(pl.setup_minor)} one-off setup` : "No setup fee"}</p>
               {pl.contact_sales ? <ul><li>Named allowances</li><li>Support and infrastructure schedule</li></ul> : <Limits pl={pl} />}
               {pl.contact_sales ? <a class="btn ghost" href="/contact">Talk to us</a> : pl.plan_code === "free" ? <a class="btn red" href="/start">Start free</a> : <a class="btn" href={`/start?plan=${pl.plan_code}`}>Start free, then upgrade</a>}
@@ -216,8 +218,8 @@ pub.get("/pricing", async (c) => {
             ))}
             <tr><th scope="row">Data export (CSV/JSON)</th>{plans.map(() => <td>✓</td>)}</tr>
             <tr><th scope="row">Roles, audit trail, tenant isolation</th>{plans.map(() => <td>✓</td>)}</tr>
-            <tr><th scope="row">Monthly price</th>{plans.map((pl) => <td>{fmtMoney(pl.monthly_minor)}</td>)}</tr>
-            <tr><th scope="row">Setup</th>{plans.map((pl) => <td>{pl.contact_sales ? "Scoped" : fmtMoney(pl.setup_minor)}</td>)}</tr>
+            <tr><th scope="row">Monthly price</th>{plans.map((pl) => <td>{aed(pl.monthly_minor)}</td>)}</tr>
+            <tr><th scope="row">Setup</th>{plans.map((pl) => <td>{pl.contact_sales ? "Scoped" : aed(pl.setup_minor)}</td>)}</tr>
           </tbody>
         </table></div>
         <h2 style="margin-top:48px">How limits work</h2>
@@ -417,10 +419,17 @@ pub.get("/contact", (c) => {
 });
 pub.post("/contact", async (c) => {
   const b = await formBody(c);
+  const wantsJson = (c.req.header("accept") ?? "").includes("application/json");
+  await rateLimit(`lead:${clientIp(c) || "local"}`, 8, 3600, "Too many messages from this connection. Please try again later.");
   const email = str(b.email).trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !str(b.name).trim()) return c.redirect("/contact?err=" + encodeURIComponent("Enter your name and a valid email."));
-  await c.get("db").query(`INSERT INTO platform_leads(name,company,email,message,source) VALUES ($1,$2,$3,$4,'contact')`,
-    [str(b.name).slice(0, 200), str(b.company).slice(0, 200) || null, email, str(b.message).slice(0, 2000) || null]);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !str(b.name).trim()) {
+    if (wantsJson) return c.json({ ok: false, error: "Enter your name and a valid email." }, 400);
+    return c.redirect("/contact?err=" + encodeURIComponent("Enter your name and a valid email."));
+  }
+  const source = ["contact", "offer"].includes(str(b.source)) ? str(b.source) : "contact";
+  await c.get("db").query(`INSERT INTO platform_leads(name,company,email,message,source) VALUES ($1,$2,$3,$4,$5)`,
+    [str(b.name).slice(0, 200), str(b.company).slice(0, 200) || null, email, str(b.message).slice(0, 2000) || null, source]);
+  if (wantsJson) return c.json({ ok: true });
   return c.redirect("/?ok=" + encodeURIComponent("Thanks — we will reply personally."));
 });
 

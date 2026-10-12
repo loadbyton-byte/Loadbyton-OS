@@ -26,7 +26,9 @@ import { listDocuments } from "../ops/documents.js";
 import { listFulfilOrders, stockOverview } from "../ops/fulfilment.js";
 import { assertCapacity } from "../platform/entitlements.js";
 import { arr, formBody, requireCtx, str, type Env } from "./mw.js";
-import { act, appPage, back, can, ctxOf, need, PageHead, PostBtn, Confirm, withT } from "./appkit.js";
+import { Icon, SECTION_BLURB, SECTION_ICON, slugOf } from "./experience.js";
+import { tenantAlerts } from "../ops/alerts.js";
+import { act, appPage, back, can, ctxOf, navFor, need, PageHead, PostBtn, Confirm, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table, sectorName } from "./ui.js";
 import { handlePaymentWebhook } from "./auth.js";
 
@@ -175,33 +177,129 @@ core.get("/app", async (c) => {
   const prov = (await c.get("db").query<any>(`SELECT j.state, j.owner_action, j.failure_reason FROM provision_jobs j WHERE j.tenant_id=$1 ORDER BY queued_at DESC LIMIT 1`, [ctx.tenantId])).rows[0];
   const goal = (await c.get("db").query<any>(`SELECT goal FROM tenants WHERE id=$1`, [ctx.tenantId])).rows[0].goal;
   const done = data.checklist.filter((x) => x.done).length;
+  const money = can(c, "dashboard.owner") || can(c, "finance.write");
+  const desk = await withT(c, async (cn) => {
+    const q = async (sql: string, p: unknown[] = []) => (await cn.query<any>(sql, p)).rows;
+    const one = async (sql: string) => (await q(sql))[0] ?? {};
+    const jobs = await one(`SELECT count(*) FILTER (WHERE status IN ('planned','in_transit'))::int open_n, count(*) FILTER (WHERE status='in_transit')::int moving, count(*) FILTER (WHERE created_at > date_trunc('month', now()))::int month_n FROM jobs WHERE status <> 'cancelled'`);
+    const exc = await one(`SELECT count(*)::int open_n, count(*) FILTER (WHERE due_at < now() + interval '48 hours')::int soon FROM job_exceptions WHERE status='open'`);
+    const rec = money ? await one(`SELECT coalesce(sum(balance_minor),0) total, coalesce(sum(balance_minor) FILTER (WHERE due_at < now()),0) late, count(*)::int c FROM invoices WHERE status IN ('issued','part_paid')`) : null;
+    const unb = money ? await one(`SELECT count(*)::int c, coalesce(sum(x.amt),0) amt FROM (SELECT j.id, (SELECT sum(round(qty*unit_minor)) FROM job_charges g WHERE g.job_id=j.id AND g.approved AND g.invoice_id IS NULL) amt FROM jobs j WHERE j.status IN ('delivered','operationally_complete')) x WHERE x.amt > 0`) : null;
+    const trend = money ? await q(`SELECT to_char(date_trunc('month', gs), 'YYYY-MM') m, coalesce((SELECT sum(subtotal_minor) FROM invoices i WHERE i.status<>'void' AND date_trunc('month', i.issued_at)=date_trunc('month', gs)),0) v FROM generate_series(date_trunc('month', now()) - interval '5 months', date_trunc('month', now()), interval '1 month') gs ORDER BY 1`) : [];
+    const moves = await q(`SELECT m.label, m.planned_at, j.id job_id, j.no, j.origin, j.destination, p.name party FROM job_milestones m JOIN jobs j ON j.id=m.job_id JOIN parties p ON p.id=j.party_id WHERE m.actual_at IS NULL AND m.planned_at >= now() - interval '1 day' AND m.planned_at < now() + interval '7 days' AND j.status IN ('planned','in_transit') ORDER BY m.planned_at LIMIT 8`);
+    const latest = await q(`SELECT j.id, j.no, j.status, j.origin, j.destination, p.name party FROM jobs j JOIN parties p ON p.id=j.party_id ORDER BY j.created_at DESC LIMIT 6`);
+    const parties = await one(`SELECT count(*)::int c FROM parties`);
+    const alerts = await tenantAlerts(cn, { money });
+    return { jobs, exc, rec, unb, trend, moves, latest, parties, alerts };
+  });
+  const usage = await withT(c, async (cn, ctx) => ({ lim: await getLimits(cn, ctx.tenantId), used: { jobs: await currentUsage(cn, ctx.tenantId, "jobs_per_month"), users: await currentUsage(cn, ctx.tenantId, "max_users"), storage: await currentUsage(cn, ctx.tenantId, "storage_mb") } }));
+  const trendMax = Math.max(1, ...desk.trend.map((r: any) => Number(r.v)));
+  const spark = (rows: any[]) => rows.length > 1 && trendMax > 1 ? <svg class="spark" viewBox="0 0 96 36" fill="none" aria-hidden="true"><polyline points={rows.map((r, i) => `${(i / (rows.length - 1) * 92 + 2).toFixed(1)},${(32 - Number(r.v) / trendMax * 28).toFixed(1)}`).join(" ")} stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg> : null;
+  const aed0 = (v: number | string) => fmtMoney(v).replace(/\.00$/, "");
+  const tiles: { l: string; v: any; h: string; href: string; tone?: string; extra?: any }[] = [
+    { l: "Open jobs", v: desk.jobs.open_n ?? 0, h: `${desk.jobs.moving ?? 0} in transit · ${desk.jobs.month_n ?? 0} opened this month`, href: "/app/jobs" },
+    money ? { l: "Receivables", v: aed0(desk.rec.total), h: desk.rec.late > 0 ? `${aed0(desk.rec.late)} overdue` : desk.rec.c ? `${desk.rec.c} open invoice${desk.rec.c > 1 ? "s" : ""}, none overdue` : "No open invoices", href: "/app/invoices", tone: desk.rec.late > 0 ? "bad" : "", extra: spark(desk.trend) } : { l: "Customers & suppliers", v: desk.parties.c ?? 0, h: "Records in your workspace", href: "/app/parties" },
+    money ? { l: "Unbilled work", v: aed0(desk.unb.amt), h: desk.unb.c ? `${desk.unb.c} delivered job${desk.unb.c > 1 ? "s" : ""} to invoice` : "Everything delivered is invoiced", href: "/app/reports", tone: desk.unb.c ? "warn" : "" } : { l: "Assigned to me", v: data.mine.length, h: "Open jobs on your name", href: "/app/jobs" },
+    { l: "Open exceptions", v: desk.exc.open_n ?? 0, h: desk.exc.soon ? `${desk.exc.soon} due within 48 hours` : "None due soon", href: "/app/tasks", tone: desk.exc.soon ? "warn" : "" },
+  ];
+  const lim = (k: string, u: number) => { const l = Number((usage.lim as any)?.[k] ?? 0); return l ? `${u.toLocaleString("en")} / ${l.toLocaleString("en")}` : String(u); };
   return appPage(c, "Overview", (<>
-    <PageHead title={`Welcome, ${t.name}`} sub={`${t.plan} plan · ${t.sectors.map(sectorName).join(", ") || "no sector selected"}`}>
-      {can(c, "enquiry.write") && t.sectors.includes("freight-forwarding") ? <a class="btn red" href="/app/enquiries/new">New enquiry</a> : null}
-    </PageHead>
+    <div class="dashboard-welcome">
+      <div><h1>Your logistics control desk</h1><p>{t.name} · {t.plan} plan · {t.sectors.map(sectorName).join(", ") || "no sector selected"}</p></div>
+      <div class="grow"></div>
+      <nav aria-label="Dashboard actions">
+        <a class="btn ghost" href="/app/workspaces"><Icon name="grid" size={16} />Workspaces</a>
+        {can(c, "enquiry.write") && t.sectors.includes("freight-forwarding") ? <a class="btn red" href="/app/enquiries/new"><Icon name="plus" size={16} />New enquiry</a> : null}
+      </nav>
+    </div>
     {prov && prov.state !== "onboarding" ? (
-      <div class={`alert ${prov.state === "failed" ? "err" : "info"}`}><strong>Activation: {prov.state.replace(/_/g, " ")}.</strong> {prov.owner_action ?? "We are preparing your upgraded workspace."} <a href="/app/billing">Details</a></div>
+      <div class={`alert ${prov.state === "failed" ? "err" : "info"}`}><Icon name="info" /><span><strong>Activation: {prov.state.replace(/_/g, " ")}.</strong> {prov.owner_action ?? "We are preparing your upgraded workspace."} <a href="/app/billing">Details</a></span></div>
     ) : null}
     {goal ? <p class="mute">Your first goal: <strong>{goal}</strong></p> : null}
-    <div class="grid g2">
-      <section class="card flat"><h3>Getting started · {done}/{data.checklist.length}</h3>
-        <progress class="setup-progress" value={done} max={data.checklist.length || 1} aria-label="Workspace setup progress">{done}/{data.checklist.length}</progress>
-        <ul style="list-style:none;padding:0;margin:0">{data.checklist.map((x) => (
-          <li style="padding:6px 0">{x.done ? <Badge s="ok" label="Done" /> : <Badge s="open" label="To do" />} <a href={x.href}>{x.label}</a></li>
-        ))}</ul>
+    <section aria-label="Business at a glance"><div class="dashboard-metrics">
+      {tiles.map((x) => <a class={`metric ${x.tone ?? ""}`} href={x.href}><span class="l">{x.l}</span><span class="v">{x.v}</span><span class="h">{x.h}</span>{x.extra ?? null}</a>)}
+    </div></section>
+    {desk.alerts.length ? (
+      <details class="dashboard-disclosure dashboard-attention" open><summary>Needs attention <span>{desk.alerts.length}</span></summary>
+        <div class="dashboard-alerts">{desk.alerts.map((a) => <a class="dashboard-alert" href={a.href} data-level={a.level}><Icon name={a.level === "danger" ? "alert" : a.level === "warn" ? "clock" : "info"} size={18} /><span style="flex:1"><strong>{a.title}</strong> · <span class="mute">{a.text}</span></span><Icon name="arrow" size={15} /></a>)}</div></details>
+    ) : null}
+    <section class="operations-desk" aria-label="Movement desk">
+      <div class="desk-heading"><div><h2>Next on the movement desk</h2><p>Milestones planned over the next seven days.</p></div>{can(c, "job.write") || t.sectors.includes("freight-forwarding") ? <a class="btn ghost" href="/app/jobs"><Icon name="route" size={16} />Open jobs</a> : null}</div>
+      {desk.moves.length ? <div class="movement-rail" aria-label="Upcoming movements">{desk.moves.map((m: any) => (
+        <a class="movement-ticket" href={`/app/jobs/${m.job_id}`}><span class="movement-kind">{m.label}<span>{formatDay(m.planned_at)}</span></span>
+          <strong>{m.origin || "Origin pending"}<Icon name="arrow" size={18} />{m.destination || "Destination pending"}</strong>
+          <span class="movement-client">{m.party} · {m.no}</span><span class="movement-action">Review job <Icon name="chevron" size={16} /></span></a>))}</div>
+        : <div class="movement-empty"><Icon name="route" size={30} /><div><strong>Your next movements will appear here</strong><p>Add planned dates to a job's milestones to see the week ahead.</p></div>{t.sectors.includes("freight-forwarding") ? <a class="btn red" href="/app/enquiries/new">Start with an enquiry <Icon name="arrow" size={16} /></a> : null}</div>}
+      <div class="desk-summary"><span><Icon name="truck" size={16} /><b>{desk.jobs.moving ?? 0}</b> in transit</span><span><Icon name="layers" size={16} /><b>{desk.exc.open_n ?? 0}</b> open exceptions</span><span><Icon name="users" size={16} /><b>{desk.parties.c ?? 0}</b> customers &amp; suppliers</span></div>
+    </section>
+    <div class="dashboard-grid">
+      <section class="panel"><header><h2>Latest jobs</h2><span class="grow"></span><a class="btn ghost sm" href="/app/jobs">All jobs</a></header>
+        {desk.latest.length ? <div class="tbl-wrap"><table><thead><tr><th>Job</th><th>Customer</th><th>Route</th><th>Status</th></tr></thead><tbody>{desk.latest.map((j: any) => <tr><td><a href={`/app/jobs/${j.id}`}>{j.no}</a></td><td>{j.party}</td><td class="mute small">{j.origin || "—"} → {j.destination || "—"}</td><td><Badge s={j.status} /></td></tr>)}</tbody></table></div>
+          : <div class="body"><p class="mute" style="margin:0">No jobs yet. A job starts from an accepted quotation, or add one directly from Jobs.</p></div>}
       </section>
-      <section class="card flat"><h3>My work</h3>
-        {data.mine.length || data.tasks.length ? (<>
-          {data.mine.map((j: any) => <p style="margin:.2em 0"><a href={`/app/jobs/${j.id}`}>{j.no}</a> <span class="mute small">{j.origin} → {j.destination}</span> <Badge s={j.status} /></p>)}
-          {data.tasks.map((x: any) => <p style="margin:.2em 0"><a href="/app/tasks">{x.title}</a> <span class="mute small">due {formatDate(x.due_at)}</span></p>)}
-        </>) : <p class="mute">Nothing assigned to you right now.</p>}
-      </section>
+      <aside style="display:grid;gap:18px;align-content:start">
+        <div class="plan-card"><div class="top"><img src="/brand/lbt-logo-white.png" alt="" height="20" width="74" /><Badge s={t.subStatus === "active" ? "ok" : "warn"} label={t.subStatus} /></div>
+          <dl><div><dt>Plan</dt><dd>{t.plan}</dd></div><div><dt>Sectors</dt><dd>{t.sectors.length || "—"}</dd></div><div><dt>Jobs this month</dt><dd class="mono">{lim("jobs_per_month", usage.used.jobs)}</dd></div><div><dt>Users</dt><dd class="mono">{lim("max_users", usage.used.users)}</dd></div></dl>
+          {can(c, "billing.manage") ? <a class="btn glass sm" style="margin-top:18px" href="/app/billing">Plan &amp; billing <Icon name="arrow" size={14} /></a> : null}</div>
+        <section class="panel"><header><h2>Quick actions</h2></header><div class="body"><div class="quick-actions">
+          {t.sectors.includes("freight-forwarding") && can(c, "enquiry.write") ? <a href="/app/enquiries/new"><Icon name="mail" />New enquiry</a> : null}
+          <a href="/app/parties"><Icon name="people" />Customers</a><a href="/app/documents"><Icon name="document" />Documents</a><a href="/app/invoices"><Icon name="money" />Invoices</a>
+          {can(c, "team.manage") ? <a href="/app/team"><Icon name="users" />Invite team</a> : null}
+        </div></div></section>
+      </aside>
     </div>
-    <h2 style="margin-top:28px">Discoverable upgrades</h2>
-    <p class="mute small">Only the modules you use are in your navigation. These exist on the roadmap; none is sold until it is released.</p>
-    <div class="grid g3">{PRODUCTS.filter((p) => p.status === "planned").map((p) => <div class="card"><h3>{p.name} <Badge s={p.status} label="Planned" /></h3><p class="small mute">{p.blurb}</p></div>)}</div>
+    <details class="dashboard-disclosure" open={done < data.checklist.length ? true : undefined}><summary>Getting started · {done}/{data.checklist.length} <span>Your first steps</span></summary>
+      <section>
+        <progress class="setup-progress" value={done} max={data.checklist.length || 1} aria-label="Workspace setup progress">{done}/{data.checklist.length}</progress>
+        <ul class="checklist">{data.checklist.map((x) => (
+          <li><span class={`check-ring${x.done ? " done" : ""}`}>{x.done ? <Icon name="check" size={13} /> : null}</span><span style="flex:1"><a href={x.href}>{x.label}</a></span>{x.done ? <Badge s="ok" label="Done" /> : <Badge s="open" label="To do" />}</li>
+        ))}</ul>
+      </section></details>
+    <details class="dashboard-disclosure"><summary>My work <span>{data.mine.length + data.tasks.length} item{data.mine.length + data.tasks.length === 1 ? "" : "s"}</span></summary>
+      <section>{data.mine.length || data.tasks.length ? (<>
+        {data.mine.map((j: any) => <p style="margin:.3em 0"><a href={`/app/jobs/${j.id}`}>{j.no}</a> <span class="mute small">{j.origin} → {j.destination}</span> <Badge s={j.status} /></p>)}
+        {data.tasks.map((x: any) => <p style="margin:.3em 0"><a href="/app/tasks">{x.title}</a> <span class="mute small">due {formatDate(x.due_at)}</span></p>)}
+      </>) : <p class="mute" style="margin:0">Nothing assigned to you right now.</p>}</section></details>
+    <details class="dashboard-disclosure"><summary>Discoverable upgrades <span>On the roadmap</span></summary>
+      <section><p class="mute small">Only the modules you use are in your navigation. These exist on the roadmap; none is sold until it is released.</p>
+        <div class="grid g3">{PRODUCTS.filter((p) => p.status === "planned").map((p) => <div class="card"><h3>{p.name} <Badge s={p.status} label="Planned" /></h3><p class="small mute">{p.blurb}</p></div>)}</div></section></details>
   </>));
 });
+
+// ── alerts for the bell in the top bar (JSON, same data as "Needs attention")
+core.get("/app/alerts.json", async (c) => {
+  const money = can(c, "dashboard.owner") || can(c, "finance.write");
+  const alerts = await withT(c, (cn) => tenantAlerts(cn, { money }));
+  c.header("Cache-Control", "no-store");
+  return c.json({ alerts });
+});
+
+// ── workspaces hub: every section the viewer may use, as cards, then each section's tools
+core.get("/app/workspaces", (c) => workspaceHub(c));
+core.get("/app/workspaces/:slug", (c) => workspaceHub(c, c.req.param("slug")));
+function workspaceHub(c: any, slug?: string) {
+  const nav = navFor(c);
+  if (nav.length <= 1) return c.redirect("/app");
+  const sections = [...new Set(nav.map((n) => n.section ?? "").filter(Boolean))].map((s) => ({ name: s, slug: slugOf(s), items: nav.filter((n) => n.section === s) }));
+  const sel = slug ? sections.find((x) => x.slug === slug) : undefined;
+  if (slug && !sel) throw new HttpError(404, "That workspace is not available to you.");
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  const cards = sections.filter((s) => !q || s.name.toLowerCase().includes(q) || s.items.some((i) => i.label.toLowerCase().includes(q)));
+  const matches = q ? sections.flatMap((s) => s.items.map((i) => ({ ...i, group: s.name }))).filter((i) => i.label.toLowerCase().includes(q)) : [];
+  const feature = (i: { href: string; label: string }, group?: string) => <a class="feature-card" href={i.href}><span class="feature-icon"><Icon name={SECTION_ICON[group ?? sel?.name ?? ""] ?? "grid"} size={20} /></span><span class="feature-copy"><strong>{i.label}</strong>{group ? <span>{group}</span> : null}</span><Icon name="arrowUpRight" size={17} /></a>;
+  const first = (c.get("session")?.name ?? "").split(" ")[0];
+  return appPage(c, sel ? sel.name : "Workspaces", (<>
+    {!sel ? <div class="workspace-intro"><h1>Good to see you{first ? `, ${first}` : ""}.</h1><p>Sales to shipments. Stock to cash. Choose where to work today.</p></div> : <PageHead title={sel.name} sub={SECTION_BLURB[sel.name]} />}
+    <form class="workspace-heading-tools" method="get" action={sel ? `/app/workspaces/${sel.slug}` : "/app/workspaces"}><label class="workspace-search"><Icon name="search" /><input type="search" name="q" value={c.req.query("q") ?? ""} placeholder={sel ? `Search ${sel.name}` : "Find a workspace or a feature"} aria-label="Search workspaces" /></label></form>
+    {sel ? <><div class="workspace-feature-grid">{sel.items.filter((i) => !q || i.label.toLowerCase().includes(q)).map((i) => feature(i))}</div><a class="workspace-return" href="/app/workspaces"><Icon name="arrowLeft" size={16} />All workspaces</a></>
+      : q ? <>{matches.length ? <div class="workspace-feature-grid">{matches.map((i) => feature(i, i.group))}</div> : <div class="card"><p class="mute" style="margin:0">No matching workspace or feature. <a href="/app/workspaces">Clear search</a>.</p></div>}</>
+      : <><div class="workspace-card-grid">{cards.map((s) => <a class="workspace-card" href={`/app/workspaces/${s.slug}`}>
+          <div class="workspace-card-symbol"><Icon name={SECTION_ICON[s.name] ?? "grid"} /><Icon name="arrowUpRight" /></div><h2>{s.name}</h2>
+          <div class="workspace-card-preview">{s.items.slice(0, 3).map((i) => <span>{i.label}</span>)}</div>
+          <div class="workspace-card-foot"><span>{s.items.length} tools</span><span>Open workspace</span></div></a>)}</div>
+        <nav class="workspace-flow" aria-label="From quote to cash"><span class="mono mute">QUOTE TO CASH</span>{[["Quotations", "/app/quotes"], ["Jobs", "/app/jobs"], ["Invoices", "/app/invoices"]].filter(([, h]) => nav.some((n) => n.href === h)).map(([l, h]) => <a href={h}>{l}<Icon name="arrowUpRight" size={14} /></a>)}</nav></>}
+  </>));
+}
 
 // ── owner reports
 core.get("/app/reports", async (c) => {
