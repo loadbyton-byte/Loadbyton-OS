@@ -1,0 +1,7 @@
+region             = "ap-south-1"
+environment        = "prod"
+instance_type      = "t4g.medium"
+disk_gb            = 30
+alert_email        = "support@loadbyton.com"
+backup_bucket_name = ""   # fill after applying backup-account/ in the second account
+monthly_budget_usd = 40
