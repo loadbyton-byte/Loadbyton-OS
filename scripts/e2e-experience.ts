@@ -15,9 +15,11 @@ try {
   page.on('response', r => { if (r.status() >= 400 && /\/assets\/|\/brand\//.test(r.url())) errors.push(`Asset ${r.status()} ${r.url()}`); if (r.status() >= 500) errors.push(`Server ${r.status()}`); });
   const noOverflow = async (label = '') => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `Horizontal overflow ${label}`);
 
-  // home: glass header, 3D globe, offer bar, wordmark, contact points
-  await page.goto(base); await page.waitForSelector('#stage3d.ready', { timeout: 20000 });
-  assert.equal(await page.locator('#stage3d canvas').count(), 1, 'WebGL globe mounted');
+  // home: glass header, cinematic hero film, offer bar, wordmark, contact points
+  await page.goto(base); await page.waitForSelector('.hero-film .film-scene.is-active', { timeout: 20000 });
+  assert.equal(await page.locator('.hero-film .film-scene').count(), 3, 'three hero scenes');
+  await page.locator('.film-tab').nth(1).click(); await page.waitForSelector('.hero-film .film-scene[data-scene="1"].is-active', { timeout: 5000 });
+  assert.equal(await page.locator('.load-record').getAttribute('data-stage'), '4', 'load record follows the scene');
   await page.waitForTimeout(1200); await page.screenshot({ path: `${out}/home-desktop.png` }); await noOverflow('home');
   assert.ok(await page.locator('.site-head .bar').isVisible());
   assert.ok((await page.locator('.lbt').count()) > 3, 'wordmark drawn as the logo');

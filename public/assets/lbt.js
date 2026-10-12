@@ -73,7 +73,7 @@
 
   /* ── scroll progress + header state ── */
   var bar = doc.createElement("div"); bar.className = "scroll-progress"; if ($(".public-experience")) doc.body.appendChild(bar);
-  var head = $(".site-head"), hero = $(".hero3d, .page-hero");
+  var head = $(".site-head"), hero = $(".hero-film, .page-hero");
   function onScroll() {
     var h = doc.documentElement, max = h.scrollHeight - h.clientHeight;
     bar.style.transform = "scaleX(" + (max > 0 ? h.scrollTop / max : 0) + ")";
@@ -199,14 +199,44 @@
   var clock = $("[data-clock]");
   if (clock) { var tick = function () { try { clock.textContent = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(",", "") + " · Asia/Dubai"; } catch (e) { /* ignore */ } }; tick(); setInterval(tick, 15000); }
 
-  /* ── hero 3D: load the scene only when visible, WebGL exists and data saver is off ── */
-  var stage = $("#stage3d");
-  if (stage) {
-    var canGL = (function () { try { var c = doc.createElement("canvas"); return !!(window.WebGLRenderingContext && (c.getContext("webgl2") || c.getContext("webgl"))); } catch (e) { return false; } })();
-    var save = navigator.connection && navigator.connection.saveData;
-    if (canGL && !save) {
-      var started = false, go = function () { if (started) return; started = true; import("/assets/scene3d.js").then(function (m) { m.mountGlobe(stage, { reduced: reduced }); stage.classList.add("ready"); }).catch(function () { /* poster stays */ }); };
-      if ("IntersectionObserver" in window) { var so = new IntersectionObserver(function (es) { if (es[0].isIntersecting) { go(); so.disconnect(); } }); so.observe(stage); } else go();
+  /* ── hero film: three scenes, one load record. Auto-advances, pauses on hover/focus/hidden tab, fully manual under reduced motion ── */
+  var film = $("[data-film]");
+  if (film) {
+    var scenes = $$(".film-scene", film), faces = $$(".lr-face", film), tabs = $$(".film-tab", film), rec = $(".load-record", film), ctl = $(".film-controls", film), tog = $("[data-film-toggle]", film), stage = $(".film-stage", film);
+    var STAGES = [3, 4, 5], DWELL = 8000, TRANS = reduced ? 0 : 1500, cur = 0, timer = null, busy = false, remain = DWELL, t0 = 0, userPaused = reduced, offscreen = false;
+    ctl.style.setProperty("--dwell", DWELL + "ms");
+    if (userPaused) { ctl.classList.add("is-static"); tog.setAttribute("aria-pressed", "true"); tog.setAttribute("aria-label", "Resume scene changes"); }
+    var arm = function (ms) { clearTimeout(timer); remain = ms; t0 = Date.now(); timer = setTimeout(function () { go((cur + 1) % scenes.length); }, ms); };
+    var hold = function () { if (!timer) return; clearTimeout(timer); timer = null; remain = Math.max(400, remain - (Date.now() - t0)); ctl.classList.add("is-held"); };
+    var release = function () { if (timer || userPaused || offscreen || doc.hidden) return; ctl.classList.remove("is-held"); arm(remain); };
+    var go = function (n) {
+      if (n === cur || busy) return; busy = true;
+      var from = scenes[cur], to = scenes[n];
+      to.classList.add("is-entering"); from.classList.add("is-leaving");
+      if (!reduced) { stage.classList.remove("is-cutting"); void stage.offsetWidth; stage.classList.add("is-cutting"); }
+      faces[cur].classList.remove("is-active"); faces[cur].setAttribute("aria-hidden", "true"); faces[n].classList.add("is-active"); faces[n].removeAttribute("aria-hidden");
+      rec.setAttribute("data-stage", String(STAGES[n]));
+      tabs.forEach(function (t, k) { t.classList.toggle("is-active", k === n); t.setAttribute("aria-pressed", String(k === n)); });
+      setTimeout(function () { from.classList.remove("is-active", "is-leaving"); to.classList.remove("is-entering"); to.classList.add("is-active"); cur = n; busy = false; }, TRANS);
+      if (!userPaused && !offscreen && !doc.hidden) { ctl.classList.remove("is-held"); arm(DWELL); } else { clearTimeout(timer); timer = null; remain = DWELL; }
+    };
+    tabs.forEach(function (t, i) { t.addEventListener("click", function () { go(i); }); });
+    tog.addEventListener("click", function () {
+      userPaused = !userPaused; tog.setAttribute("aria-pressed", String(userPaused)); tog.setAttribute("aria-label", userPaused ? "Resume scene changes" : "Pause scene changes");
+      if (userPaused) { hold(); } else { ctl.classList.remove("is-static"); release(); }
+    });
+    ["pointerenter", "focusin"].forEach(function (ev) { ctl.addEventListener(ev, hold); });
+    ["pointerleave", "focusout"].forEach(function (ev) { ctl.addEventListener(ev, release); });
+    doc.addEventListener("visibilitychange", function () { if (doc.hidden) hold(); else release(); });
+    if ("IntersectionObserver" in window) new IntersectionObserver(function (es) { offscreen = !es[0].isIntersecting; if (offscreen) hold(); else release(); }, { threshold: 0.25 }).observe(film);
+    if (!userPaused) arm(DWELL);
+    /* dolly out: the picture pushes in slowly while the copy lifts away as the hero leaves the screen */
+    if (!reduced) {
+      var ticking = false;
+      window.addEventListener("scroll", function () {
+        if (ticking) return; ticking = true;
+        requestAnimationFrame(function () { var p = Math.min(1, Math.max(0, window.scrollY / (film.offsetHeight * 0.85))); film.style.setProperty("--p", p.toFixed(3)); ticking = false; });
+      }, { passive: true });
     }
   }
 })();

@@ -2,7 +2,7 @@
   "name": "loadbyton-store",
   "version": "1.0.0",
   "private": true,
-  "description": "LOAD|BY|TON.store — modular logistics operating platform (commerce, control and operating planes)",
+  "description": "LOAD|BY|TON.store \u2014 modular logistics operating platform (commerce, control and operating planes)",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -27,8 +27,7 @@
     "audit:brand": "tsx scripts/audit-brand-domain.ts",
     "e2e": "tsx scripts/e2e.ts",
     "e2e:experience": "tsx scripts/e2e-experience.ts",
-    "e2e:transport": "tsx scripts/e2e-transport.ts",
-    "build:scene": "node scripts/build-scene.mjs"
+    "e2e:transport": "tsx scripts/e2e-transport.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -45,7 +44,6 @@
     "@types/pg": "^8.23.1",
     "esbuild": "^0.28.2",
     "playwright-core": "^1.64.0",
-    "three": "^0.186.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }
