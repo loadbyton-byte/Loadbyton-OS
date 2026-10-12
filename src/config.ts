@@ -97,6 +97,16 @@ export const config = {
     sac: text("SELLER_SAC"), supplyNote: text("SELLER_SUPPLY_NOTE"),
   },
 
+  // ── public contact points shown across the site, in the assistant and in the live chat. WhatsApp links are built from the same number.
+  contact: {
+    phone: text("CONTACT_PHONE") || "+919661053007",
+    emails: { info: text("CONTACT_EMAIL_INFO") || "info@loadbyton.com", support: text("CONTACT_EMAIL_SUPPORT") || "support@loadbyton.com", contact: text("CONTACT_EMAIL_CONTACT") || "contact@loadbyton.com" },
+    /** Staffed hours of the live chat, in this IANA time zone (24 h clock). Outside them visitors are invited to leave a message. */
+    chatTz: text("CHAT_TZ") || "Asia/Kolkata", chatFromHour: Number(env.CHAT_FROM_HOUR ?? 9), chatToHour: Number(env.CHAT_TO_HOUR ?? 21),
+  },
+  /** Site-wide launch offer. Shown only while OFFER_ENDS_ON (YYYY-MM-DD, end of that day UTC+5:30) is in the future; empty = no offer is shown. */
+  offer: { code: text("OFFER_CODE"), title: text("OFFER_TITLE"), detail: text("OFFER_DETAIL"), endsOn: text("OFFER_ENDS_ON") },
+
   // ── shared rate limiting (Upstash Redis REST); in-memory per process when unset
   upstash: { url: text("UPSTASH_REDIS_REST_URL").replace(/\/$/, ""), token: text("UPSTASH_REDIS_REST_TOKEN") },
   /** Which header carries the real client IP: "cloudflare" (CF-Connecting-IP) or "xff" (first X-Forwarded-For hop). Empty = trust nothing. */
