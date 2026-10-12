@@ -20,7 +20,7 @@ marketing.get("/privacy", (c) => c.redirect("/legal/privacy", 301));
 /* ───────────────────────── Platform / features ───────────────────────── */
 marketing.get("/features", (c) => c.html(
   <PublicShell p={pg(c, "Platform features", { description: "Quotes, jobs, trips, stock, parcels, documents, invoices and collections in one tenant-isolated workspace, with approvals, audit history and an offline driver app." })}>
-    <PageHero kicker="PLATFORM" photo={PHOTO.chassis} title={<>Everything the work needs.<br />Nothing it does not.</>} lede="A shared core for people, documents, approvals and money, with seven products on top. Switch on the ones you run.">
+    <PageHero kicker="PLATFORM" photo={PHOTO.intelligence} title={<>Everything the work needs.<br />Nothing it does not.</>} lede="A shared core for people, documents, approvals and money, with seven products on top. Switch on the ones you run.">
       <a class="btn red" href="/start">Start free <Icon name="arrow" size={16} /></a><a class="btn glass" href="/pricing">See pricing</a>
     </PageHero>
     <Section eyebrow="The shared core" title={<>Built once.<br />Used by every product.</>} intro="Customers, suppliers, documents, tasks and approvals are shared, so you are never charged twice for the same record.">
@@ -64,7 +64,7 @@ const INDUSTRY: [string, string, string, string][] = [
 ];
 marketing.get("/industries", (c) => c.html(
   <PublicShell p={pg(c, "Industries", { description: "How UAE freight forwarders, transporters, warehouses, couriers, customs brokers and traders use LOAD|BY|TON.store." })}>
-    <PageHero kicker="WHO IT IS FOR" photo={PHOTO.yard} title={<>If you move cargo<br />and send invoices.</>} lede="Eighteen sector packs share one company account. Start with the one that pays your bills.">
+    <PageHero kicker="WHO IT IS FOR" photo={PHOTO.port} title={<>If you move cargo<br />and send invoices.</>} lede="Eighteen sector packs share one company account. Start with the one that pays your bills.">
       <a class="btn red" href="/find-my-bundle">Find my bundle <Icon name="arrow" size={16} /></a>
     </PageHero>
     <Section eyebrow="Industries" title={<>Nine places it<br />earns its keep.</>}>
@@ -78,7 +78,7 @@ marketing.get("/industries", (c) => c.html(
 /* ───────────────────────── For forwarders / transporters ───────────────────────── */
 marketing.get("/for-forwarders", (c) => c.html(
   <PublicShell p={pg(c, "For freight forwarders", { description: "From enquiry to collection: quotes, supplier rates, jobs, documents, invoices and what each shipment actually earned." })}>
-    <PageHero kicker="FOR FREIGHT FORWARDERS" photo={PHOTO.crane} title={<>Quote with context.<br />Close with clarity.</>} lede="The forwarding workflow runs end to end: enquiry, quote, job, supplier costs, documents, invoice and collection.">
+    <PageHero kicker="FOR FREIGHT FORWARDERS" photo={PHOTO.freight} title={<>Quote with context.<br />Close with clarity.</>} lede="The forwarding workflow runs end to end: enquiry, quote, job, supplier costs, documents, invoice and collection.">
       <a class="btn red" href="/start?sector=freight-forwarding">Start free with forwarding <Icon name="arrow" size={16} /></a>
     </PageHero>
     <Section eyebrow="The workflow" title={<>Six steps.<br />One job record.</>}>
@@ -105,7 +105,7 @@ marketing.get("/for-forwarders", (c) => c.html(
 
 marketing.get("/for-transporters", (c) => c.html(
   <PublicShell p={pg(c, "For transport and fleet operators", { description: "Plan trips with capacity and compliance checks, dispatch to an offline-tolerant driver app, and see trip profit." })}>
-    <PageHero kicker="FOR TRANSPORT & FLEETS" photo={PHOTO.gate} title={<>Plan the trip.<br />Dispatch the driver.</>} lede="Orders, trips, vehicles, drivers and subcontractors in one board. Drivers get a phone app built for gates, yards and weak signal.">
+    <PageHero kicker="FOR TRANSPORT & FLEETS" photo={PHOTO.transport} title={<>Plan the trip.<br />Dispatch the driver.</>} lede="Orders, trips, vehicles, drivers and subcontractors in one board. Drivers get a phone app built for gates, yards and weak signal.">
       <a class="btn red" href="/start?sector=road-transport">Start free with transport <Icon name="arrow" size={16} /></a>
     </PageHero>
     <Section eyebrow="Operations" title={<>From order<br />to trip profit.</>}>
@@ -131,7 +131,7 @@ marketing.get("/for-transporters", (c) => c.html(
 /* ───────────────────────── Trust ───────────────────────── */
 marketing.get("/trust", (c) => c.html(
   <PublicShell p={pg(c, "Trust and safety", { description: "How LOAD|BY|TON.store protects company records, money flows and evidence — and what we do not claim." })}>
-    <PageHero kicker="TRUST & SAFETY" photo={PHOTO.customs} title={<>Control you can<br />point to.</>} lede="Logistics software holds your customers, rates and cash. These are the controls that protect it, in plain words.">
+    <PageHero kicker="TRUST & SAFETY" photo={PHOTO.enterprise} title={<>Control you can<br />point to.</>} lede="Logistics software holds your customers, rates and cash. These are the controls that protect it, in plain words.">
       <a class="btn red" href="/security">Read the security detail <Icon name="arrow" size={16} /></a>
     </PageHero>
     <Section eyebrow="Protection" title={<>Six things we<br />hold ourselves to.</>}>
@@ -163,7 +163,7 @@ marketing.get("/trust", (c) => c.html(
 /* ───────────────────────── Compliance ───────────────────────── */
 marketing.get("/compliance", (c) => c.html(
   <PublicShell p={pg(c, "Compliance", { description: "How data protection, VAT invoicing, hosting and retention are handled, and where specialist review is required." })}>
-    <PageHero kicker="COMPLIANCE" photo={PHOTO.port} title={<>What is covered.<br />What is not.</>} lede="Practical notes on data, tax and hosting. They describe the software and its settings; they are not legal advice.">
+    <PageHero kicker="COMPLIANCE" photo={PHOTO.customs} title={<>What is covered.<br />What is not.</>} lede="Practical notes on data, tax and hosting. They describe the software and its settings; they are not legal advice.">
       <a class="btn red" href="/legal/data-processing">Data processing terms <Icon name="arrow" size={16} /></a>
     </PageHero>
     <Section eyebrow="The notes" title={<>Five topics,<br />stated plainly.</>}>
@@ -252,18 +252,18 @@ marketing.get("/about", (c) => c.html(
 
 /* ───────────────────────── Notes (blog) ───────────────────────── */
 const POSTS = [
-  { slug: "margin-has-three-numbers", title: "A job's margin has three numbers, not one", date: "7 Oct 2026", tag: "Finance", photo: PHOTO.flatbed,
+  { slug: "margin-has-three-numbers", title: "A job's margin has three numbers, not one", date: "7 Oct 2026", tag: "Finance", photo: PHOTO.finance,
     body: ["When a quote goes out you have an expected margin. When costs start to arrive you have an estimated one. When the last supplier invoice is matched you have a reconciled one. They are three different numbers and most tools show you only one of them, usually the happiest.", "We keep all three on the job and say which is which. The owner dashboard links each figure to the records behind it, so when the margin is 14% you can see exactly what it is made of."] },
-  { slug: "why-the-free-plan-starts-empty", title: "Why a new workspace starts empty", date: "29 Sep 2026", tag: "Product", photo: PHOTO.warehouse,
+  { slug: "why-the-free-plan-starts-empty", title: "Why a new workspace starts empty", date: "29 Sep 2026", tag: "Product", photo: PHOTO.onboarding,
     body: ["Many products fill a new account with sample jobs so it looks alive. Then you spend an afternoon deleting them, and one day a demo invoice shows up in a real report.", "A LOAD|BY|TON workspace starts empty. A short checklist tells you what to add first: a customer, a supplier, a real enquiry. The only sample data lives in a separate demo database you never touch."] },
-  { slug: "a-driver-app-for-dead-zones", title: "A driver app that survives a dead zone", date: "18 Sep 2026", tag: "Engineering", photo: PHOTO.gate,
+  { slug: "a-driver-app-for-dead-zones", title: "A driver app that survives a dead zone", date: "18 Sep 2026", tag: "Engineering", photo: PHOTO.transport,
     body: ["Port gates, yards and basement docks lose signal. A driver who taps Delivered and gets a spinner taps again, and now the system has two deliveries.", "Every action in the app carries a client-generated id and the phone's clock time. If the network fails, the action waits in a local queue. When the signal returns the queue is sent, and the server keeps one copy of each id. Retrying is always safe."] },
-  { slug: "what-we-will-not-build-yet", title: "What we will not build yet", date: "9 Sep 2026", tag: "Honesty", photo: PHOTO.customs,
+  { slug: "what-we-will-not-build-yet", title: "What we will not build yet", date: "9 Sep 2026", tag: "Honesty", photo: PHOTO.intelligence,
     body: ["We do not file customs declarations. We manage the case, the evidence and the approvals, and hand over to your licensed broker channel.", "We are not an accredited e-invoicing provider. Invoices reconcile with the provider you already use. Saying so on the pricing page costs us a few sales. Pretending would cost more."] },
 ];
 marketing.get("/blog", (c) => c.html(
   <PublicShell p={pg(c, "Notes from the build", { description: "Short notes on margin, driver apps, honest roadmaps and building logistics software with a small team." })}>
-    <PageHero kicker="NOTES" photo={PHOTO.corridor} title={<>Notes from<br />the build.</>} lede="Short, practical, no content marketing. How the product thinks about freight, money and honesty." />
+    <PageHero kicker="NOTES" photo={PHOTO.road} title={<>Notes from<br />the build.</>} lede="Short, practical, no content marketing. How the product thinks about freight, money and honesty." />
     <Section>
       <div class="grid" style="gap:28px;max-width:980px">
         {POSTS.map((p) => (

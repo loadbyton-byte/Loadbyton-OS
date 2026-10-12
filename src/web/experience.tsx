@@ -87,7 +87,7 @@ export const slugOf = (s: string) => (s || "home").toLowerCase().replace(/[^a-z0
 export function AuthFrame({ signup = false, children }: { signup?: boolean; children: Child }) {
   return <section class={`auth-layout ${signup ? "auth-signup" : ""}`}>
     <aside class="auth-story">
-      <img class="auth-photo" src="/assets/freight/customs.webp" alt="" />
+      <img class="auth-photo" src="/assets/photo/product/auth-operations.webp" alt="" />
       <div class="auth-story-content">
         <span class="eyebrow"><span class="signal-dot"></span>YOUR LOGISTICS · CONNECTED</span>
         <h2>{signup ? "A new chapter.\nOne workspace." : "Back to the\noperating record."}</h2>

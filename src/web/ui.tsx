@@ -52,6 +52,8 @@ function Head({ p, surface }: { p: Page; surface: "public" | "desk" }) {
       {p.offlineScope ? <meta name="driver-scope" content={p.offlineScope} /> : null}
       <link rel="icon" href="/brand/favicon.ico" sizes="any" />
       <link rel="icon" href="/brand/favicon-32.png" type="image/png" sizes="32x32" />
+      <link rel="icon" href="/brand/favicon-16.png" type="image/png" sizes="16x16" />
+      <link rel="icon" href="/brand/app-icon-192.png" type="image/png" sizes="192x192" />
       <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" sizes="180x180" />
       {!p.path.startsWith("/app/driver") ? <link rel="manifest" href="/brand/site.webmanifest" /> : null}
       {!app ? <>
@@ -65,8 +67,7 @@ function Head({ p, surface }: { p: Page; surface: "public" | "desk" }) {
         <meta property="og:image:alt" content="LOAD|BY|TON.store — Run the movement. Know the margin." />
         <meta name="twitter:card" content="summary_large_image" />
       </> : null}
-      <link rel="preload" href="/assets/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
-      <link rel="preload" href="/assets/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+      <link rel="preload" href="/brand/fonts/inter.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
       <script src="/assets/theme.js"></script>
       <link rel="stylesheet" href="/assets/lbt.css" />
       <link rel="stylesheet" href={surface === "public" ? "/assets/site.css" : "/assets/desk.css"} />
@@ -142,9 +143,9 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
           <div class="wrap">
             <div class="foot-grid">
               <div>
-                <img src="/brand/lbt-store-white.png" alt="LOAD|BY|TON.store" width="190" height="66" style="width:190px;height:auto" />
-                <p style="margin-top:16px;max-width:36ch">Logistics operating software for freight, transport, warehouse, delivery and customs teams. Built in India, priced for the UAE market.</p>
-                <ul class="foot-contact" style="margin-top:18px">
+                <a class="foot-logo" href="/" aria-label="LOAD|BY|TON.store home"><img src="/brand/lbt-store-white.png" alt="LOAD|BY|TON.store" width="200" height="46" /></a>
+                <p class="foot-about">Logistics operating software for freight, transport, warehouse, delivery and customs teams. Built in India, priced for the UAE market.</p>
+                <ul class="foot-contact">
                   <li><Icon name="phone" size={18} /><a href={CONTACT.tel}>{CONTACT.phoneDisplay}</a></li>
                   <li><Icon name="whatsapp" size={18} /><a href={waLink()} target="_blank" rel="noopener">Chat on WhatsApp</a></li>
                   <li><Icon name="mail" size={18} /><a href={`mailto:${CONTACT.emails.info}`}>{CONTACT.emails.info}</a></li>
@@ -156,7 +157,6 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
               <div><h4>Who it is for</h4><ul><li><a href="/industries">Industries</a></li><li><a href="/for-forwarders">Freight forwarders</a></li><li><a href="/for-transporters">Transport &amp; fleets</a></li><li><a href="/coverage">Service coverage</a></li><li><a href="/stories">Customer stories</a></li></ul></div>
               <div><h4>Company</h4><ul><li><a href="/about">About</a></li><li><a href="/trust">Trust &amp; safety</a></li><li><a href="/security">Security</a></li><li><a href="/compliance">Compliance</a></li><li><a href="/blog">Notes</a></li><li><a href="/contact">Contact</a></li><li><a href="/status">Service status</a></li></ul></div>
             </div>
-            <div class="foot-big" aria-hidden="true"><Lbt /></div>
             <div class="foot-bottom">
               <span>© {new Date().getFullYear()} <Lbt />.store — a subsidiary of <Lbt />. All rights reserved.
                 {config.seller.legalName ? <> Operated by {config.seller.legalName}{config.seller.address ? `, ${config.seller.address}` : ""}{config.seller.gstin ? ` · GSTIN ${config.seller.gstin}` : ""}.</> : null}</span>
