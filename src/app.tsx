@@ -10,6 +10,7 @@ import { setCookie } from "hono/cookie";
 import { isLocale } from "./lib/i18n.js";
 import { LANG_COOKIE, csrfMw, dbMw, localeMw, securityHeaders, sessionMw, type Env } from "./web/mw.js";
 import { pub } from "./web/public.js";
+import { marketing } from "./web/pages-marketing.js";
 import { auth } from "./web/auth.js";
 import { core } from "./web/app-core.js";
 import { sales } from "./web/app-sales.js";
@@ -99,6 +100,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   });
 
   app.route("/", pub);
+  app.route("/", marketing);
   app.route("/", auth);
   app.route("/", security);
   app.route("/", admin);

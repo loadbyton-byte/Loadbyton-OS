@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 445 120" width="8600" height="2319" role="img" aria-label="Loadbyton">
+  <!-- Same lockup as logo-full-on-dark.svg, but with no rect fill, for
+       placing on a dark surface that isn't exactly the lb ink 900 token
+       (e.g. the sidebar, whose background token shifts one shade in dark
+       theme). Note for editors: XML comments must never contain a
+       double-hyphen anywhere in the text, not just at the delimiters —
+       that includes CSS custom-property names like the ones this comment
+       used to reference; it silently breaks SVG parsing as an <img>
+       (renders as a broken image, no console error) even though the file
+       still looks fine as plain text. -->
+  <text x="20" y="80" font-family="sans-serif" font-weight="900" font-size="60" letter-spacing="4" fill="#FFFFFF">LOAD</text>
+  <line x1="225" y1="30" x2="225" y2="90" stroke="#E53935" stroke-width="4" />
+  <text x="247.5" y="55" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="22" fill="#FFFFFF">B</text>
+  <text x="247.5" y="85" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="22" fill="#FFFFFF">Y</text>
+  <line x1="270" y1="30" x2="270" y2="90" stroke="#E53935" stroke-width="4" />
+  <text x="285" y="80" font-family="sans-serif" font-weight="900" font-size="60" letter-spacing="4" fill="#FFFFFF">TON</text>
+</svg>
