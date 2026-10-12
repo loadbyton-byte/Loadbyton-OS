@@ -5,6 +5,7 @@
  */
 import { AR2 } from "./i18n-ar-2.js";
 import { AR3 } from "./i18n-ar-3.js";
+import { AR4 } from "./i18n-ar-4.js";
 
 const BASE: Record<string, string> = {
   "Overview": "نظرة عامة", "Sell": "المبيعات", "Operate": "العمليات",
@@ -164,4 +165,5 @@ const EXPERIENCE_AR: Record<string, string> = {
   "Too many requests. Try again in a few minutes.": "طلبات كثيرة جداً. حاول مجدداً بعد بضع دقائق."
 };
 
-export const AR: Record<string, string> = { ...BASE, ...AR2, ...AR3, ...EXPERIENCE_AR };
+// earlier dictionaries keep priority where a phrase already existed; the control-desk strings only fill gaps
+export const AR: Record<string, string> = { ...AR4, ...BASE, ...AR2, ...AR3, ...EXPERIENCE_AR };

@@ -6,7 +6,7 @@ import { config } from "../config.js";
  * Plain text elsewhere (page titles, emails, documents) keeps the literal string "LOAD|BY|TON".
  */
 export const Lbt = ({ tag }: { tag?: string }) => (
-  <span class="lbt" role="img" aria-label={tag ? `LOAD BY TON ${tag}` : "LOAD BY TON"}>
+  <span class="lbt" data-notranslate role="img" aria-label={tag ? `LOAD BY TON ${tag}` : "LOAD BY TON"}>
     LOAD<span class="by" aria-hidden="true"><i></i><b><span>B</span><span>Y</span></b><i></i></span>TON{tag ? <span class="tag" aria-hidden="true">{tag}</span> : null}
   </span>
 );

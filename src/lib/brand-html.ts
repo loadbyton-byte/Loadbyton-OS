@@ -4,7 +4,7 @@
  * works without JavaScript, and leaves titles, attributes, scripts, code and form values untouched.
  */
 const WORD = "LOAD|BY|TON";
-export const WORDMARK_HTML = '<span class="lbt" role="img" aria-label="LOAD BY TON">LOAD<span class="by" aria-hidden="true"><i></i><b><span>B</span><span>Y</span></b><i></i></span>TON</span>';
+export const WORDMARK_HTML = '<span class="lbt" data-notranslate role="img" aria-label="LOAD BY TON">LOAD<span class="by" aria-hidden="true"><i></i><b><span>B</span><span>Y</span></b><i></i></span>TON</span>';
 const SKIP = new Set(["script", "style", "title", "textarea", "option", "pre", "code", "kbd", "samp", "svg", "template", "noscript", "select"]);
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 
