@@ -1,6 +1,6 @@
 import { Icon } from "./experience.js";
 import { CONTACT, Lbt, waLink } from "./brand.js";
-import { CtaBand, Faq, PHOTO, Section } from "./site-kit.js";
+import { CtaBand, Faq, PHOTO, Section, sectorPhoto } from "./site-kit.js";
 import { fmtMoney } from "../lib/util.js";
 import { SECTORS, PRODUCTS, type PlanVersion } from "../platform/catalog.js";
 
@@ -25,6 +25,13 @@ const DEMOS = [
     rows: [["RUN-0720", "Rider 4 · 38 parcels", "Out"], ["RUN-0719", "Rider 2 · 41 parcels", "Closed"], ["REM-0061", "Merchant payout", "Pending"]] },
 ];
 
+
+const FILM = [
+  { img: PHOTO.fleet, focus: "62% 50%", tag: "Fleet and dispatch", ref: "TRP-0390", route: "Al Ain → Dubai", status: "Planned", stage: "Move", k1: "Driver", v1: "Assigned", k2: "Checks", v2: "Capacity, compliance" },
+  { img: PHOTO.port, focus: "50% 55%", tag: "Port and ocean", ref: "LBT-J-0142", route: "Jebel Ali → Nhava Sheva", status: "In transit", stage: "Document", k1: "Documents", v1: "Ready", k2: "Margin", v2: "14.2% expected" },
+  { img: PHOTO.road, focus: "58% 50%", tag: "Road and delivery", ref: "TRP-0388", route: "Khalifa Port → Al Quoz", status: "Delivered", stage: "Invoice", k1: "POD", v1: "Signed", k2: "Billing", v2: "Ready to invoice" },
+];
+
 const SEQUENCE: [string, string][] = [
   ["Enquire", "Capture the requirement once. Customer, lane, cargo and who owns it."],
   ["Quote", "Price from supplier rates, check the margin, get it approved, send it."],
@@ -37,12 +44,22 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
   const paid = plans.filter((x) => x.monthly_minor > 0 && !x.contact_sales).sort((a, b) => a.monthly_minor - b.monthly_minor);
   const from = paid[0]?.monthly_minor;
   return <>
-    <section class="hero3d" aria-labelledby="hero-heading">
-      <div class="wrap grid-hero">
+    <section class="hero-film" aria-labelledby="hero-heading" data-film>
+      <div class="film-stage" aria-hidden="true">
+        {FILM.map((f, i) => (
+          <figure class={`film-scene${i === 0 ? " is-active" : ""}`} data-scene={String(i)}>
+            <img src={f.img} alt="" width="1672" height="941" decoding="async" fetchpriority={i === 0 ? "high" : "low"} loading={i === 0 ? "eager" : "lazy"} style={`object-position:${f.focus}`} />
+          </figure>
+        ))}
+        <div class="film-grade"></div>
+        <div class="film-sweep"></div>
+        <div class="film-bar film-bar-top"></div><div class="film-bar film-bar-bottom"></div>
+      </div>
+      <div class="wrap hero-grid">
         <div class="hero-copy">
-          <span class="eyebrow"><span class="signal-dot"></span>Logistics software · built in India · priced for the UAE</span>
-          <h1 id="hero-heading">Run the movement.<br /><em>Know the margin.</em></h1>
-          <p class="lead">One workspace for enquiries, quotes, jobs, trips, stock, parcels, documents and collections.{from ? <> Start free. Paid plans from <strong style="color:#fff">{fmtMoney(from).replace(/\.00$/, "")}</strong> a month.</> : " Start free."}</p>
+          <span class="eyebrow on-photo"><span class="signal-dot"></span>Logistics software · built in India · priced for the UAE</span>
+          <h1 id="hero-heading"><span class="ln"><span>Run the movement.</span></span>{" "}<span class="ln"><span>Know the margin.</span></span></h1>
+          <p class="lead">One workspace for enquiries, quotes, jobs, trips, stock, parcels, documents and collections.{from ? <> Start free. Paid plans from <strong>{fmtMoney(from).replace(/\.00$/, "")}</strong> a month.</> : " Start free."}</p>
           <div class="hero-actions">
             <a class="btn red" href="/start">Start free <Icon name="arrow" size={16} /></a>
             <a class="btn glass" href={waLink()} target="_blank" rel="noopener"><Icon name="whatsapp" size={18} />Talk on WhatsApp</a>
@@ -52,12 +69,27 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
           </ul>
           <p class="world-clock mono" data-world-clock aria-live="off"></p>
         </div>
-        <div class="stage3d" id="stage3d" aria-label="Globe with shipping routes from Dubai. Decorative.">
-          <div class="poster" aria-hidden="true"></div>
-          <div class="float-card fc1" aria-hidden="true"><div class="row-s"><i class="dot"></i><b>LBT-J-0142</b></div><span class="mono">Jebel Ali → Nhava Sheva</span></div>
-          <div class="float-card fc2" aria-hidden="true"><span class="mono">MARGIN · RECONCILED</span><b>14.2%</b></div>
-          <div class="float-card fc3" aria-hidden="true"><span class="mono">POD · SIGNED</span><b>Delivered, Al Quoz</b></div>
-        </div>
+        <aside class="load-record" aria-label="Sample load record" data-stage="3">
+          <div class="lr-head"><span class="lr-label">Load record</span><span class="lr-sample">Sample data</span></div>
+          <div class="lr-faces">
+            {FILM.map((f, i) => (
+              <div class={`lr-face${i === 0 ? " is-active" : ""}`} data-face={String(i)} aria-hidden={i === 0 ? undefined : "true"}>
+                <div class="lr-ref"><i class="dot"></i><b class="mono">{f.ref}</b><span class="badge ok">{f.status}</span></div>
+                <div class="lr-route">{f.route}</div>
+                <dl class="lr-meta"><div><dt>Stage</dt><dd>{f.stage}</dd></div><div><dt>{f.k1}</dt><dd>{f.v1}</dd></div><div><dt>{f.k2}</dt><dd>{f.v2}</dd></div></dl>
+              </div>
+            ))}
+          </div>
+          <ol class="lr-rail" aria-hidden="true">{["Enquire", "Quote", "Move", "Document", "Invoice"].map((n, i) => <li data-step={String(i + 1)}><i></i><span>{n}</span></li>)}</ol>
+        </aside>
+      </div>
+      <div class="film-controls wrap" role="group" aria-label="Hero scenes">
+        {FILM.map((f, i) => (
+          <button type="button" class={`film-tab${i === 0 ? " is-active" : ""}`} data-go={String(i)} aria-pressed={i === 0 ? "true" : "false"}>
+            <span class="ft-bar"><i></i></span><span class="ft-n">0{i + 1}</span><span class="ft-t">{f.tag}</span>
+          </button>
+        ))}
+        <button type="button" class="film-toggle" data-film-toggle aria-label="Pause scene changes" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path class="i-pause" d="M7 5h4v14H7zM13 5h4v14h-4z" /><path class="i-play" d="M8 5l11 7-11 7z" /></svg></button>
       </div>
       <div class="hero-foot"><div class="wrap">
         <div><b data-count={String(SECTORS.length)}>{SECTORS.length}</b><span>Sector packs</span></div>
@@ -138,12 +170,12 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
     <Section eyebrow="Pick your lane" title={<>Built for the<br />work you do.</>} intro="Start with the sector that pays your bills. Combine more later in the same account.">
       <div class="photo-cards">
         {[
-          ["freight-forwarding", "Freight forwarding", "Enquiry to collection, with every cost and document in context.", PHOTO.crane, "SELL · OPERATE · COLLECT"],
-          ["road-transport", "Road transport", "Plan the trip. Dispatch the driver. Reconcile the outcome.", PHOTO.gate, "PLAN · DISPATCH · DELIVER"],
-          ["contract-warehouse-3pl", "Warehouse & fulfilment", "Customer-owned stock, controlled movements, activity billing.", PHOTO.crossdock, "RECEIVE · PICK · SHIP"],
-        ].map(([slug, name, body, img, tag]) => <a class="photo-card" href={`/sectors/${slug}`} data-reveal data-tilt="3"><img src={img} alt="" loading="lazy" /><div><span class="eyebrow">{tag}</span><h3>{name}</h3><p>{body}</p></div></a>)}
+          ["freight-forwarding", "Freight forwarding", "Enquiry to collection, with every cost and document in context.", sectorPhoto("freight-forwarding", true), "SELL · OPERATE · COLLECT"],
+          ["road-transport", "Road transport", "Plan the trip. Dispatch the driver. Reconcile the outcome.", sectorPhoto("road-transport", true), "PLAN · DISPATCH · DELIVER"],
+          ["contract-warehouse-3pl", "Warehouse & fulfilment", "Customer-owned stock, controlled movements, activity billing.", sectorPhoto("contract-warehouse-3pl", true), "RECEIVE · PICK · SHIP"],
+        ].map(([slug, name, body, img, tag]) => <a class="photo-card" href={`/sectors/${slug}`} data-reveal="unveil"><img src={img} alt="" width="800" height="450" loading="lazy" decoding="async" /><div><span class="eyebrow">{tag}</span><h3>{name}</h3><p>{body}</p></div></a>)}
       </div>
-      <p style="margin-top:22px"><a href="/sectors">Explore all {SECTORS.length} sector packs <Icon name="arrow" size={16} /></a></p>
+      <p style="margin-top:28px"><a class="btn ghost" href="/sectors">Explore all {SECTORS.length} sector packs <Icon name="arrow" size={16} /></a></p>
     </Section>
 
     <Section tone="tint" eyebrow="Why it costs less" title={<>Fair prices.<br />No padding.</>} intro="Software from the UAE market often arrives with a sales team, an implementation fee and a long contract. We built this differently.">

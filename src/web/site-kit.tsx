@@ -2,18 +2,26 @@ import type { Child } from "hono/jsx";
 import { Icon } from "./experience.js";
 import { CONTACT, waLink } from "./brand.js";
 
+const SECTOR_DIR = "/assets/photo/sectors/";
+/** Photograph for one of the eighteen sector packs. `small` is the 800px card crop. */
+export const sectorPhoto = (slug: string, small = false) => `${SECTOR_DIR}${slug}${small ? "-800" : ""}.webp`;
+
+/** Every photograph on the site, grouped by role. Hero scenes, sector scenes and product (workspace) scenes are three separate sets. */
 export const PHOTO = {
-  fleet: "/assets/freight/fleet.webp", port: "/assets/freight/port.webp", road: "/assets/freight/road.webp", warehouse: "/assets/freight/warehouse.webp",
-  chassis: "/assets/freight/chassis.webp", coldchain: "/assets/freight/coldchain.webp", crane: "/assets/freight/crane.webp", crossdock: "/assets/freight/crossdock.webp",
-  gate: "/assets/freight/gate.webp", customs: "/assets/freight/customs.webp", corridor: "/assets/freight/corridor.webp", boxtruck: "/assets/freight/boxtruck.webp",
-  flatbed: "/assets/freight/flatbed.webp", yard: "/assets/freight/yard.webp",
+  fleet: "/assets/photo/hero/fleet.webp", port: "/assets/photo/hero/port.webp", road: "/assets/photo/hero/road.webp",
+  onboarding: "/assets/photo/product/onboarding.webp", finance: "/assets/photo/product/finance.webp",
+  intelligence: "/assets/photo/product/intelligence.webp", enterprise: "/assets/photo/product/enterprise.webp",
+  auth: "/assets/photo/product/auth-operations.webp",
+  freight: sectorPhoto("freight-forwarding"), transport: sectorPhoto("road-transport"), warehouse: sectorPhoto("contract-warehouse-3pl"),
+  customs: sectorPhoto("customs-brokerage"), depot: sectorPhoto("container-depot"), heavy: sectorPhoto("project-heavy-cargo"),
+  transit: sectorPhoto("cross-border-transit"), marine: sectorPhoto("marine-agency"), distribution: sectorPhoto("distribution"),
 };
 
 /** Dark photographic hero used by every sub page. */
 export function PageHero({ kicker, title, lede, photo = PHOTO.port, children, crumb }: { kicker: string; title: Child; lede?: Child; photo?: string; children?: Child; crumb?: string }) {
   return (
     <section class="page-hero">
-      <img src={photo} alt="" fetchpriority="high" />
+      <img src={photo} alt="" fetchpriority="high" decoding="async" />
       <div class="wrap">
         <div class="crumbs"><a href="/">Home</a> / {crumb ?? kicker}</div>
         <span class="eyebrow"><span class="signal-dot"></span>{kicker}</span>
