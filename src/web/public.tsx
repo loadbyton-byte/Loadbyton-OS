@@ -1,7 +1,7 @@
 import { HomeExperience } from "./home.js";
 import { Icon } from "./experience.js";
 import { CONTACT, Lbt, waLink } from "./brand.js";
-import { CtaBand, Faq, Feature, PHOTO, PageHero, Section } from "./site-kit.js";
+import { CtaBand, Faq, Feature, PHOTO, PageHero, Section, sectorPhoto } from "./site-kit.js";
 import { Hono } from "hono";
 import { currentPlans, INTEGRATIONS, PLAN_SEEDS, PRODUCTS, recommendBundle, SECTORS, withLiveAvailability, type PlanVersion } from "../platform/catalog.js";
 import { releasedSectors } from "../platform/readiness.js";
@@ -35,7 +35,7 @@ pub.get("/", async (c) => {
 
 pub.get("/enterprise", (c) => c.html(
   <PublicShell p={pg(c, "Enterprise controls", { description: "Tenant isolation, team roles, reviewed financial operations, audit history and deployment readiness for your logistics workspace." })}>
-    <PageHero kicker="ENTERPRISE CONTROLS" photo={PHOTO.gate} title={<>More operational depth.<br />More deliberate control.</>} lede="Bring your team, workflows and evidence together. Enterprise capacity builds on the same company records and approval controls.">
+    <PageHero kicker="ENTERPRISE CONTROLS" photo={PHOTO.enterprise} title={<>More operational depth.<br />More deliberate control.</>} lede="Bring your team, workflows and evidence together. Enterprise capacity builds on the same company records and approval controls.">
       <a class="btn red" href="/contact">Discuss your requirements <Icon name="arrow" size={16} /></a><a class="btn glass" href="/pricing">Compare plans</a>
     </PageHero>
     <Section eyebrow="IMPLEMENTED PLATFORM CONTROLS" title={<>Give every action<br />the right context.</>} intro="These controls exist in the platform. Your selected sectors, subscription capacity and team roles decide the tools each person sees.">
@@ -65,7 +65,7 @@ pub.get("/sectors", async (c) => {
   const fam = (s: (typeof SECTORS)[number]) => s.family;
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="SECTORS" photo={PHOTO.yard} title={<>Eighteen sector profiles.<br />One company account.</>} lede="Proposed commercial profiles, not an official UAE classification. Combine them while keeping one entity and shared master records." />
+      <PageHero kicker="SECTORS" photo={PHOTO.port} title={<>Eighteen sector profiles.<br />One company account.</>} lede="Proposed commercial profiles, not an official UAE classification. Combine them while keeping one entity and shared master records." />
       <Section>
         <div data-filter-group>
           <div class="chips" role="group" aria-label="Filter sectors">
@@ -73,12 +73,14 @@ pub.get("/sectors", async (c) => {
           </div>
           <div class="grid g3">
             {SECTORS.map((s) => (
-              <a class="sector-card spot" href={`/sectors/${s.slug}`} data-cat={fam(s)} data-reveal>
-                <img class="si" src={`/brand/icons/${s.slug}.svg`} alt="" width="44" height="44" />
-                <h3>{s.name} <AvailBadge s={s.availability} /></h3>
-                <p>{s.workflow}</p>
-                {s.specialist ? <span class="badge bad">Specialist review required</span> : null}
-                <span class="go">Open profile <Icon name="arrow" size={14} /></span>
+              <a class="sector-card" href={`/sectors/${s.slug}`} data-cat={fam(s)} data-reveal>
+                <span class="sc-photo"><img src={sectorPhoto(s.slug, true)} alt="" width="800" height="450" loading="lazy" decoding="async" /><img class="si" src={`/brand/icons/${s.slug}.svg`} alt="" width="40" height="40" /></span>
+                <span class="sc-body">
+                  <h3>{s.name}</h3>
+                  <span class="sc-badges"><AvailBadge s={s.availability} />{s.specialist ? <span class="badge bad">Specialist review</span> : null}</span>
+                  <p>{s.workflow}</p>
+                  <span class="go">Open profile <Icon name="arrow" size={14} /></span>
+                </span>
               </a>
             ))}
           </div>
@@ -97,11 +99,12 @@ pub.get("/sectors/:slug", async (c) => {
   const p = pg(c, s.name);
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="SECTOR PACK" crumb={s.name} photo={s.family === "storage" ? PHOTO.crossdock : s.family === "movement" ? PHOTO.corridor : PHOTO.crane} title={<>{s.name} <AvailBadge s={s.availability} /></>} lede={s.workflow + "."}>
+      <PageHero kicker="SECTOR PACK" crumb={s.name} photo={sectorPhoto(s.slug)} title={<>{s.name} <AvailBadge s={s.availability} /></>} lede={s.workflow + "."}>
         <a class="btn red" href={`/start?sector=${s.slug}`}>Start free with this sector <Icon name="arrow" size={16} /></a><a class="btn glass" href="/sectors">All sectors</a>
       </PageHero>
       <Section>
-        <div class="prose" style="max-width:76ch">
+        <div class="sector-split">
+        <div class="prose">
           <h2>Specialist workflow and required controls</h2>
           <p>{s.workflow}.</p>
           {s.availability === "available"
@@ -111,6 +114,8 @@ pub.get("/sectors/:slug", async (c) => {
             : <div class="alert warn"><Icon name="alert" />This workflow is in <strong>pilot</strong> with design partners. Expect rapid change and hands-on support.</div>}
           {s.specialist ? <div class="alert err"><Icon name="alert" />Specialist profile: requires subject-matter review. This software is not a certification to handle regulated cargo.</div> : null}
           <p>Indicative fit: <strong>{rec.plan === "starter" ? "Starter" : "Business"}</strong> plan (see <a href="/pricing">pricing</a>).</p>
+        </div>
+        <figure class="sector-figure" data-reveal="unveil"><img src={sectorPhoto(s.slug)} alt="" width="1672" height="941" loading="lazy" decoding="async" /><figcaption><span class="eyebrow">{s.family.toUpperCase()}</span><b>{s.name}</b></figcaption></figure>
         </div>
       </Section>
       <CtaBand />
@@ -122,7 +127,7 @@ pub.get("/products", (c) => {
   const p = pg(c, "Products");
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="PRODUCTS" photo={PHOTO.chassis} title={<>One platform core.<br />Seven products.</>} lede="Identity, organisations, permissions, master records, documents, tasks, communications, audit, integrations and reporting sit under every product." />
+      <PageHero kicker="PRODUCTS" photo={PHOTO.intelligence} title={<>One platform core.<br />Seven products.</>} lede="Identity, organisations, permissions, master records, documents, tasks, communications, audit, integrations and reporting sit under every product." />
       <Section>
         <div class="grid g3">{PRODUCTS.map((x) => <div class="card spot" data-reveal><AvailBadge s={x.status} /><h3 style="margin-top:14px"><Lbt tag={x.name.replace("LOAD|BY|TON ", "").toUpperCase()} /></h3><p class="mute" style="margin:0">{x.blurb}</p></div>)}</div>
         <div class="prose" style="margin-top:40px">
@@ -146,7 +151,7 @@ pub.get("/find-my-bundle", async (c) => {
   const p = pg(c, "Find my bundle");
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="FIND MY BUNDLE" photo={PHOTO.boxtruck} title={<>Pick your sectors.<br />Get your price.</>} lede="We recommend a plan and show the net price. Shared CRM, finance and documents are included once, never charged twice." />
+      <PageHero kicker="FIND MY BUNDLE" photo={PHOTO.onboarding} title={<>Pick your sectors.<br />Get your price.</>} lede="We recommend a plan and show the net price. Shared CRM, finance and documents are included once, never charged twice." />
       <Section>
         <form method="get" action="/find-my-bundle">
           <fieldset><legend>Sectors</legend>
@@ -194,7 +199,7 @@ pub.get("/pricing", async (c) => {
   const p = pg(c, "Pricing and plans");
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="PRICING" photo={PHOTO.corridor} title={<>Start free.<br />Pay for depth.</>} lede="Free is useful enough to build a real operating habit. We charge for depth and capacity, never for basic security or for retrieving your own data." />
+      <PageHero kicker="PRICING" photo={PHOTO.finance} title={<>Start free.<br />Pay for depth.</>} lede="Free is useful enough to build a real operating habit. We charge for depth and capacity, never for basic security or for retrieving your own data." />
       <Section>
         <div class="alert warn"><Icon name="info" /><span><strong>Pilot pricing hypothesis.</strong> Prices below are planning hypotheses for the pilot, not an approved tariff. Prices exclude applicable tax and third-party pass-through charges. Published plan versions are immutable: a later price change never silently rewrites your contract.</span></div>
         <div class="grid g4" style="margin-top:8px">
@@ -241,7 +246,7 @@ pub.get("/how-activation-works", (c) => {
   const steps = ["Payment pending", "Verified", "Information pending (if required)", "Queued", "Provisioning", "Validation", "Ready", "Onboarding"];
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="HOW IT WORKS" photo={PHOTO.crane} title={<>How activation<br />works.</>} lede="Your free workspace is reused when you upgrade. Nothing is recreated." />
+      <PageHero kicker="HOW IT WORKS" photo={PHOTO.onboarding} title={<>How activation<br />works.</>} lede="Your free workspace is reused when you upgrade. Nothing is recreated." />
       <Section>
         <div class="prose">
           <p>After server-verified payment, entitlements and branded provisioning follow this sequence:</p>
@@ -261,7 +266,7 @@ pub.get("/integrations", (c) => {
   const p = pg(c, "Integrations and live status");
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="INTEGRATIONS" photo={PHOTO.gate} title={<>Integrations and<br />their live status.</>} lede="We say live only after a tested tenant flow exists. Acceptance covers retry, duplicates, expired authorisation, outage, partial failure and reconciliation." />
+      <PageHero kicker="INTEGRATIONS" photo={PHOTO.intelligence} title={<>Integrations and<br />their live status.</>} lede="We say live only after a tested tenant flow exists. Acceptance covers retry, duplicates, expired authorisation, outage, partial failure and reconciliation." />
       <Section>
         <div class="tbl-wrap"><table><thead><tr><th>Connector</th><th>Status</th><th>Notes</th></tr></thead>
           <tbody>{INTEGRATIONS.map((i) => <tr><td>{i.name}</td><td><AvailBadge s={i.status} /></td><td>{i.note}</td></tr>)}</tbody></table></div>
@@ -275,7 +280,7 @@ pub.get("/security", (c) => {
   const p = pg(c, "Security");
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="SECURITY" photo={PHOTO.customs} title={<>How the platform<br />protects your data.</>} lede="Design controls, described plainly. Not a certification or a legal compliance statement." />
+      <PageHero kicker="SECURITY" photo={PHOTO.enterprise} title={<>How the platform<br />protects your data.</>} lede="Design controls, described plainly. Not a certification or a legal compliance statement." />
       <Section>
         <div class="alert info"><Icon name="info" />UAE data protection and cross-border processing need deployment-specific review.</div>
         <div class="grid g2" style="margin-top:8px">
@@ -317,7 +322,7 @@ pub.get("/resources", (c) => c.html(
 
 pub.get("/help", (c) => c.html(
   <PublicShell p={pg(c, "Help")}>
-    <PageHero kicker="HELP" photo={PHOTO.crossdock} title={<>Help,<br />in plain words.</>} lede="Start here. If you are still stuck, a person will answer.">
+    <PageHero kicker="HELP" photo={PHOTO.onboarding} title={<>Help,<br />in plain words.</>} lede="Start here. If you are still stuck, a person will answer.">
       <a class="btn glass" href={waLink()} target="_blank" rel="noopener"><Icon name="whatsapp" size={18} />WhatsApp us</a>
     </PageHero>
     <Section eyebrow="Getting started" title={<>Five steps to<br />a working record.</>}>
@@ -337,7 +342,7 @@ pub.get("/help", (c) => c.html(
 
 pub.get("/coverage", (c) => c.html(
   <PublicShell p={pg(c, "Service coverage")}>
-    <PageHero kicker="COVERAGE" photo={PHOTO.corridor} title={<>What we cover.<br />What we do not.</>} />
+    <PageHero kicker="COVERAGE" photo={PHOTO.transit} title={<>What we cover.<br />What we do not.</>} />
     <Section>
       <div class="grid g2">
         <Feature icon="pin" title="Market">UAE-first. Initial design partners are small UAE freight forwarders that coordinate transport through suppliers and currently use email, WhatsApp and spreadsheets.</Feature>
@@ -372,7 +377,7 @@ pub.get("/legal/:doc", (c) => {
   if (!d) throw new HttpError(404, "Page not found");
   return c.html(
     <PublicShell p={pg(c, d.title)}>
-      <PageHero kicker="LEGAL" photo={PHOTO.customs} title={d.title} />
+      <PageHero kicker="LEGAL" photo={PHOTO.enterprise} title={d.title} />
       <Section>
         <div class="prose-card prose">
           {config.legalReviewed?null:<div class="draft-note"><strong>Draft — requires legal review before publication.</strong> Review this service-specific copy with the contracting entity before setting LEGAL_REVIEWED.</div>}
@@ -388,7 +393,7 @@ pub.get("/contact", (c) => {
   const p = pg(c, "Contact");
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="CONTACT" photo={PHOTO.fleet} title={<>Talk to a person.<br />Not a form letter.</>} lede="Tell us about your logistics business. We reply from a named human, usually within one working day." />
+      <PageHero kicker="CONTACT" photo={PHOTO.road} title={<>Talk to a person.<br />Not a form letter.</>} lede="Tell us about your logistics business. We reply from a named human, usually within one working day." />
       <Section>
         <div class="contact-grid">
           <ul class="contact-list" data-reveal>
@@ -443,7 +448,7 @@ pub.get("/status", async (c) => {
   const row = (name: string, ok: boolean, note = "") => <tr><td>{name}</td><td><Badge s={ok ? "ok" : "failed"} label={ok ? "Operational" : "Degraded"} /></td><td class="mute">{note}</td></tr>;
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="STATUS" photo={PHOTO.gate} title={<>Service status.</>} />
+      <PageHero kicker="STATUS" photo={PHOTO.intelligence} title={<>Service status.</>} />
       <Section>
         <div>
         <div class="tbl-wrap"><table><thead><tr><th>Component</th><th>State</th><th>Detail</th></tr></thead><tbody>

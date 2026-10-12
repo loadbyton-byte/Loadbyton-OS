@@ -54,7 +54,7 @@ Real deployment — Cloudflare tunnel, Neon/Supabase, Upstash, Stripe/Razorpay o
 | Driver app | `/app/driver/*` | Phone-first, large touch targets; `driver` seats are limited (no other pages); trips **and** delivery runs; offline queue + idempotent sync |
 | Control console | `admin` — `/admin/*` | Platform staff + TOTP; separate privilege; audited |
 | Guidance | `help` — `/help` | |
-| Marketing pages | `/features`, `/industries`, `/for-forwarders`, `/for-transporters`, `/trust`, `/compliance`, `/about`, `/blog`, `/contact` | Thirteen public pages with the 3D home; see [`docs/FRONTEND_SYSTEM.md`](docs/FRONTEND_SYSTEM.md) |
+| Marketing pages | `/features`, `/industries`, `/for-forwarders`, `/for-transporters`, `/trust`, `/compliance`, `/about`, `/blog`, `/contact` | Thirteen public pages with the cinematic home; see [`docs/FRONTEND_SYSTEM.md`](docs/FRONTEND_SYSTEM.md) |
 | Chat | assistant `/chat/bot`, live chat `/chat/live/*`, staff inbox `/admin/chats` | Own implementation; no third-party service |
 | Operations | `/healthz` · `/readyz` · `/metrics` | Liveness · readiness (database + workers) · Prometheus metrics behind `METRICS_TOKEN` |
 
