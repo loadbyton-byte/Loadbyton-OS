@@ -8,8 +8,11 @@ import { RuntimeMetrics } from "./platform/runtime-metrics.js";
 import { HttpError, safeEqual } from "./lib/util.js";
 import { setCookie } from "hono/cookie";
 import { isLocale } from "./lib/i18n.js";
+import { brandHtml } from "./lib/brand-html.js";
 import { LANG_COOKIE, csrfMw, dbMw, localeMw, securityHeaders, sessionMw, type Env } from "./web/mw.js";
 import { pub } from "./web/public.js";
+import { marketing } from "./web/pages-marketing.js";
+import { chat } from "./web/chat.js";
 import { auth } from "./web/auth.js";
 import { core } from "./web/app-core.js";
 import { sales } from "./web/app-sales.js";
@@ -60,6 +63,15 @@ import { collectMetrics, workersStatus } from "./platform/metrics.js";
 export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsToken?: string } = {}) {
   const app = new Hono<Env>();
   app.use("*", securityHeaders);
+  // outermost response filter: draw the LOAD|BY|TON wordmark as the logo does, after any Arabic translation has run
+  app.use("*", async (c, next) => {
+    await next();
+    if (!(c.res.headers.get("content-type") ?? "").startsWith("text/html") || c.req.path.startsWith("/app/driver/offline")) return;
+    const html = await c.res.text();
+    const res = new Response(brandHtml(html), c.res);
+    res.headers.delete("content-length");
+    c.res = res;
+  });
   app.use('*',bodyLimit({maxSize:config.maxUploadBytes+262144,onError:c=>c.text('Request too large',413)}));
   const metrics = options.metrics ?? new RuntimeMetrics();
   app.use("*", metrics.middleware());
@@ -99,6 +111,8 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   });
 
   app.route("/", pub);
+  app.route("/", marketing);
+  app.route("/", chat);
   app.route("/", auth);
   app.route("/", security);
   app.route("/", admin);

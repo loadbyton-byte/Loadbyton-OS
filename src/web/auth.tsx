@@ -12,18 +12,18 @@ import { completeMfa, endSession, login, newSession } from "../platform/auth.js"
 import { acceptInvite, inviteInfo } from "../ops/team.js";
 import { buildMockEvent, processPaymentEvent, signPayload, verifySignature, type PaymentEvent } from "../platform/billing.js";
 import { SESSION_COOKIE, arr, clearSessionCookie, clientIp, formBody, safeNext, setSessionCookie, str, type Env } from "./mw.js";
-import { AuthFrame } from "./experience.js";
+import { AuthFrame, Icon } from "./experience.js";
 import { requestPasswordRecovery, recoverPassword } from '../platform/password-recovery.js';
 import { Csrf, PublicShell, type Page } from "./ui.js";
 
 export const auth = new Hono<Env>();
 const pg = (c: any, title: string): Page => ({
   title, csrf: c.get("csrf"), path: c.req.path, user: c.get("session") ? { name: c.get("session").name } : null,
-  ok: c.req.query("ok"), err: c.req.query("err"),
+  ok: c.req.query("ok"), err: c.req.query("err"), heroDark: true, quiet: true,
 });
 const Alerts = ({ p }: { p: Page }) => (<>
-  {p.err ? <div class="alert err" role="alert"><strong>Problem.</strong> {p.err}</div> : null}
-  {p.ok ? <div class="alert ok" role="status">{p.ok}</div> : null}
+  {p.err ? <div class="alert err" role="alert"><Icon name="alert" /><span><strong>Problem.</strong> {p.err}</span></div> : null}
+  {p.ok ? <div class="alert ok" role="status"><Icon name="check" /><span>{p.ok}</span></div> : null}
 </>);
 
 const EMIRATES = ["Abu Dhabi", "Dubai", "Sharjah", "Ajman", "Umm Al Quwain", "Ras Al Khaimah", "Fujairah"];
@@ -34,6 +34,7 @@ auth.get("/start", async (c) => {
   const p = pg(c, "Start free");
   const pre = new URL(c.req.url).searchParams.getAll("sector");
   const plan = c.req.query("plan") ?? "";
+  const offer = (c.req.query("offer") ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
   return c.html(
     <PublicShell p={p}>
       <AuthFrame signup>
@@ -44,6 +45,8 @@ auth.get("/start", async (c) => {
         <form method="post" action="/start" class="signup-form">
           <Csrf t={p.csrf} />
           <input type="hidden" name="plan" value={plan} />
+          <input type="hidden" name="offer" value={offer} />
+          {offer ? <div class="alert info"><Icon name="gift" /><span>Offer <strong>{offer}</strong> will be noted on your workspace. We will contact you to arrange your free onboarding call.</span></div> : null}
           <div class="row">
             <div class="field"><label for="company">Company name</label><input id="company" name="company" type="text" required autocomplete="organization" /></div>
             <div class="field"><label for="contact">Your name</label><input id="contact" name="contact" type="text" required autocomplete="name" /></div>
@@ -78,7 +81,7 @@ auth.post("/start", async (c) => {
   try {
     const r = await registerCompany(db, {
       company: str(b.company), contactName: str(b.contact), email: str(b.email), password: str(b.password),
-      country: str(b.country), emirate: str(b.emirate), sectors: arr(b.sector), goal: str(b.goal),
+      country: str(b.country), emirate: str(b.emirate), sectors: arr(b.sector), goal: str(b.goal) + (str(b.offer).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24) ? ` [offer ${str(b.offer).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}]` : ""),
     });
     const s = await newSession(db, r.userId, r.tenantId);
     setSessionCookie(c, s.token);
