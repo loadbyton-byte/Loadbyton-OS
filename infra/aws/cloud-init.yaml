@@ -2,10 +2,11 @@
 # Same stack as infra/oracle: Docker + compose, the app behind a Cloudflare Tunnel, no inbound ports.
 package_update: true
 package_upgrade: true
-packages: [docker.io, docker-compose-v2, postgresql-client, unattended-upgrades, git, awscli, snapd]
+packages: [docker.io, docker-compose-v2, postgresql-client, unattended-upgrades, git, snapd]
 runcmd:
   - [systemctl, enable, --now, docker]
   - [snap, install, amazon-ssm-agent, --classic]
+  - [snap, install, aws-cli, --classic]
   - [systemctl, enable, --now, snap.amazon-ssm-agent.amazon-ssm-agent.service]
   - [install, -d, -m, '0700', /opt/loadbyton]
   # a small swap file helps the 4 GB instance ride out a scanner signature refresh

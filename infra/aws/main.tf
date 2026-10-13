@@ -72,14 +72,14 @@ resource "aws_iam_instance_profile" "app" {
 
 # ── compute
 resource "aws_instance" "app" {
-  ami                    = nonsensitive(data.aws_ssm_parameter.ubuntu.value)
-  instance_type          = var.instance_type
-  subnet_id              = data.aws_subnets.default.ids[0]
-  vpc_security_group_ids = [aws_security_group.app.id]
-  iam_instance_profile   = aws_iam_instance_profile.app.name
-  user_data              = file("${path.module}/cloud-init.yaml")
+  ami                         = nonsensitive(data.aws_ssm_parameter.ubuntu.value)
+  instance_type               = var.instance_type
+  subnet_id                   = data.aws_subnets.default.ids[0]
+  vpc_security_group_ids      = [aws_security_group.app.id]
+  iam_instance_profile        = aws_iam_instance_profile.app.name
+  user_data                   = file("${path.module}/cloud-init.yaml")
   user_data_replace_on_change = false
-  monitoring             = false
+  monitoring                  = false
   root_block_device {
     volume_type = "gp3"
     volume_size = var.disk_gb
@@ -99,7 +99,7 @@ resource "aws_s3_bucket" "files" {
   bucket = local.bucket
 }
 resource "aws_s3_bucket_public_access_block" "files" {
-  count = var.create_files_bucket ? 1 : 0
+  count                   = var.create_files_bucket ? 1 : 0
   bucket                  = aws_s3_bucket.files[0].id
   block_public_acls       = true
   block_public_policy     = true
@@ -107,17 +107,21 @@ resource "aws_s3_bucket_public_access_block" "files" {
   restrict_public_buckets = true
 }
 resource "aws_s3_bucket_server_side_encryption_configuration" "files" {
-  count = var.create_files_bucket ? 1 : 0
+  count  = var.create_files_bucket ? 1 : 0
   bucket = aws_s3_bucket.files[0].id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 resource "aws_s3_bucket_versioning" "files" {
-  count = var.create_files_bucket ? 1 : 0
+  count  = var.create_files_bucket ? 1 : 0
   bucket = aws_s3_bucket.files[0].id
   versioning_configuration { status = "Enabled" }
 }
 resource "aws_s3_bucket_lifecycle_configuration" "files" {
-  count = var.create_files_bucket ? 1 : 0
+  count  = var.create_files_bucket ? 1 : 0
   bucket = aws_s3_bucket.files[0].id
   rule {
     id     = "expire-old-versions"
@@ -143,7 +147,7 @@ resource "aws_iam_user" "files" {
   name  = "${local.name}-files"
 }
 resource "aws_iam_user_policy" "files" {
-  count = var.create_files_bucket ? 1 : 0
+  count  = var.create_files_bucket ? 1 : 0
   name   = "files-bucket-only"
   user   = aws_iam_user.files[0].name
   policy = data.aws_iam_policy_document.files_only[0].json
@@ -233,7 +237,7 @@ data "aws_iam_openid_connect_provider" "github" {
   url   = "https://token.actions.githubusercontent.com"
 }
 locals {
-  github_oidc_arn = var.github_repo == "" ? "" : (var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn)
+  github_oidc_arn = var.github_repo == "" ? "" : try(aws_iam_openid_connect_provider.github[0].arn, data.aws_iam_openid_connect_provider.github[0].arn)
 }
 data "aws_iam_policy_document" "deploy_trust" {
   count = var.github_repo == "" ? 0 : 1
