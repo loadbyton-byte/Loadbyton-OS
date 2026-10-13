@@ -182,3 +182,20 @@ a.metric:hover{transform:translateY(-4px);box-shadow:var(--sh-2);color:var(--ink
   .popover{position:fixed;left:10px;right:10px;top:72px;width:auto}
   .dashboard-welcome h1{font-size:1.8rem}.desk-heading .btn{display:none}
 }
+
+/* ── one button, one control height across the whole dashboard ──
+   Every .btn (including .sm) shares the same height, type, radius and border; variants differ only in colour.
+   Inputs and selects match, so a field and its button always sit on one line. */
+.desk{--ctl-h:42px}
+.desk .btn:not(.big):not(.icon){min-height:var(--ctl-h);height:auto;padding:0 1.15em;font:600 .875rem/1.15 var(--f-text);border-width:1.5px;border-radius:var(--r-pill);gap:.5em;text-align:center}
+.desk .btn.icon{width:var(--ctl-h);min-height:var(--ctl-h);padding:0}
+.desk .btn.ghost,.desk .btn.danger{background:transparent}
+.desk .btn.ghost{color:var(--navy);border-color:var(--line-2)}
+.desk .btn.ghost:hover{background:var(--navy);border-color:var(--navy);color:#fff}
+:root[data-theme=dark] .desk .btn.ghost{color:var(--ink)}
+.desk input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]),.desk select{min-height:var(--ctl-h);padding-block:.5em}
+.desk input[type=file]{font:inherit;color:var(--body);max-width:100%}
+.desk input[type=file]::file-selector-button{margin-inline-end:12px;min-height:var(--ctl-h);padding:0 1.15em;border:1.5px solid var(--line-2);border-radius:var(--r-pill);background:transparent;color:var(--ink);font:600 .875rem var(--f-text);cursor:pointer}
+.desk input[type=file]::file-selector-button:hover{background:var(--navy);border-color:var(--navy);color:#fff}
+.desk td .btn,.desk .inline-form .btn{white-space:nowrap}
+.desk .inline-form{align-items:center}
