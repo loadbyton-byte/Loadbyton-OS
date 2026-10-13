@@ -2,7 +2,7 @@
   "name": "loadbyton-store",
   "version": "1.0.0",
   "private": true,
-  "description": "LOAD|BY|TON.store \u2014 modular logistics operating platform (commerce, control and operating planes)",
+  "description": "LOAD|BY|TON.store — modular logistics operating platform (commerce, control and operating planes)",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -32,6 +32,7 @@
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@hono/node-server": "^2.1.4",
+    "@sentry/node": "^11.7.0",
     "hono": "^4.13.13",
     "nodemailer": "^10.1.0",
     "pg": "^8.23.1",

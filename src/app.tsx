@@ -1,3 +1,4 @@
+import {captureError} from "./platform/sentry.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Hono } from "hono";
@@ -168,6 +169,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
       </PublicShell>, status);
   app.notFound((c) => c.req.path.startsWith('/api/v1/')?c.json({error:'Endpoint not found',trace_id:c.get('traceId')},404):errorPage(c, 404, "Page not found", "We could not find that page."));
   app.onError((e, c) => {
+    if(!(e instanceof HttpError)||e.status>=500)captureError(e,{traceId:c.get('traceId'),method:c.req.method,route:routePath(c)||undefined});
     if(c.req.path.startsWith('/api/v1/'))return c.json({error:e instanceof HttpError?e.message:'API request failed',trace_id:c.get('traceId')},(e instanceof HttpError?e.status:500) as any);
     if (e instanceof HttpError) {
       const title = e.status === 403 ? "Not permitted" : e.status === 404 ? "Not found" : e.status === 402 ? "Plan limit reached" : "Something is not right";
