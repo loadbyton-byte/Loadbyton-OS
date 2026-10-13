@@ -1,4 +1,4 @@
-# LOAD|BY|TON.store on AWS: one ARM instance running the same docker compose stack as Oracle, an S3 bucket for uploaded documents, and
+# LOAD|BY|TON.store on AWS (lean): one ARM instance running the same docker compose stack as Oracle, an S3 bucket for uploaded documents, and
 # alarms. Everything else stays as before (Cloudflare tunnel, Neon/Supabase PostgreSQL, Upstash, Stripe/Razorpay).
 # Written for Terraform >= 1.6 and the AWS provider 5.x/6.x. Not applied by anyone yet: run `terraform plan` and read it first.
 terraform {
@@ -94,24 +94,31 @@ resource "aws_instance" "app" {
 }
 
 # ── object storage for uploaded documents (the app's S3 driver speaks plain SigV4; keys are created by hand, not in Terraform state)
-resource "aws_s3_bucket" "files" { bucket = local.bucket }
+resource "aws_s3_bucket" "files" {
+  count  = var.create_files_bucket ? 1 : 0
+  bucket = local.bucket
+}
 resource "aws_s3_bucket_public_access_block" "files" {
-  bucket                  = aws_s3_bucket.files.id
+  count = var.create_files_bucket ? 1 : 0
+  bucket                  = aws_s3_bucket.files[0].id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
 resource "aws_s3_bucket_server_side_encryption_configuration" "files" {
-  bucket = aws_s3_bucket.files.id
+  count = var.create_files_bucket ? 1 : 0
+  bucket = aws_s3_bucket.files[0].id
   rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
 }
 resource "aws_s3_bucket_versioning" "files" {
-  bucket = aws_s3_bucket.files.id
+  count = var.create_files_bucket ? 1 : 0
+  bucket = aws_s3_bucket.files[0].id
   versioning_configuration { status = "Enabled" }
 }
 resource "aws_s3_bucket_lifecycle_configuration" "files" {
-  bucket = aws_s3_bucket.files.id
+  count = var.create_files_bucket ? 1 : 0
+  bucket = aws_s3_bucket.files[0].id
   rule {
     id     = "expire-old-versions"
     status = "Enabled"
@@ -121,20 +128,25 @@ resource "aws_s3_bucket_lifecycle_configuration" "files" {
   }
 }
 data "aws_iam_policy_document" "files_only" {
+  count = var.create_files_bucket ? 1 : 0
   statement {
     actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.files.arn}/*"]
+    resources = ["${aws_s3_bucket.files[0].arn}/*"]
   }
   statement {
     actions   = ["s3:ListBucket", "s3:GetBucketLocation"]
-    resources = [aws_s3_bucket.files.arn]
+    resources = [aws_s3_bucket.files[0].arn]
   }
 }
-resource "aws_iam_user" "files" { name = "${local.name}-files" }
+resource "aws_iam_user" "files" {
+  count = var.create_files_bucket ? 1 : 0
+  name  = "${local.name}-files"
+}
 resource "aws_iam_user_policy" "files" {
+  count = var.create_files_bucket ? 1 : 0
   name   = "files-bucket-only"
-  user   = aws_iam_user.files.name
-  policy = data.aws_iam_policy_document.files_only.json
+  user   = aws_iam_user.files[0].name
+  policy = data.aws_iam_policy_document.files_only[0].json
 }
 
 # ── alerts: an e-mail when the instance fails its checks, and when real spend (credits excluded) passes a limit
