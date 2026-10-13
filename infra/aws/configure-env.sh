@@ -105,7 +105,7 @@ ask MIGRATION_DATABASE_URL "Session pooler string (port 5432)" secret
 echo
 echo "-- File storage (Cloudflare R2)"
 read -rp "R2 Account ID [$(getv S3_ENDPOINT)]: " a
-a="$(echo -n "$a" | tr -d '[:space:]')"
+a="$(echo -n "$a" | tr -d '[:space:]' | sed 's#^https\?://##; s#\..*$##')"   # accepts the bare Account ID or a pasted full address
 [ -z "$a" ] || setv S3_ENDPOINT "https://$a.r2.cloudflarestorage.com"
 cur="$(getv S3_BUCKET)"; [ -n "$cur" ] || setv S3_BUCKET loadbyton-files
 ask S3_ACCESS_KEY_ID "R2 Access Key ID (files bucket token)" secret
