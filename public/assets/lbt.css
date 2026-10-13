@@ -198,3 +198,17 @@ kbd{font:600 .72rem var(--f-text);border:1px solid var(--line-2);border-bottom-w
 .ic-tile{display:grid;place-items:center;width:48px;height:48px;border-radius:16px;background:var(--sky);color:var(--navy);margin-bottom:6px}
 .card .ic-tile{margin-bottom:14px}.sector-card .ic-tile{margin-bottom:0}
 .lbt{direction:ltr;unicode-bidi:isolate}
+
+/* ── toast placement: bottom-left, clear of the header, its buttons and the chat launcher (bottom-right) ── */
+.toasts{top:auto;right:auto;left:max(16px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));width:min(392px,calc(100vw - 32px));align-content:end}
+.desk .toasts{left:calc(78px + 16px)}
+@media (max-width:900px){.toasts{left:16px;right:16px;width:auto;bottom:calc(88px + env(safe-area-inset-bottom))}.desk .toasts{left:16px;bottom:calc(92px + env(safe-area-inset-bottom))}}
+@keyframes toastIn{from{opacity:0;transform:translate3d(-24px,12px,0) scale(.94)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translate3d(-24px,6px,0) scale(.94)}}
+.toast.has-banner{grid-template-columns:40px 1fr auto;padding-top:0;overflow:hidden}
+.toast .tbn{grid-column:1/-1;position:relative;display:block;margin:0 -14px 0 -12px;aspect-ratio:16/6;overflow:hidden}
+.toast .tbn img{width:100%;height:100%;object-fit:cover;display:block}
+.toast .tbn::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(6,18,26,.55))}
+.toast .tbn em{position:absolute;left:12px;bottom:10px;z-index:1;font:800 .72rem/1 var(--f-label);font-style:normal;letter-spacing:.12em;color:#fff;background:var(--signal);padding:.45em .8em;border-radius:99px}
+.toast.has-banner .x{position:absolute;top:8px;right:8px;z-index:2;background:rgba(255,255,255,.9);color:var(--navy)}
+.toast{position:relative}
