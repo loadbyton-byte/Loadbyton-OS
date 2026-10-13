@@ -77,11 +77,12 @@ echo
 echo "-- Fixed settings"
 setv NODE_ENV production; setv PORT 3000
 setv STORAGE_DRIVER s3; setv S3_REGION auto; setv S3_PATH_STYLE true
-setv DATABASE_SSL require; setv MIGRATE_ON_START true
+setv DATABASE_SSL require; setv MIGRATE_ON_START false   # migrations run once per deploy (deploy.sh), not on every start
 setv TRUST_PROXY cloudflare; setv CLAMAV_HOST scanner
 setv REQUIRE_COMPANY_MFA true; setv DATA_RETENTION_DAYS 90
 setv DEPLOYMENT_REGION "AWS eu-north-1 (Stockholm)"
-setv MAIL_PROVIDER log; setv SMS_PROVIDER log; setv WHATSAPP_PROVIDER log
+[ -n "$(getv RESEND_API_KEY)" ] || setv MAIL_PROVIDER log
+setv SMS_PROVIDER log; setv WHATSAPP_PROVIDER log
 setv SENTRY_ENVIRONMENT production
 setv BACKUP_OUTPUT_DIR ./backups
 setv SENTRY_RELEASE "$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -175,6 +176,23 @@ if grep -qE '^(RAZORPAY_KEY_ID=rzp_test_|STRIPE_SECRET_KEY=sk_test_)' "$F"; then
   setv ALLOW_TEST_PAYMENT_KEYS true
   echo "  Test keys detected: ALLOW_TEST_PAYMENT_KEYS=true (no real money moves). Remove it before going live."
 fi
+
+echo
+echo "-- Email (Resend) - sends invitations and receipts. Needs your domain verified in Resend first."
+ask RESEND_API_KEY "Resend API key (re_...)" secret
+if [ -n "$(getv RESEND_API_KEY)" ]; then
+  setv MAIL_PROVIDER resend
+  cur="$(getv MAIL_FROM)"
+  read -rp "Sender address, e.g. noreply@$(getv ROOT_DOMAIN) [${cur:-Enter to skip}]: " mf
+  mf="$(echo -n "$mf" | tr -d '"<>' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [ -n "$mf" ]; then
+    case "$mf" in *@*) setv MAIL_FROM "LOAD-BY-TON <$mf>";; *) echo "  Not an email address, skipped.";; esac
+  fi
+fi
+
+echo
+echo "-- Tax note on checkout (words your accountant approves, for example about GST/VAT). Not invented by this script."
+ask CHECKOUT_TAX_NOTE "Tax note text (no quotes, no \$ sign)"
 
 echo
 echo "-- Legal confirmation"
