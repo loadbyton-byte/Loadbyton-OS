@@ -30,3 +30,18 @@ variable "backup_bucket_name" {
   description = "Name of the append-only bucket created by backup-account/ in the second AWS account. Empty = no offsite backup user."
   default     = ""
 }
+variable "create_files_bucket" {
+  type        = bool
+  description = "Create an S3 bucket for uploaded documents. Leave false when files live on Cloudflare R2 (STORAGE_DRIVER=s3 with an R2 endpoint)."
+  default     = false
+}
+variable "github_repo" {
+  type        = string
+  description = "owner/repo allowed to deploy through GitHub Actions OIDC. Empty = no deploy role."
+  default     = ""
+}
+variable "create_github_oidc_provider" {
+  type        = bool
+  description = "Create the account-wide GitHub OIDC provider. Set false if the account already has token.actions.githubusercontent.com."
+  default     = true
+}
