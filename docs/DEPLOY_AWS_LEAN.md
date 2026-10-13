@@ -40,7 +40,7 @@ sudo -i
 cd /opt/loadbyton && git clone https://github.com/loadbyton-byte/Loadbyton-OS.git .
 cp .env.example .env.production && chmod 600 .env.production && nano .env.production
 ```
-Set at least:
+Easiest: run `bash infra/aws/configure-env.sh` on the server. It asks for each value, generates the secret keys, and lists anything still missing. Or edit by hand. Set at least:
 ```
 NODE_ENV=production
 DATABASE_URL=...6543...   MIGRATION_DATABASE_URL=...5432...   DATABASE_SSL=require
@@ -56,8 +56,8 @@ CLOUDFLARE_TUNNEL_TOKEN=...      # step 5
 ```
 plus every secret `.env.example` marks (generate each with `openssl rand -hex 32`) and the mail settings.
 ```bash
-docker compose -f ops/production/compose.yml --env-file .env.production up -d --build
-docker compose -f ops/production/compose.yml --env-file .env.production run --rm web npm run preflight
+bash infra/aws/compose.sh up -d --build
+bash infra/aws/compose.sh run --rm web npm run preflight
 ```
 
 ## 5. Connect the domain (Cloudflare Tunnel)
@@ -70,7 +70,7 @@ docker compose -f ops/production/compose.yml --env-file .env.production run --rm
 `npm run backup` writes encrypted archives to `BACKUP_OUTPUT_DIR`. Copy them to R2 with the AWS CLI (already installed):
 ```bash
 # /etc/cron.d/loadbyton-backup
-30 2 * * * root cd /opt/loadbyton && docker compose -f ops/production/compose.yml --env-file .env.production run --rm web npm run backup && AWS_ACCESS_KEY_ID=<r2 key> AWS_SECRET_ACCESS_KEY=<r2 secret> AWS_DEFAULT_REGION=auto aws s3 sync ./backups s3://loadbyton-backups --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com --only-show-errors
+30 2 * * * root cd /opt/loadbyton && bash infra/aws/compose.sh run --rm web npm run backup && AWS_ACCESS_KEY_ID=<r2 key> AWS_SECRET_ACCESS_KEY=<r2 secret> AWS_DEFAULT_REGION=auto aws s3 sync ./backups s3://loadbyton-backups --endpoint-url https://<ACCOUNT_ID>.r2.cloudflarestorage.com --only-show-errors
 ```
 Use a separate R2 token for backups, scoped to the backups bucket only. Rehearse `npm run restore` on a scratch database before you rely on it.
 

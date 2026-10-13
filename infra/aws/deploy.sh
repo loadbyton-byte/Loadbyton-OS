@@ -5,7 +5,7 @@ set -euo pipefail
 SHA="${1:?usage: deploy.sh <git-sha>}"
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad sha"; exit 2; }
 cd /opt/loadbyton
-C=(docker compose -f ops/production/compose.yml --env-file .env.production)
+C=(bash infra/aws/compose.sh)
 PREV="$(git rev-parse HEAD)"
 
 up() {
