@@ -3,5 +3,8 @@ environment        = "prod"
 instance_type      = "t4g.medium"
 disk_gb            = 30
 alert_email        = "support@loadbyton.com"
-backup_bucket_name = ""   # fill after applying backup-account/ in the second account
-monthly_budget_usd = 40
+backup_bucket_name = ""   # leave empty: backups go to Cloudflare R2
+create_files_bucket = false  # files live on Cloudflare R2
+github_repo         = "loadbyton-byte/Loadbyton-OS"   # allows GitHub Actions to deploy; empty = off
+create_github_oidc_provider = true             # false if this AWS account already has a GitHub OIDC provider
+monthly_budget_usd = 35
