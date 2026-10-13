@@ -40,7 +40,7 @@ sudo -i
 cd /opt/loadbyton && git clone https://github.com/loadbyton-byte/Loadbyton-OS.git .
 cp .env.example .env.production && chmod 600 .env.production && nano .env.production
 ```
-Set at least:
+Easiest: run `bash infra/aws/configure-env.sh` on the server. It asks for each value, generates the secret keys, and lists anything still missing. Or edit by hand. Set at least:
 ```
 NODE_ENV=production
 DATABASE_URL=...6543...   MIGRATION_DATABASE_URL=...5432...   DATABASE_SSL=require
