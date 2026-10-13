@@ -77,3 +77,14 @@ Use a separate R2 token for backups, scoped to the backups bucket only. Rehearse
 ## Keeping credit use low
 - Stop nothing: the instance is the only meaningful cost. Delete unused Elastic IPs/volumes if you experiment.
 - Watch Billing → Cost Explorer weekly; the budget alert in Terraform counts spend with credits excluded.
+
+## Automatic deploys (GitHub Actions)
+Every push to `main` runs the tests, then `.github/workflows/deploy.yml` tells the instance (through SSM, no SSH) to run `infra/aws/deploy.sh <sha>`: it checks out that commit, rebuilds, waits for web and worker health, and **rolls back** to the previous commit if the new one is unhealthy. AWS access uses GitHub OIDC, so no AWS keys are stored in GitHub.
+
+One-time setup:
+1. `terraform.tfvars`: keep `github_repo = "loadbyton-byte/Loadbyton-OS"` (set `create_github_oidc_provider = false` if the account already has a GitHub provider), then `terraform apply`. Note the `github_deploy_role_arn` output.
+2. GitHub → Settings → Environments → create **production** (add yourself as a required reviewer if you want approval before each deploy).
+3. GitHub → Settings → Secrets and variables → Actions → **Variables**: `AWS_REGION` (`ap-south-1`), `AWS_DEPLOY_ROLE_ARN` (the output), `AWS_INSTANCE_ID` (the `instance_id` output).
+4. The instance must have been brought up once by hand (step 4 above) so `/opt/loadbyton` and `.env.production` exist. Run a first deploy from Actions → deploy → *Run workflow*.
+
+The role may only assume from the `production` environment of this repository and may only run commands on this one instance. Secrets stay in `.env.production` on the server and never pass through GitHub.

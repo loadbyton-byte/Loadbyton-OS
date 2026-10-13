@@ -221,3 +221,62 @@ resource "aws_iam_user_policy" "backup" {
   user   = aws_iam_user.backup[0].name
   policy = data.aws_iam_policy_document.backup_put[0].json
 }
+
+# ── GitHub Actions deploys: OIDC role that may only run commands on this one instance, only from the main branch / production environment.
+resource "aws_iam_openid_connect_provider" "github" {
+  count          = var.github_repo != "" && var.create_github_oidc_provider ? 1 : 0
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+}
+data "aws_iam_openid_connect_provider" "github" {
+  count = var.github_repo != "" && !var.create_github_oidc_provider ? 1 : 0
+  url   = "https://token.actions.githubusercontent.com"
+}
+locals {
+  github_oidc_arn = var.github_repo == "" ? "" : (var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn)
+}
+data "aws_iam_policy_document" "deploy_trust" {
+  count = var.github_repo == "" ? 0 : 1
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [local.github_oidc_arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repo}:environment:production"]
+    }
+  }
+}
+resource "aws_iam_role" "deploy" {
+  count              = var.github_repo == "" ? 0 : 1
+  name               = "${local.name}-github-deploy"
+  assume_role_policy = data.aws_iam_policy_document.deploy_trust[0].json
+}
+data "aws_iam_policy_document" "deploy" {
+  count = var.github_repo == "" ? 0 : 1
+  statement {
+    actions = ["ssm:SendCommand"]
+    resources = [
+      "arn:aws:ec2:${var.region}:${data.aws_caller_identity.me.account_id}:instance/${aws_instance.app.id}",
+      "arn:aws:ssm:${var.region}::document/AWS-RunShellScript",
+    ]
+  }
+  statement {
+    actions   = ["ssm:GetCommandInvocation"]
+    resources = ["*"]
+  }
+}
+resource "aws_iam_role_policy" "deploy" {
+  count  = var.github_repo == "" ? 0 : 1
+  name   = "run-deploy-command"
+  role   = aws_iam_role.deploy[0].id
+  policy = data.aws_iam_policy_document.deploy[0].json
+}

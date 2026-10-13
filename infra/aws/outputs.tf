@@ -7,3 +7,4 @@ output "next_steps" {
     2. Follow docs/DEPLOY_AWS_LEAN.md from step "Bring the app up". Files go to Cloudflare R2, the database to Supabase.
   EOT
 }
+output "github_deploy_role_arn" { value = try(aws_iam_role.deploy[0].arn, "") }

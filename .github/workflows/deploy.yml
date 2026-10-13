@@ -1,0 +1,47 @@
+name: deploy
+# Deploys to the AWS instance through SSM Run Command (no SSH, no open ports) using GitHub OIDC (no stored AWS keys).
+# One-time setup: docs/DEPLOY_AWS_LEAN.md → "Automatic deploys". Repository variables needed: AWS_REGION, AWS_DEPLOY_ROLE_ARN, AWS_INSTANCE_ID.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency: { group: deploy-production, cancel-in-progress: false }
+permissions: { id-token: write, contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Deploy ${{ github.sha }}
+        shell: bash
+        env:
+          INSTANCE: ${{ vars.AWS_INSTANCE_ID }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          CMD_ID=$(aws ssm send-command --instance-ids "$INSTANCE" \
+            --document-name AWS-RunShellScript --timeout-seconds 900 \
+            --parameters "commands=[\"cd /opt/loadbyton && git fetch --quiet origin && git show $SHA:infra/aws/deploy.sh > /tmp/deploy.sh && bash /tmp/deploy.sh $SHA\"]" \
+            --query Command.CommandId --output text)
+          echo "command $CMD_ID"
+          for _ in $(seq 1 90); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE" --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in Success|Failed|Cancelled|TimedOut) break;; esac
+            sleep 10
+          done
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE" --query '[StandardOutputContent,StandardErrorContent]' --output text
+          [ "$STATUS" = Success ]
