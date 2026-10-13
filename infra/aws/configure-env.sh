@@ -99,8 +99,35 @@ if [ -n "$d" ]; then setv ROOT_DOMAIN "$d"; setv PUBLIC_BASE_URL "https://www.$d
 
 echo
 echo "-- Database (Supabase)"
-ask DATABASE_URL "Transaction pooler string (port 6543)" secret
-ask MIGRATION_DATABASE_URL "Session pooler string (port 5432)" secret
+echo "Long addresses cannot be pasted reliably here, so type 3 short pieces. In the Supabase string"
+echo "  postgresql://postgres.PROJECTREF:[YOUR-PASSWORD]@HOST:6543/postgres"
+echo "HOST is the text after the @ (before :6543). PROJECTREF is the text between 'postgres.' and the ':'."
+IFS= read -rp "  HOST, e.g. aws-0-eu-north-1.pooler.supabase.com [Enter to keep current]: " dbh || true
+dbh="$(echo -n "$dbh" | tr -d '[:space:]')"
+if [ -n "$dbh" ]; then
+  IFS= read -rp "  PROJECTREF (about 20 letters/numbers): " dbr || true
+  IFS= read -rsp "  Database PASSWORD (hidden): " dbp || true; echo
+  dbr="$(echo -n "$dbr" | tr -d '[:space:]')"; dbp="$(echo -n "$dbp" | tr -d '\r')"
+  if DBH="$dbh" DBR="$dbr" DBP="$dbp" python3 - "$F" <<'PY'
+import os, re, sys, urllib.parse as u
+h, r, p = os.environ["DBH"], os.environ["DBR"], os.environ["DBP"]
+if not re.fullmatch(r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}", h) or not re.fullmatch(r"[A-Za-z0-9]{10,40}", r) or not p:
+    print("  Something looks wrong (host, project ref or password). Nothing saved. Run the script again."); sys.exit(1)
+def put(k, v):
+    t = open(sys.argv[1]).read().split("\n"); out = []; done = False
+    for l in t:
+        if re.match("^" + k + "=", l):
+            if not done: out.append(k + "=" + v); done = True
+        else: out.append(l)
+    if not done: out.append(k + "=" + v)
+    open(sys.argv[1], "w").write("\n".join(out).rstrip("\n") + "\n")
+q = u.quote(p, safe="")
+put("DATABASE_URL", f"postgresql://postgres.{r}:{q}@{h}:6543/postgres")
+put("MIGRATION_DATABASE_URL", f"postgresql://postgres.{r}:{q}@{h}:5432/postgres")
+print("  saved both database addresses (transaction 6543, session 5432)")
+PY
+  then :; fi
+fi
 
 echo
 echo "-- File storage (Cloudflare R2)"
