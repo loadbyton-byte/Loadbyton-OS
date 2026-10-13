@@ -63,3 +63,7 @@ Scrape config: `metrics_path: /metrics`, `scheme: https`, `authorization: { type
 
 ## What counts as “monitored”
 A sector moves from *Pilot* to *Available* only when these alerts are routed to a named on-call person **and** have been exercised (kill the database / stop a worker in staging and confirm the page arrives). That is an operating practice, not code, so it is deliberately not claimed here.
+
+## Sentry error reporting
+
+Set `SENTRY_DSN` (Sentry → Project → Settings → Client Keys) in `.env.production` to report unexpected errors from the web and worker processes. Empty = off. 4xx `HttpError`s are not reported; 5xx and unhandled errors are, tagged with `trace_id`, `route` and `service`. Cookies, request bodies, query strings, auth headers and user objects are stripped before sending (`src/platform/sentry.ts`). `SENTRY_TRACES_SAMPLE_RATE` defaults to 0 (no performance traces). Set `SENTRY_RELEASE` to the git SHA at deploy time.
