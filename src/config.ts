@@ -113,6 +113,8 @@ export const config = {
 
   // ── shared rate limiting (Upstash Redis REST); in-memory per process when unset
   upstash: { url: text("UPSTASH_REDIS_REST_URL").replace(/\/$/, ""), token: text("UPSTASH_REDIS_REST_TOKEN") },
+  /** Error reporting. Empty DSN = off. */
+  sentry: { dsn: text("SENTRY_DSN"), environment: text("SENTRY_ENVIRONMENT") || (isProd ? "production" : "development"), release: text("SENTRY_RELEASE"), tracesSampleRate: Math.min(1, Math.max(0, Number(env.SENTRY_TRACES_SAMPLE_RATE ?? 0) || 0)) },
   /** Which header carries the real client IP: "cloudflare" (CF-Connecting-IP) or "xff" (first X-Forwarded-For hop). Empty = trust nothing. */
   trustProxy: text("TRUST_PROXY").toLowerCase(),
   /** Bearer token for GET /metrics (Prometheus text). Unset = the endpoint does not exist. */
