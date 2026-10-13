@@ -18,13 +18,14 @@
   LBT.toast = function (o) {
     if (!tray) { tray = doc.createElement("div"); tray.className = "toasts"; tray.setAttribute("role", "region"); tray.setAttribute("aria-label", "Notifications"); tray.setAttribute("aria-live", "polite"); doc.body.appendChild(tray); }
     while (tray.children.length >= 3) tray.removeChild(tray.firstChild);
-    var t = doc.createElement("div"); t.className = "toast"; t.setAttribute("role", "status");
+    var t = doc.createElement("div"); t.className = "toast" + (o.banner ? " has-banner" : ""); t.setAttribute("role", "status");
+    var banner = o.banner ? '<span class="tbn"><img src="' + esc(o.banner) + '" alt="" width="800" height="450" decoding="async">' + (o.badge ? '<em>' + esc(o.badge) + '</em>' : "") + "</span>" : "";
     var icon = o.img ? '<span class="ti"><img src="' + esc(o.img) + '" alt=""></span>' : '<span class="ti red">' + (o.icon || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>') + "</span>";
     var acts = "";
     if (o.href) acts += '<a href="' + esc(o.href) + '"' + (o.ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(o.cta || "Open") + "</a>";
     if (o.action) acts += '<button type="button" data-act>' + esc(o.actionLabel || "Open") + "</button>";
     if (acts) acts = '<div class="ta">' + acts + "</div>";
-    t.innerHTML = icon + "<div><b>" + esc(o.title || "") + '</b><span class="tx">' + esc(o.text || "") + "</span>" + acts + '</div><button class="x" type="button" aria-label="Dismiss">×</button>';
+    t.innerHTML = banner + icon + "<div><b>" + esc(o.title || "") + '</b><span class="tx">' + esc(o.text || "") + "</span>" + acts + '</div><button class="x" type="button" aria-label="Dismiss">×</button>';
     var close = function () { if (!t.parentNode) return; t.classList.add("out"); setTimeout(function () { t.parentNode && t.parentNode.removeChild(t); }, 360); };
     t.querySelector(".x").addEventListener("click", function () { close(); o.onClose && o.onClose(); });
     var a = t.querySelector("[data-act]"); if (a) a.addEventListener("click", function () { o.action(); close(); });
