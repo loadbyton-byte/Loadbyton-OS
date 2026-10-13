@@ -57,12 +57,15 @@ import { warehousePolicy } from "./web/warehouse-policy.js";
 import { deliveryFinance } from "./web/delivery-finance.js";
 import { documentDrafts } from "./web/document-drafts.js";
 import { bodyLimit } from "hono/body-limit";
+import { compress } from "hono/compress";
 import { routePath } from "hono/route";
 import { collectQueueMetrics } from "./platform/health.js";
 import { collectMetrics, workersStatus } from "./platform/metrics.js";
 
 export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsToken?: string } = {}) {
   const app = new Hono<Env>();
+  // gzip/deflate for HTML, CSS, JS, JSON and SVG (already-compressed images and fonts are skipped by content type)
+  app.use("*", compress());
   app.use("*", securityHeaders);
   // outermost response filter: draw the LOAD|BY|TON wordmark as the logo does, after any Arabic translation has run
   app.use("*", async (c, next) => {
@@ -81,8 +84,11 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.get("/app/driver/sw.js", staticFile("driver-sw.js", "application/javascript; charset=utf-8", { "service-worker-allowed": "/app/driver" }));
   app.get("/app/driver/offline", staticFile("driver-offline.html", "text/html; charset=utf-8"));
   app.get("/app/driver/manifest.webmanifest", staticFile("driver-manifest.webmanifest", "application/manifest+json; charset=utf-8"));
-  app.use("/assets/*", async (c, next) => { await next(); c.header("Cache-Control", "public, max-age=300"); });
+  // Static files keep stable names, so: CSS/JS revalidate daily (served stale while refreshing), fonts and images are cached for a month.
+  const staticCache = (p: string) => /\.(woff2?|webp|png|jpe?g|ico|svg)$/i.test(p) ? "public, max-age=2592000, stale-while-revalidate=604800" : "public, max-age=3600, stale-while-revalidate=86400";
+  app.use("/assets/*", async (c, next) => { await next(); if (c.res.status === 200) c.header("Cache-Control", staticCache(c.req.path)); });
   app.use("/assets/*", serveStatic({ root: "./public" }));
+  app.use("/brand/*", async (c, next) => { await next(); if (c.res.status === 200) c.header("Cache-Control", staticCache(c.req.path)); });
   app.use("/brand/*", serveStatic({ root: "./public" }));
   app.get("/healthz", async (c) => { await db.query("SELECT 1"); return c.json({ ok: true }); });
   // Readiness (for load balancers / uptime checks): the database answers AND the background workers have run recently.
