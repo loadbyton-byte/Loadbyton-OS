@@ -1,8 +1,10 @@
 import type { Conn } from "../db/client.js";
 import "../adapters/einvoice-asp.js";
-import { adapterFor, sandboxAdapter, type EInvoiceAdapter } from "../adapters/einvoice.js";
+import { adapterFor, sandboxAdapter, ProviderError, type EInvoiceAdapter, type StructuredDoc, type StructuredParty } from "../adapters/einvoice.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
+import type { Actor } from "../lib/audit.js";
+import { assertAllowance, getService, routeFor, spendAllowance, type Route } from "./einvoice-service.js";
 import { badRequest, forbidden, sha256 } from "../lib/util.js";
 import { assertWritable } from "../platform/entitlements.js";
 import { must, optStr, recordId } from "./common.js";
@@ -42,12 +44,12 @@ export function checkReadiness(inv: any, supplier: any, buyer: any, lines: any[]
   if (!/^\d{15}$/.test(String(supplier.tax_id ?? "").replace(/\s/g, ""))) b("supplier_trn", "Your tax registration number (TRN) is missing or is not 15 digits.");
   if (!supplier.legal_name) b("supplier_legal_name", "Your legal entity name is not set.");
   if (!supplier.address_line || !supplier.city || !supplier.emirate) b("supplier_address", "Your address, city and emirate are incomplete.");
-  if (!supplier.einvoice_scheme || !supplier.einvoice_endpoint) b("supplier_endpoint", "Your e-invoicing endpoint identifier (scheme and ID from your provider) is not set.");
+  if (!settings?.managed && (!supplier.einvoice_scheme || !supplier.einvoice_endpoint)) b("supplier_endpoint", "Your e-invoicing endpoint identifier (scheme and ID from your provider) is not set.");
   if (!buyer.address_line || !buyer.city) b("buyer_address", `${buyer.name}: address or city is missing.`);
   if (!buyer.tax_id) w("buyer_trn", `${buyer.name}: no tax registration number. A VAT-registered business customer will need one on the document.`);
   else if (buyer.country === "AE" && !/^\d{15}$/.test(String(buyer.tax_id).replace(/\s/g, ""))) b("buyer_trn_format", `${buyer.name}: the tax registration number is not 15 digits.`);
   if (!buyer.einvoice_scheme || !buyer.einvoice_endpoint) w("buyer_endpoint", `${buyer.name}: no e-invoicing endpoint identifier; your provider may need one to deliver the document.`);
-  if (!settings?.customization_id || !settings?.profile_id) b("format_ids", "The format identifiers (customization and profile) from your provider's specification are not set.");
+  if (!settings?.managed && (!settings?.customization_id || !settings?.profile_id)) b("format_ids", "The format identifiers (customization and profile) from your provider's specification are not set.");
   const sum = lines.reduce((a, l) => a + Number(l.net_minor), 0), tax = lines.reduce((a, l) => a + Number(l.tax_minor), 0);
   if (sum !== Number(inv.subtotal_minor) || tax !== Number(inv.tax_minor)) b("totals", "The invoice lines do not add up to its totals; it cannot be sent.");
   for (const l of lines) {
@@ -119,9 +121,22 @@ ${src.lines.map((l, i) => { const cat = TAX_CATEGORY[l.tax_code]; return `  <cac
 `;
 }
 
+/** The same document as plain data in major currency units, for providers that take JSON and build the UBL themselves. Frozen with the XML at generation. */
+export function buildStructured(src: DocSource, supplier: any, buyer: any): StructuredDoc {
+  const party = (p: any): StructuredParty => ({ name: p.name, legalName: p.legal_name ?? p.name, trn: p.tax_id ? String(p.tax_id).replace(/\s/g, "") : null,
+    peppolId: p.einvoice_scheme && p.einvoice_endpoint ? `${p.einvoice_scheme}:${p.einvoice_endpoint}` : null, street: p.address_line ?? null, city: p.city ?? null, emirate: p.emirate ?? null, country: p.country ?? "AE" });
+  return {
+    number: src.number, issueDate: day(src.issuedAt), ...(src.dueAt ? { dueDate: day(src.dueAt) } : {}), currency: src.currency, ...(src.reason ? { notes: src.reason } : {}),
+    supplier: party(supplier), buyer: party(buyer),
+    lines: src.lines.map((l) => { const cat = TAX_CATEGORY[l.tax_code]; return { description: l.description, quantity: Number(l.qty), unitPrice: Number(l.unit_minor) / 100, taxCategory: cat?.id ?? "S", taxPercent: cat?.percent ?? 0, ...(cat?.reason ? { exemptionReason: cat.reason } : {}) }; }),
+    ...(src.invoiceRef ? { precedingNumber: src.invoiceRef } : {}),
+  };
+}
+
 // ───────── settings and party data
 export async function getSettings(c: Conn) {
-  return (await c.query<any>(`SELECT * FROM einvoice_settings`)).rows[0] ?? { mode: "off", provider: null, customization_id: null, profile_id: null };
+  const base = (await c.query<any>(`SELECT * FROM einvoice_settings`)).rows[0] ?? { mode: "off", provider: null, customization_id: null, profile_id: null };
+  return { ...base, managed: !!(await getService(c)).provider };       // with a managed provider account the provider builds the UBL and holds the supplier's network identity
 }
 export async function saveSettings(c: Conn, ctx: Ctx, f: Record<string, any>) {
   require(ctx, "settings.manage");
@@ -200,8 +215,8 @@ export async function generateEInvoice(c: Conn, ctx: Ctx, kind: "invoice" | "cre
     await c.query(`UPDATE einvoice_documents SET status='error', provider_response=$2 WHERE id=$1`, [existing.id, JSON.stringify({ superseded: "A fresh payload was generated after data changed." })]);
   }
   const row = (await c.query<any>(
-    `INSERT INTO einvoice_documents(tenant_id,kind,${col},number,payload_xml,payload_sha256,format_label,issues,submittable,generated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-    [ctx.tenantId, kind, id, s.src.number, xml, sha256(xml), FORMAT_LABEL, JSON.stringify(issues), !issues.some((i) => i.level === "blocker"), ctx.userId])).rows[0];
+    `INSERT INTO einvoice_documents(tenant_id,kind,${col},number,payload_xml,payload_sha256,format_label,issues,submittable,generated_by,payload_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [ctx.tenantId, kind, id, s.src.number, xml, sha256(xml), FORMAT_LABEL, JSON.stringify(issues), !issues.some((i) => i.level === "blocker"), ctx.userId, JSON.stringify(buildStructured(s.src, supplier, buyer))])).rows[0];
   await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.generated", kind, id, { blockers: issues.filter((i) => i.level === "blocker").length });
   return row;
 }
@@ -213,19 +228,59 @@ export async function submitEInvoice(c: Conn, ctx: Ctx, docId: string, adapterOv
   const d = await must(c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1 FOR UPDATE`, [recordId(docId, "E-invoice")]), "E-invoice");
   if (d.status !== "generated") return d;
   if (!d.submittable) throw badRequest("This payload still has blocking issues. Fix the data and generate it again.");
-  const settings = await getSettings(c);
-  if (settings.mode === "off") throw badRequest("E-invoicing is switched off for this workspace.");
-  const adapter = adapterOverride ?? adapterFor(settings.provider);
-  if (!adapter) throw forbidden("No accredited provider adapter is installed. Submission is not possible.");
-  if (settings.mode === "sandbox" && adapter.name !== "sandbox") throw forbidden("Sandbox mode only uses the sandbox adapter.");
-  if (settings.mode === "live" && adapter.name === "sandbox") throw forbidden("Live mode cannot use the sandbox adapter.");
+  return sendDocument(c, { userId: ctx.userId, actor: actorOf(ctx) }, ctx.tenantId, d, adapterOverride);
+}
+
+/** Retry schedule for a provider outage: minutes before the next attempt, then give up and mark the document errored for a person to look at. */
+export const RETRY_MINUTES = [2, 10, 30, 120, 360];
+
+/**
+ * The shared send path (interactive submit and the retry worker). A workspace with an e-invoicing service sends through its own provider account;
+ * otherwise the older single-provider settings apply. Duplicate prevention is layered: the document row is locked, only a 'generated' document is sent,
+ * the provider gets a stable idempotency reference, and unique indexes allow one live document per invoice and one document per provider reference.
+ */
+export async function sendDocument(c: Conn, who: { userId: string; actor: Actor }, tenantId: string, d: any, adapterOverride?: EInvoiceAdapter, fetchImpl?: typeof fetch) {
+  let adapter = adapterOverride, route: Route | null = null, sandbox = false;
+  if (!adapter) route = await routeFor(c, fetchImpl);
+  if (route) { adapter = route.adapter; sandbox = route.environment === "sandbox"; assertAllowance(route); }
+  else {
+    const settings = await getSettings(c);
+    if (settings.mode === "off") throw badRequest("E-invoicing is switched off for this workspace.");
+    adapter = adapter ?? adapterFor(settings.provider) ?? undefined;
+    if (!adapter) throw forbidden("No accredited provider adapter is installed. Submission is not possible.");
+    if (settings.mode === "sandbox" && adapter.name !== "sandbox") throw forbidden("Sandbox mode only uses the sandbox adapter.");
+    if (settings.mode === "live" && adapter.name === "sandbox") throw forbidden("Live mode cannot use the sandbox adapter.");
+    sandbox = adapter.name === "sandbox";
+  }
+  let doc: StructuredDoc | undefined = d.payload_json ?? undefined;
+  if (route && !doc) throw badRequest("This document predates provider submission. Generate it again before sending.");
+  if (doc && d.kind === "credit_note") {                      // point the credit note at the provider's own id for the original when that provider issued it
+    const orig = (await c.query<any>(`SELECT o.provider_ref FROM einvoice_documents o JOIN credit_notes n ON n.invoice_id=o.invoice_id WHERE n.id=$1 AND o.provider=$2 AND o.status IN ('submitted','accepted') ORDER BY o.generated_at DESC LIMIT 1`, [d.credit_note_id, adapter.name])).rows[0];
+    if (orig?.provider_ref) doc = { ...doc, precedingProviderRef: orig.provider_ref };
+  }
+  const reference = route ? `${tenantId}-${d.number}-${String(d.payload_sha256).slice(0, 8)}` : `${tenantId}-${d.number}`;
   let result;
-  try { result = await adapter.submit({ reference: `${ctx.tenantId}-${d.number}`, kind: d.kind, xml: d.payload_xml }); }
-  catch (e: any) { await c.query(`UPDATE einvoice_documents SET status='error', provider=$2, provider_response=$3, submitted_by=$4, submitted_at=now() WHERE id=$1`, [d.id, adapter.name, JSON.stringify({ error: String(e.message).slice(0, 300) }), ctx.userId]); throw e; }
+  try { result = await adapter.submit({ reference, kind: d.kind, xml: d.payload_xml, doc }); }
+  catch (e: any) {
+    const message = String(e?.message ?? e).slice(0, 300), retryable = e instanceof ProviderError ? e.retryable : false;
+    const attempts = Number(d.attempts ?? 0) + 1, exhausted = attempts > RETRY_MINUTES.length;
+    if (retryable && !exhausted) {                            // an outage is not a verdict on the document: keep it, try again later
+      await c.query(`UPDATE einvoice_documents SET attempts=$2, next_retry_at=now() + ($3 || ' minutes')::interval, last_error=$4, queued_by=$5 WHERE id=$1`, [d.id, attempts, String(RETRY_MINUTES[attempts - 1]), message, who.userId]);
+      await audit(c, tenantId, who.actor, "einvoice.retry_scheduled", d.kind, d.invoice_id ?? d.credit_note_id, { attempts, provider: adapter.name });
+      return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
+    }
+    await c.query(`UPDATE einvoice_documents SET status='error', provider=$2, provider_response=$3, submitted_by=$4, submitted_at=now(), attempts=$5, next_retry_at=NULL, last_error=$6 WHERE id=$1`,
+      [d.id, adapter.name, JSON.stringify({ error: message }), who.userId, attempts, message]);
+    await audit(c, tenantId, who.actor, "einvoice.failed", d.kind, d.invoice_id ?? d.credit_note_id, { provider: adapter.name, retryable });
+    if (!route && !(e instanceof ProviderError)) throw e;     // the older single-provider path reports the failure to the caller
+    return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
+  }
   const status = result.status === "accepted" ? "accepted" : result.status === "rejected" ? "rejected" : result.status === "error" ? "error" : "submitted";
-  await c.query(`UPDATE einvoice_documents SET status=$2, provider=$3, provider_ref=$4, provider_response=$5, submitted_by=$6, submitted_at=now(), decided_at=CASE WHEN $2 IN ('accepted','rejected') THEN now() ELSE NULL END WHERE id=$1`,
-    [d.id, status, adapter.name, result.providerRef, JSON.stringify({ reasons: result.reasons, sandbox: adapter.name === "sandbox" }), ctx.userId]);
-  await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.submitted", d.kind, d.invoice_id ?? d.credit_note_id, { status, provider: adapter.name });
+  await c.query(`UPDATE einvoice_documents SET status=$2, provider=$3, provider_ref=$4, provider_response=$5, submitted_by=$6, submitted_at=now(), decided_at=CASE WHEN $2 IN ('accepted','rejected') THEN now() ELSE NULL END,
+      attempts=attempts+1, next_retry_at=NULL, last_error=NULL, tdd_status=$7 WHERE id=$1`,
+    [d.id, status, adapter.name, result.providerRef, JSON.stringify({ reasons: result.reasons, sandbox }), who.userId, result.reporting ?? null]);
+  if (route && (status === "submitted" || status === "accepted")) await spendAllowance(c, route);
+  await audit(c, tenantId, who.actor, "einvoice.submitted", d.kind, d.invoice_id ?? d.credit_note_id, { status, provider: adapter.name });
   return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
 }
 
@@ -234,13 +289,21 @@ export async function refreshEInvoice(c: Conn, ctx: Ctx, docId: string, adapterO
   require(ctx, "finance.write");
   const d = await must(c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1 FOR UPDATE`, [recordId(docId, "E-invoice")]), "E-invoice");
   if (d.status !== "submitted" || !d.provider_ref) return d;
-  const adapter = adapterOverride ?? adapterFor(d.provider);
+  const adapter = adapterOverride ?? (await adapterForDocument(c, d));
   if (!adapter) throw forbidden("The provider adapter for this document is no longer installed.");
   const r = await adapter.status(d.provider_ref);
-  if (r.status !== "accepted" && r.status !== "rejected") return d;
-  await c.query(`UPDATE einvoice_documents SET status=$2, provider_response=$3, decided_at=now() WHERE id=$1`, [d.id, r.status, JSON.stringify({ reasons: r.reasons, sandbox: adapter.name === "sandbox" })]);
+  if (r.reporting && r.reporting !== d.tdd_status) await c.query(`UPDATE einvoice_documents SET tdd_status=$2 WHERE id=$1`, [d.id, r.reporting]);
+  if (r.status !== "accepted" && r.status !== "rejected") return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
+  await c.query(`UPDATE einvoice_documents SET status=$2, provider_response=$3, decided_at=now() WHERE id=$1`, [d.id, r.status, JSON.stringify({ reasons: r.reasons, sandbox: adapter.name === "sandbox" || d.provider_response?.sandbox === true })]);
   await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.refreshed", d.kind, d.invoice_id ?? d.credit_note_id, { status: r.status, provider: adapter.name });
   return (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1`, [d.id])).rows[0];
+}
+
+/** The adapter that holds a document: the workspace's own provider account when it has one, else a globally installed adapter. */
+export async function adapterForDocument(c: Conn, d: any, fetchImpl?: typeof fetch): Promise<EInvoiceAdapter | null> {
+  const route = await routeFor(c, fetchImpl, true).catch(() => null);
+  if (route && route.adapter.name === d.provider) return route.adapter;
+  return adapterFor(d.provider);
 }
 
 export async function listEInvoices(c: Conn) {

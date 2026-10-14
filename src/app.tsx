@@ -33,7 +33,8 @@ import { freightCommercial } from "./web/freight-commercial.js";
 import { financeBridge } from "./web/finance-bridge.js";
 import { inboundHooks, inboundUi } from "./web/inbound.js";
 import { extraction } from "./web/extraction.js";
-import { einvoice } from "./web/einvoice.js";
+import { einvoice, einvoiceHooks } from "./web/einvoice.js";
+import { adminEInvoice } from "./web/admin-einvoice.js";
 import { feeds } from "./web/feeds.js";
 import { ledger } from "./web/ledger.js";
 import { deviceHooks, deviceUi } from "./web/devices.js";
@@ -127,6 +128,8 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", deviceHooks);
   app.route("/", adminConsole);
   app.route("/", adminReadiness);
+  app.route("/", adminEInvoice);
+  app.route("/", einvoiceHooks);
   app.route("/", core);
   app.route("/", stockMigration);
   app.route("/", freightCommercial);

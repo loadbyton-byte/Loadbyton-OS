@@ -1,11 +1,23 @@
 import { Hono } from "hono";
 import { formatDay } from "../lib/util.js";
+import { PACKAGES, getService, requestActivation } from "../ops/einvoice-service.js";
+import { archivedXml, handleWafeqWebhook, inboundXml, listInbound } from "../ops/einvoice-sync.js";
+import { config } from "../config.js";
 import { FORMAT_LABEL, generateEInvoice, getEInvoice, getSettings, listEInvoices, previewReadiness, refreshEInvoice, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../ops/einvoice.js";
 import { act, appPage, can, need, PageHead, withT } from "./appkit.js";
 import { Badge, Csrf, Table } from "./ui.js";
 import { formBody, str, type Env } from "./mw.js";
 
 export const einvoice = new Hono<Env>();
+
+/** The provider calls this when a document changes state, a supplier invoice arrives, or a client disconnects. Authenticated by signature, not by session. */
+export const einvoiceHooks = new Hono<Env>();
+einvoiceHooks.post("/webhooks/einvoice/wafeq", async (c) => {
+  const raw = await c.req.text();
+  const r = await handleWafeqWebhook(c.get("db"), { raw, header: (n) => c.req.header(n) }, config.einvoiceWebhookSecrets);
+  return c.json(r.body as any, r.status as any);
+});
+const STATE_LABEL: Record<string, string> = { not_activated: "Not activated", onboarding: "Onboarding", active: "Active", suspended: "Suspended" };
 const U = "/app/einvoice";
 const field = (id: string, text: string, extra: Record<string, any> = {}) => <div class="field"><label for={id}>{text}</label><input id={id} name={id} {...extra} /></div>;
 
@@ -13,7 +25,7 @@ einvoice.get(U, async (c) => {
   need(c, "finance.write");
   const csrf = c.get("csrf");
   const d = await withT(c, async (cn) => ({
-    settings: await getSettings(cn), docs: await listEInvoices(cn),
+    settings: await getSettings(cn), docs: await listEInvoices(cn), service: await getService(cn), inbound: await listInbound(cn),
     entity: (await cn.query<any>(`SELECT * FROM entities ORDER BY created_at LIMIT 1`)).rows[0],
     invoices: (await cn.query<any>(`SELECT i.id,i.no,p.name AS party,i.total_minor,i.currency FROM invoices i JOIN parties p ON p.id=i.party_id WHERE i.status IN ('issued','part_paid','paid') AND NOT EXISTS (SELECT 1 FROM einvoice_documents e WHERE e.invoice_id=i.id AND e.status IN ('generated','submitted','accepted')) ORDER BY i.issued_at DESC LIMIT 50`)).rows,
     parties: (await cn.query<any>(`SELECT id,name FROM parties WHERE kind='customer' AND (address_line IS NULL OR city IS NULL OR tax_id IS NULL) ORDER BY name LIMIT 50`)).rows,
@@ -22,12 +34,21 @@ einvoice.get(U, async (c) => {
   return appPage(c, "E-invoicing readiness", <>
     <PageHead title="E-invoicing readiness" sub="Prepare invoice data and a UBL document for an accredited e-invoicing provider. Nothing is sent to the tax authority's network from here." />
     <div class="alert warn"><strong>Not a tax invoice yet.</strong> {FORMAT_LABEL}. Your accredited provider's validation is authoritative, and a document is only an e-invoice once that provider has accepted it. Printed invoices remain operational invoices until then. No provider is bundled; the sandbox only exercises the flow and proves nothing to any authority.</div>
+    <section class="card"><h2>E-invoicing service <Badge s={d.service.state === "active" ? "ok" : d.service.state === "suspended" ? "bad" : d.service.state === "onboarding" ? "info" : "warn"} label={STATE_LABEL[d.service.state]} /></h2>
+      {d.service.state === "not_activated" ? <>
+        <p class="small">Send tax-compliant e-invoices through an accredited provider, managed from this workspace. Choose a package; our team agrees the price, completes your provider onboarding and switches it on.</p>
+        {can(c, "settings.manage") ? <form method="post" action={`${U}/activate`} class="inline-form"><Csrf t={csrf} /><select name="package">{PACKAGES.map((p) => <option value={p.key}>{p.label}</option>)}</select><button class="btn sm">Request e-invoicing</button></form> : <p class="small mute">An owner or administrator can request it.</p>}</> : null}
+      {d.service.state === "onboarding" ? <p class="small">Requested{d.service.package ? <> — {PACKAGES.find((p) => p.key === d.service.package)?.label}</> : null}. Our team is setting up your provider account{d.service.provider ? "; you can already test in the provider's Sandbox" : ""}. We will switch it on once that is complete.</p> : null}
+      {d.service.state === "active" ? <p class="small">Active with {d.service.provider}{d.service.environment === "sandbox" ? " (sandbox — not live)" : ""}. Documents used: <strong>{d.service.used_docs}</strong>{d.service.allowance_docs !== null ? ` of ${d.service.allowance_docs}` : ""}{d.service.period_ends ? ` · period ends ${formatDay(d.service.period_ends)}` : ""}.</p> : null}
+      {d.service.state === "suspended" ? <p class="small">E-invoicing is paused for this workspace. Contact support to resume it.</p> : null}</section>
     <h2>Documents</h2>
     <Table head={["Document", "Kind", "Status", "Issues", "Generated", ""]} empty="No documents generated yet.">
       {d.docs.map((x: any) => <tr><td><a href={`${U}/${x.id}`}>{x.number}</a></td><td>{x.kind.replace("_", " ")}</td><td><Badge s={x.status} /></td><td>{x.issue_count ? <Badge s={x.submittable ? "warn" : "bad"} label={x.submittable ? `${x.issue_count} warning(s)` : "blocked"} /> : "None"}</td><td class="small">{formatDay(x.generated_at)}</td>
-        <td>{x.status === "generated" && x.submittable && can(c, "finance.void") && s.mode !== "off" ? <form method="post" action={`${U}/${x.id}/submit`}><Csrf t={csrf} /><button class="btn sm">Submit</button></form> : null}</td></tr>)}</Table>
+        <td>{x.status === "generated" && x.submittable && can(c, "finance.void") && (s.mode !== "off" || d.service.provider) ? <form method="post" action={`${U}/${x.id}/submit`}><Csrf t={csrf} /><button class="btn sm">Submit</button></form> : null}</td></tr>)}</Table>
     {can(c, "finance.write") ? <form class="card" method="post" action={`${U}/generate`}><Csrf t={csrf} /><h2>Prepare a document</h2>
       <div class="field"><label for="invoice_id">Invoice</label><select id="invoice_id" name="invoice_id">{d.invoices.map((i: any) => <option value={i.id}>{i.no} · {i.party}</option>)}</select></div><button class="btn sm">Check data and generate</button></form> : null}
+    {d.inbound.length ? <section class="card"><h2>Supplier invoices received</h2>
+      <Table head={["Number", "From", "Date", "Total", ""]}>{d.inbound.map((x: any) => <tr><td>{x.number ?? "—"}</td><td>{x.sender_name ?? "—"}</td><td class="small">{x.issued_on ? formatDay(x.issued_on) : formatDay(x.received_at)}</td><td class="small">{x.total_minor !== null ? `${(Number(x.total_minor) / 100).toFixed(2)} ${x.currency ?? ""}` : "—"}</td><td><a href={`${U}/inbound/${x.id}/xml`}>Download XML</a></td></tr>)}</Table></section> : null}
     {d.parties.length ? <section class="card"><h2>Customers missing details</h2><p class="small">Address, city and tax registration number are expected on a business customer's tax invoice.</p>
       <ul>{d.parties.map((p: any) => <li><a href={`/app/parties/${p.id}/details`}>{p.name}</a></li>)}</ul></section> : null}
     {can(c, "settings.manage") ? <>
@@ -40,6 +61,17 @@ einvoice.get(U, async (c) => {
         {field("provider", "Provider name (live mode)", { value: s.provider && s.provider !== "sandbox" ? s.provider : "" })}{field("customization_id", "Customization ID (from your provider's specification)", { value: s.customization_id ?? "" })}{field("profile_id", "Profile ID (from your provider's specification)", { value: s.profile_id ?? "" })}<button class="btn">Save</button></form></> : null}
   </>);
 });
+einvoice.post(`${U}/activate`, async (c) => { const b = await formBody(c); return act(c, U, async () => { await withT(c, (cn, ctx) => requestActivation(cn, ctx, str(b.package))); return { to: U, ok: "Requested. Our team will contact you to complete onboarding." }; }); });
+einvoice.get(`${U}/inbound/:id/xml`, async (c) => {
+  need(c, "finance.write");
+  const r = await withT(c, (cn) => inboundXml(cn, c.req.param("id")));
+  return c.body(r.xml, 200, { "content-type": "application/xml; charset=utf-8", "content-disposition": `attachment; filename="${String(r.number).replace(/[^A-Za-z0-9._-]/g, "_")}.xml"` });
+});
+einvoice.get(`${U}/:id/provider-xml`, async (c) => {
+  need(c, "finance.write");
+  const r = await withT(c, async (cn) => { const d = await getEInvoice(cn, c.req.param("id")); return { number: d.number, xml: await archivedXml(cn, d) }; });
+  return c.body(r.xml, 200, { "content-type": "application/xml; charset=utf-8", "content-disposition": `attachment; filename="${r.number.replace(/[^A-Za-z0-9._-]/g, "_")}-provider.xml"` });
+});
 einvoice.post(`${U}/settings`, async (c) => { const b = await formBody(c); return act(c, U, async () => { await withT(c, (cn, ctx) => saveSettings(cn, ctx, b)); return { to: U, ok: "Settings saved." }; }); });
 einvoice.post(`${U}/entity`, async (c) => { const b = await formBody(c); return act(c, U, async () => { await withT(c, (cn, ctx) => updateEntityDetails(cn, ctx, b)); return { to: U, ok: "Business details saved." }; }); });
 einvoice.post(`${U}/generate`, async (c) => {
@@ -48,7 +80,7 @@ einvoice.post(`${U}/generate`, async (c) => {
 });
 einvoice.post(`${U}/:id/submit`, async (c) => {
   const id = c.req.param("id");
-  return act(c, `${U}/${id}`, async () => { const d = await withT(c, (cn, ctx) => submitEInvoice(cn, ctx, id)); return { to: `${U}/${id}`, ok: `Provider result: ${d.status}.` }; });
+  return act(c, `${U}/${id}`, async () => { const d = await withT(c, (cn, ctx) => submitEInvoice(cn, ctx, id)); return { to: `${U}/${id}`, ok: d.next_retry_at ? "The provider is unreachable; we will retry automatically." : `Provider result: ${d.status}.` }; });
 });
 einvoice.post(`${U}/:id/refresh`, async (c) => {
   const id = c.req.param("id");
@@ -64,9 +96,12 @@ einvoice.get(`${U}/:id`, async (c) => {
   const id = c.req.param("id");
   const d = await withT(c, (cn) => getEInvoice(cn, id));
   return appPage(c, d.number, <>
-    <PageHead title={`${d.number} · ${d.kind.replace("_", " ")}`} sub={d.format_label}><Badge s={d.status} /><a class="btn ghost sm" href={`${U}/${id}/xml`}>Download XML</a></PageHead>
+    <PageHead title={`${d.number} · ${d.kind.replace("_", " ")}`} sub={d.format_label}><Badge s={d.status} /><a class="btn ghost sm" href={`${U}/${id}/xml`}>Download XML</a>{d.provider_ref && d.provider !== "sandbox" ? <a class="btn ghost sm" href={`${U}/${id}/provider-xml`}>Provider copy</a> : null}</PageHead>
     {(d.issues as any[]).length ? <Table head={["", "Check"]}>{(d.issues as any[]).map((i) => <tr><td><Badge s={i.level === "blocker" ? "bad" : "warn"} label={i.level} /></td><td>{i.message}</td></tr>)}</Table> : <p class="good">Every readiness check passed.</p>}
     {d.provider ? <p class="small">Provider: {d.provider}{d.provider_ref ? ` · reference ${d.provider_ref}` : ""}{d.provider_response?.sandbox ? " · sandbox result — not evidence of acceptance by any authority" : ""}{d.provider_response?.reasons?.length ? ` · ${d.provider_response.reasons.join("; ")}` : ""}</p> : null}
+    {d.tdd_status ? <p class="small">Tax reporting: <Badge s={/report(ed|ing)?_?confirmed|passed/i.test(d.tdd_status) ? "ok" : /fail|reject|not_compliant/i.test(d.tdd_status) ? "bad" : "info"} label={String(d.tdd_status).replace(/_/g, " ").toLowerCase()} /></p> : null}
+    {d.next_retry_at ? <p class="small warn">The provider could not be reached. Attempt {d.attempts} failed; we will try again automatically around {formatDay(d.next_retry_at)}. {d.last_error ?? ""}</p> : null}
+    {d.status === "error" && d.last_error ? <p class="small bad">Not sent: {d.last_error}</p> : null}
     {d.status === "submitted" ? <form method="post" action={`${U}/${id}/refresh`}><Csrf t={c.get("csrf")} /><button class="btn ghost sm">Check provider status</button></form> : null}
     <p class="small mute">Payload integrity: <code>{d.payload_sha256}</code></p>
     <p><a href={U}>Back</a></p></>);

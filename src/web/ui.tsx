@@ -312,7 +312,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
 
 export const ADMIN_NAV: [string, string, string][] = [["/admin", "Overview", "gauge"], ["/admin/tenants", "Tenants", "people"], ["/admin/orders", "Orders & payments", "money"], ["/admin/provisioning", "Provisioning", "bolt"],
   ["/admin/catalog", "Catalog & prices", "tag"], ["/admin/queues", "Queues & reviews", "layers"], ["/admin/service", "Setup & privacy", "lock"], ["/admin/partners", "Partners", "users"], ["/admin/rollout", "Rollout", "route"],
-  ["/admin/reports", "Reports", "chart"], ["/admin/readiness", "Readiness", "shield"], ["/admin/leads", "Leads", "mail"], ["/admin/chats", "Live chats", "chat"]];
+  ["/admin/reports", "Reports", "chart"], ["/admin/readiness", "Readiness", "shield"], ["/admin/einvoice", "E-invoicing", "shield"], ["/admin/leads", "Leads", "mail"], ["/admin/chats", "Live chats", "chat"]];
 
 export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
   const navItems = ADMIN_NAV.map(([href, label]) => ({ href, label }));
