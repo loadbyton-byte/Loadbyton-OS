@@ -131,6 +131,9 @@ export const config = {
     acceptedValues: list(env.EINVOICE_ASP_ACCEPTED_VALUES ?? "accepted,delivered,cleared,approved"), rejectedValues: list(env.EINVOICE_ASP_REJECTED_VALUES ?? "rejected,invalid,failed_validation"), errorValues: list(env.EINVOICE_ASP_ERROR_VALUES ?? "error"),
   },
 
+  /** Signing secret(s) for the e-invoicing provider's webhooks (Standard Webhooks, "whsec_…"). Comma-separate two while rotating. Unset = the endpoint refuses everything. */
+  einvoiceWebhookSecrets: (env.EINVOICE_WAFEQ_WEBHOOK_SECRET ?? "").split(",").map((x) => x.trim()).filter(Boolean),   // case-sensitive: not run through list()
+
   storageDir: path.resolve(env.STORAGE_DIR ?? "data/files"),
   /** "fs" (local disk, default) or "s3" (any S3-compatible store: Oracle Object Storage, Cloudflare R2, MinIO, AWS). */
   storage: {

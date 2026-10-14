@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { PROVIDERS, type EInvoiceAdapter, type EInvoiceResult, type EInvoiceSubmission } from "./einvoice.js";
+import { PROVIDERS, ProviderError, type EInvoiceAdapter, type EInvoiceResult, type EInvoiceSubmission } from "./einvoice.js";
 
 /**
  * Configurable adapter for an accredited service provider (ASP) that exposes a JSON/HTTPS API. Providers differ in paths, authentication and
@@ -27,12 +27,12 @@ export function aspAdapter(cfg: AspConfig = config.einvoiceAsp, fetchImpl: Fetch
   async function call(path: string, init: RequestInit): Promise<any> {
     let res: Response;
     try { res = await fetchImpl(path, { ...init, signal: AbortSignal.timeout(20_000) }); }
-    catch (e: any) { throw new Error(`e-invoicing provider unreachable: ${e.message}`); }
+    catch (e: any) { throw new ProviderError(`e-invoicing provider unreachable: ${e.message}`, true); }
     const text = await res.text();
     let body: any = {}; try { body = text ? JSON.parse(text) : {}; } catch { /* non-JSON body */ }
     // a 4xx with a body the provider understands is a rejection, not an outage; 5xx and 429 are retryable errors
-    if (res.status >= 500 || res.status === 429) throw new Error(`e-invoicing provider answered ${res.status}`);
-    if (res.status === 401 || res.status === 403) throw new Error("e-invoicing provider refused the credentials");
+    if (res.status >= 500 || res.status === 429) throw new ProviderError(`e-invoicing provider answered ${res.status}`, true);
+    if (res.status === 401 || res.status === 403) throw new ProviderError("e-invoicing provider refused the credentials", false);
     if (!res.ok) return { __http: res.status, ...body };
     return body;
   }
