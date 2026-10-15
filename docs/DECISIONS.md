@@ -7,7 +7,7 @@
 | 3 | Hosting, region and recovery budget | **Decided: Oracle Cloud VM + Cloudflare (tunnel) + Neon or Supabase (PostgreSQL) + Upstash (rate limits).** See `docs/DEPLOYMENT.md`. Region, recovery budget (RPO/RTO) and the subprocessor page still to be set |
 | 4 | Pilot plan limits | `PLAN_SEEDS` in `src/platform/catalog.ts` (hypotheses, immutable once published) |
 | 5 | Accounting system of record | `AccountingAdapter` (CSV/export stub today). Subscription receipts for your own SaaS sales are printable from Plan & billing |
-| 6 | Setup and visit coverage | Copy on `/coverage` is **draft** until the owner confirms the coverage areas and visit terms; setup work orders and appointments are built (migration 034-era onboarding service) |
+| 6 | Setup and visit coverage | Copy on `/coverage` is **draft** until the owner confirms the coverage areas and visit terms; setup work orders and appointments are built (migration 011) |
 | 7 | Support hours and tiers | Not published; do not promise 24/7 on low plans. Tracked as the `support_coverage` readiness gate |
 | 8 | Free-tier retention/exit policy | Export exists; owner-set retention policies, legal holds and a two-person platform erasure plan are built (migration 035). The periods chosen per customer still need legal confirmation |
 | 9 | Initial connector provider (e-invoicing ASP, WhatsApp, Mirsal) | **Mail: Resend and SMS: Twilio adapters built** (env-selected; default is log-only). E-invoicing ASP, WhatsApp and Mirsal remain *Planned* on `/integrations` |
@@ -40,7 +40,7 @@
 | 26 | Shortage policy: backorder vs. partial shipment per merchant; short-pick investigation SLA | Default is "ship complete" (all-or-nothing); partial is a per-order flag; a short pick raises a 4-hour task |
 | 27 | Recipient personal-data retention, deletion and who may see it | Recipient names, phones and addresses are restricted to fulfilment operators or the bound merchant on views, packing slips and structured order exports, including search restrictions. Support grants hide these fields. Scheduled minimisation and broader legacy/free-text/document policy remain pending |
 | 28 | Multi-warehouse / multi-site stock and inter-site transfer | **Built** (migrations 031–034): multi-site fulfilment with site-pinned orders and two-step TRANSIT transfers |
-| 29 | Hand-held scanner / label printer hardware | Packing accepts a typed or keyboard-wedge scan; no mobile pick app (the driver-app pattern could be reused) |
+| 29 | Hand-held scanner / label printer hardware | Packing accepts a typed or keyboard-wedge scan; Code 128 labels and ZPL files are built (migration 038). Direct RF-gun and printer-driver protocols are not |
 
 
 ## Added with Warehouse
@@ -52,7 +52,7 @@
 | 32 | Who may release stock from quarantine and who approves count adjustments (and value thresholds) | `wh.approve` = owner, finance, coordinator; counter ≠ approver, including owners. Reviewed high-value/standard/low-value count tiers are explicit policies; monetary adjustment thresholds remain pending |
 | 33 | Stock rotation policy | Custody SKUs choose FIFO/FEFO and none/lot/serial tracking at creation. Source-evidenced expiry/serial identities and quality holds are enforced. Fulfilment uses its separate inventory model and still needs equivalent controls. |
 | 34 | Barcode/RF scanning hardware and a WMS/ERP integration | Scan/retry references exist (`client_ref`); no hardware or integration |
-| 35 | Backorders, partial-shipment policy and returns | Partial allocation closes the shortfall; no returns flow (belongs with E-commerce fulfilment) |
+| 35 | Backorders, partial-shipment policy and returns | **Built** (migration 038): per-customer backorder policy (closed or carried child orders) and returns into quarantine with approver-only restock or disposal |
 | 36 | Insurance / liability cut-off for custody stock and bonded goods | **Built** (migration 038): immutable approved bonded and liability-cap terms backed by issued evidence, bonded-location segregation, declared-value cap in the stock-posting path, bond-release evidence to dispatch. Whether the terms satisfy customs or an insurer is for the reviewer who signs them |
 
 
