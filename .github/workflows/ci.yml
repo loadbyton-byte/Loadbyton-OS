@@ -57,7 +57,7 @@ jobs:
           npm run e2e
           npm run e2e:transport
           npm run e2e:experience
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-failure-evidence
