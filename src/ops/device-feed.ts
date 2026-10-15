@@ -20,7 +20,30 @@ import { recordSpecialistEvent } from "./specialists.js";
 export const FEED_SECTORS = {
   "cold-chain": { event: "temperature", noun: "logger", measure: "temperature" },
   "automotive-logistics": { event: "yard", noun: "yard scanner", measure: "location" },
+  "aviation-logistics": { event: "milestone", noun: "flight / ULD tracker", measure: "air milestone" },
+  "distribution": { event: "dispatch", noun: "dispatch scanner", measure: "dispatch" },
+  "moving-relocation": { event: "packed", noun: "packing scanner", measure: "packing" },
 } as const;
+/** Sectors whose readings are structured scans rather than a temperature or a yard location: the keys a reading must carry and how they are checked. */
+type GenericField = { key: string; kind: "text" | "number" | "choice"; choices?: string[] };
+export const GENERIC_FEEDS: Record<string, { event: string; fields: GenericField[]; attrs: (d: Record<string, any>, at: Date) => Record<string, any> }> = {
+  "aviation-logistics": { event: "milestone", fields: [{ key: "stage", kind: "choice", choices: ["booked", "departed", "arrived", "released"] }, { key: "reference", kind: "text" }], attrs: (d, at) => ({ stage: d.stage, observed_at: at.toISOString(), reference: d.reference }) },
+  "distribution": { event: "dispatch", fields: [{ key: "sku", kind: "text" }, { key: "qty", kind: "number" }], attrs: (d) => ({ sku: d.sku, qty: d.qty }) },
+  "moving-relocation": { event: "packed", fields: [{ key: "item_ref", kind: "text" }, { key: "qty", kind: "number" }], attrs: (d) => ({ item_ref: d.item_ref, qty: d.qty }) },
+};
+/** The checked values of a generic reading, or the reason it cannot be used. */
+export function checkGeneric(sector: string, raw: Record<string, any> | undefined): { ok: true; data: Record<string, any> } | { ok: false; reason: string } {
+  const spec = GENERIC_FEEDS[sector];
+  if (!spec) return { ok: false, reason: "This device kind has no structured readings." };
+  const data: Record<string, any> = {};
+  for (const f of spec.fields) {
+    const v = raw?.[f.key];
+    if (f.kind === "number") { const n = Number(v); if (v === undefined || v === "" || !Number.isFinite(n) || n <= 0 || n > 1_000_000) return { ok: false, reason: `${f.key} must be a number above zero.` }; data[f.key] = n; }
+    else if (f.kind === "choice") { const t = String(v ?? "").trim().toLowerCase(); if (!f.choices!.includes(t)) return { ok: false, reason: `${f.key} must be one of ${f.choices!.join(", ")}.` }; data[f.key] = t; }
+    else { const t = String(v ?? "").trim(); if (!t || t.length > 120) return { ok: false, reason: `${f.key} is missing or longer than 120 characters.` }; data[f.key] = t; }
+  }
+  return { ok: true, data };
+}
 type FeedSector = keyof typeof FEED_SECTORS;
 const isSector = (v: unknown): v is FeedSector => typeof v === "string" && v in FEED_SECTORS;
 export const deviceUrl = (token: string) => channelUrl(token).replace("/webhooks/inbound/", "/webhooks/devices/");
@@ -40,7 +63,7 @@ async function gateDevice(c: Conn, ctx: Ctx, deviceId: string) {
 
 export async function registerDevice(c: Conn, ctx: Ctx, f: Record<string, any>) {
   const sector = (f.sector ?? "cold-chain") as string;
-  if (!isSector(sector)) throw badRequest("Choose cold chain or automotive logistics.");
+  if (!isSector(sector)) throw badRequest(`Choose a sector with device feeds: ${Object.keys(FEED_SECTORS).join(", ")}.`);
   await gate(c, ctx, sector);
   const interval = Number(f.interval_minutes ?? 15);
   if (!Number.isInteger(interval) || interval < 1 || interval > 1440) throw badRequest("The logging interval is 1–1440 minutes.");
@@ -76,7 +99,7 @@ export async function retireDevice(c: Conn, ctx: Ctx, deviceId: string) {
   await must(c.query(`UPDATE specialist_devices SET status='retired', unbound_at=CASE WHEN case_id IS NOT NULL AND unbound_at IS NULL THEN now() ELSE unbound_at END WHERE id=$1 RETURNING id`, [recordId(deviceId, "Logger")]), "Logger");
 }
 
-export interface Reading { ref?: string; at: string; celsius?: number; location?: string }
+export interface Reading { ref?: string; at: string; celsius?: number; location?: string; data?: Record<string, any> }
 export interface Outcome { ref: string; outcome: "ingested" | "rejected" | "duplicate"; reason?: string }
 
 /** Events from devices are recorded by a per-workspace service identity that can write readings and nothing else. */
@@ -95,15 +118,16 @@ export async function ingestReading(c: Conn, device: any, svc: Ctx, r: Reading, 
   const prior = (await c.query<any>(`SELECT outcome, recoverable, attempt FROM device_readings WHERE device_id=$1 AND reading_ref=$2 ORDER BY attempt DESC LIMIT 1`, [device.id, ref])).rows[0];
   if (prior && (prior.outcome === "ingested" || !prior.recoverable)) return { ref, outcome: "duplicate" };
   const attempt = prior ? prior.attempt + 1 : 1;
-  const yard = device.sector === "automotive-logistics";
+  const yard = device.sector === "automotive-logistics", gen = GENERIC_FEEDS[device.sector];
   const insert = async (outcome: "ingested" | "rejected", reason: string | null, caseId: string | null, eventId: string | null, recoverable = false): Promise<Outcome> => {
-    const t = yard ? null : Number.isFinite(Number(r.celsius)) ? Math.max(-999, Math.min(999, Number(r.celsius))) : 0;
+    const t = yard || gen ? null : Number.isFinite(Number(r.celsius)) ? Math.max(-999, Math.min(999, Number(r.celsius))) : 0;
     await c.query(`INSERT INTO device_readings(tenant_id,device_id,reading_ref,observed_at,celsius,outcome,reason,case_id,event_id,source,attempt,recoverable,detail) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [device.tenant_id, device.id, ref, Number.isNaN(at.getTime()) ? new Date(0) : at, t, outcome, reason, caseId, eventId, source, attempt, recoverable, yard ? String(r.location ?? "").slice(0, 100) : null]);
+      [device.tenant_id, device.id, ref, Number.isNaN(at.getTime()) ? new Date(0) : at, t, outcome, reason, caseId, eventId, source, attempt, recoverable, yard ? String(r.location ?? "").slice(0, 100) : gen ? JSON.stringify(r.data ?? {}).slice(0, 300) : null]);
     return { ref, outcome, reason: reason ?? undefined };
   };
   if (Number.isNaN(at.getTime())) return insert("rejected", "The reading time is not a valid date.", null, null);
   if (yard) { if (typeof r.location !== "string" || !r.location.trim() || r.location.length > 100) return insert("rejected", "The yard location is missing or longer than 100 characters.", null, null); }
+  else if (gen) { const v = checkGeneric(device.sector, r.data); if (!v.ok) return insert("rejected", v.reason, null, null); }
   else if (typeof r.celsius !== "number" || !Number.isFinite(r.celsius) || r.celsius < -100 || r.celsius > 100) return insert("rejected", "The temperature is missing or outside −100…100 °C.", null, null);
   const live = (await c.query<any>(`SELECT case_id, bound_at, unbound_at, status FROM specialist_devices WHERE id=$1`, [device.id])).rows[0];
   if (live.status !== "active") return insert("rejected", "The logger is retired.", null, null);
@@ -113,7 +137,10 @@ export async function ingestReading(c: Conn, device: any, svc: Ctx, r: Reading, 
   if (at.getTime() > Date.now() + 300_000) return insert("rejected", "The reading time is in the future.", live.case_id, null);
   await c.query("SAVEPOINT reading");
   try {
-    const eventId = yard
+    const checked = gen ? checkGeneric(device.sector, r.data) : null;
+    const eventId = gen && checked?.ok
+      ? await recordSpecialistEvent(c, svc, live.case_id, gen.event, gen.attrs(checked.data, at), `${FEED_SECTORS[device.sector as FeedSector].noun} ${device.serial} at ${at.toISOString()}`, `dev:${device.serial}:${ref}`.slice(0, 120))
+      : yard
       ? await recordSpecialistEvent(c, svc, live.case_id, "yard", { location: String(r.location).trim(), reference: `${device.serial}@${at.toISOString()}`.slice(0, 120) }, `Yard scanner ${device.serial} at ${at.toISOString()}`, `dev:${device.serial}:${ref}`.slice(0, 120))
       : await recordSpecialistEvent(c, svc, live.case_id, "temperature", { celsius: Math.round(r.celsius! * 100) / 100, observed_at: at.toISOString() }, `Logger ${device.serial}`, `dev:${device.serial}:${ref}`.slice(0, 120));
     await c.query("RELEASE SAVEPOINT reading");
@@ -150,8 +177,8 @@ export async function handleDeviceFeed(db: Db, token: string, req: FeedRequest):
     const p = JSON.parse(req.raw);
     const list = Array.isArray(p?.readings) ? p.readings : [];
     if (!list.length || list.length > 500) throw new Error("count");
-    readings = list.map((x: any) => ({ ref: x.id != null ? String(x.id) : undefined, at: String(x.at ?? x.time ?? ""), celsius: typeof x.celsius === "number" ? x.celsius : typeof x.c === "number" ? x.c : NaN, location: typeof x.location === "string" ? x.location : undefined }));
-  } catch { return { status: 400, body: { error: device.sector === "automotive-logistics" ? "send {\"readings\":[{\"id\",\"at\",\"location\"}]} with 1–500 readings" : "send {\"readings\":[{\"id\",\"at\",\"celsius\"}]} with 1–500 readings" } }; }
+    readings = list.map((x: any) => ({ ref: x.id != null ? String(x.id) : undefined, at: String(x.at ?? x.time ?? ""), celsius: typeof x.celsius === "number" ? x.celsius : typeof x.c === "number" ? x.c : NaN, location: typeof x.location === "string" ? x.location : undefined, data: GENERIC_FEEDS[device.sector] ? Object.fromEntries(GENERIC_FEEDS[device.sector].fields.map((f) => [f.key, x[f.key] ?? x.data?.[f.key]])) : undefined }));
+  } catch { return { status: 400, body: { error: GENERIC_FEEDS[device.sector] ? `send {"readings":[{"id","at",${GENERIC_FEEDS[device.sector].fields.map((f) => `"${f.key}"`).join(",")}}]} with 1–500 readings` : device.sector === "automotive-logistics" ? "send {\"readings\":[{\"id\",\"at\",\"location\"}]} with 1–500 readings" : "send {\"readings\":[{\"id\",\"at\",\"celsius\"}]} with 1–500 readings" } }; }
   const results = await processReadings(db, device, readings, "push");
   return { status: 200, body: { received: results.length, ingested: results.filter((r) => r.outcome === "ingested").length, rejected: results.filter((r) => r.outcome === "rejected").length, duplicates: results.filter((r) => r.outcome === "duplicate").length,
     rejections: results.filter((r) => r.outcome === "rejected").slice(0, 20).map((r) => ({ ref: r.ref, reason: r.reason })) } };
@@ -165,7 +192,18 @@ export async function importLoggerCsv(db: Db, ctx: Ctx, deviceId: string, csv: s
   if (rows.length > 20001) throw badRequest("Import up to 20,000 readings at a time.");
   const head = rows[0].map((h) => h.trim().toLowerCase());
   const yard = device.sector === "automotive-logistics";
-  const ti = head.findIndex((h) => ["time", "timestamp", "datetime", "at"].includes(h)), ci = head.findIndex((h) => (yard ? ["location", "yard", "zone", "bay"] : ["celsius", "temperature", "temp", "temp_c", "c"]).includes(h));
+  const ti = head.findIndex((h) => ["time", "timestamp", "datetime", "at"].includes(h));
+  const gspec = GENERIC_FEEDS[device.sector];
+  if (gspec) {
+    const gi = gspec.fields.map((f) => head.indexOf(f.key));
+    if (ti < 0 || gi.some((i) => i < 0)) throw badRequest(`The file needs a time column (UTC, ISO 8601) and ${gspec.fields.map((f) => f.key).join(", ")} columns.`);
+    const greadings: Reading[] = rows.slice(1).map((r) => ({ at: (r[ti] ?? "").trim(), data: Object.fromEntries(gspec.fields.map((f, k) => [f.key, (r[gi[k]] ?? "").trim()])) }));
+    const gout: Outcome[] = [];
+    for (let i = 0; i < greadings.length; i += 500) gout.push(...await processReadings(db, device, greadings.slice(i, i + 500), "csv"));
+    await db.tenant(ctx.tenantId, (c) => audit(c, ctx.tenantId, actorOf(ctx), "device.csv_imported", "specialist_device", device.id, { rows: greadings.length }));
+    return { rows: greadings.length, ingested: gout.filter((o) => o.outcome === "ingested").length, rejected: gout.filter((o) => o.outcome === "rejected").length, duplicates: gout.filter((o) => o.outcome === "duplicate").length, rejections: gout.filter((o) => o.outcome === "rejected").slice(0, 10) };
+  }
+  const ci = head.findIndex((h) => (yard ? ["location", "yard", "zone", "bay"] : ["celsius", "temperature", "temp", "temp_c", "c"]).includes(h));
   if (ti < 0 || ci < 0) throw badRequest(yard ? "The file needs a time column (UTC, ISO 8601) and a location column." : "The file needs a time column (UTC, ISO 8601) and a temperature column in °C.");
   const readings: Reading[] = rows.slice(1).map((r) => yard ? ({ at: (r[ti] ?? "").trim(), location: (r[ci] ?? "").trim() }) : ({ at: (r[ti] ?? "").trim(), celsius: Number((r[ci] ?? "").replace(",", ".")) }));
   const out: Outcome[] = [];
