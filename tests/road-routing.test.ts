@@ -66,4 +66,31 @@ describe("road-network routing", () => {
     expect(straight.basis).toBe("straight-line"); expect(straight.before_min).toBeUndefined();
     expect(haversineKm(25, 55, 25.01, 55.01)).toBeGreaterThan(0);
   });
+
+  it("uses Google's traffic-aware matrix when configured: POST body, key and field mask sent, durations parsed, every failure explained", async () => {
+    Object.assign(config.routing, { provider: "google", apiKey: "G-KEY", url: "", googleBase: "https://routes.test", maxPoints: 60 });
+    expect(await roadMatrix([{ lat: 25, lng: 55 }, { lat: 25.1, lng: 55.1 }], ok({}, 200)).catch((e) => e.message)).toBeTruthy();
+    let seenUrl = "", seenHeaders: Record<string, string> = {}, seenBody: any = null;
+    const el = (i: number, j: number, secs: number, m: number, over: Record<string, unknown> = {}) => ({ originIndex: i, destinationIndex: j, duration: `${secs}s`, distanceMeters: m, condition: "ROUTE_EXISTS", status: {}, ...over });
+    const f: MatrixFetcher = async (u, h, body) => { seenUrl = u; seenHeaders = h; seenBody = JSON.parse(body!); return { status: 200, body: JSON.stringify([el(0, 0, 0, 0), el(0, 1, 600, 8000), el(1, 0, 660, 8200), el(1, 1, 0, 0)]) }; };
+    const m = await roadMatrix([{ lat: 25, lng: 55 }, { lat: 25.1, lng: 55.1 }], f);
+    expect(m).toMatchObject({ duration: [[0, 600], [660, 0]], distance: [[0, 8000], [8200, 0]], traffic: true });
+    expect(seenUrl).toBe("https://routes.test/distanceMatrix/v2:computeRouteMatrix");
+    expect(seenHeaders).toMatchObject({ "x-goog-api-key": "G-KEY", "x-goog-fieldmask": expect.stringContaining("duration") });
+    expect(seenBody).toMatchObject({ travelMode: "DRIVE", routingPreference: "TRAFFIC_AWARE" });
+    expect(seenBody.origins[1].waypoint.location.latLng).toEqual({ latitude: 25.1, longitude: 55.1 });
+    expect(new Date(seenBody.departureTime).getTime()).toBeGreaterThan(Date.now());
+    const P = [{ lat: 25, lng: 55 }, { lat: 25.1, lng: 55.1 }];
+    const one = (arr: unknown[], status = 200): MatrixFetcher => async () => ({ status, body: JSON.stringify(arr) });
+    await expect(roadMatrix(P, one([el(0, 1, 600, 8000), el(1, 0, 1, 1, { condition: "ROUTE_NOT_FOUND" })]))).rejects.toThrow(/off the road network/);
+    await expect(roadMatrix(P, one([el(0, 1, 600, 8000)]))).rejects.toThrow(/off the road network/);        // an element missing from the answer is never guessed
+    await expect(roadMatrix(P, one([], 403))).rejects.toThrow(/refused the API key/);
+    await expect(roadMatrix(P, one([], 429))).rejects.toThrow(/rate limiting/);
+    await expect(roadMatrix(P, one([], 500))).rejects.toThrow(/answered 500/);
+    await expect(roadMatrix(Array.from({ length: 26 }, (_, i) => ({ lat: 25 + i / 100, lng: 55 })), f)).rejects.toThrow(/limited to 25/);
+    await expect(roadMatrix(P, async () => { throw new Error("x"); })).rejects.toThrow(/could not be reached/);
+    Object.assign(config.routing, { apiKey: "" });
+    await expect(roadMatrix(P, f)).rejects.toThrow(/ROUTING_URL/);
+  });
 });
+

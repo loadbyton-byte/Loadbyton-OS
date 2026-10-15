@@ -122,7 +122,7 @@ export async function optimiseTrip(c: Conn, ctx: Ctx, tripId: string, apply = fa
   const stops: Stop[] = pending.map((l) => ({ id: l.id, lat: Number(l.lat), lng: Number(l.lng), order: l.order_id, kind: l.kind }));
   // a delivery whose pickup already happened is free; only pending pickups constrain pending deliveries
   const from = start ?? (() => { const done = legs.filter((l) => l.status !== "pending" && l.lat !== null).pop(); return done ? { lat: Number(done.lat), lng: Number(done.lng) } : null; })();
-  let result: { before_km: number; after_km: number; sequence: string[]; saved_km: number; basis: "straight-line" | "road"; before_min?: number; after_min?: number };
+  let result: { before_km: number; after_km: number; sequence: string[]; saved_km: number; basis: "straight-line" | "road"; traffic?: boolean; before_min?: number; after_min?: number };
   if (roadRoutingEnabled()) {
     // road network: optimise for travel time, report road kilometres and minutes
     const pts: Point[] = [...(from ? [from] : []), ...stops];
@@ -131,7 +131,7 @@ export async function optimiseTrip(c: Conn, ctx: Ctx, tripId: string, apply = fa
     const time: Cost = (a, b) => m.duration[idx(a)][idx(b)], dist: Cost = (a, b) => m.distance[idx(a)][idx(b)] / 1000;
     const best = optimiseRoute(stops, from, time);
     const secs = (seq: Stop[]) => routeKm(from, seq, time);
-    result = { before_km: Math.round(routeKm(from, stops, dist) * 10) / 10, after_km: Math.round(routeKm(from, best.sequence, dist) * 10) / 10, sequence: best.sequence.map((s) => s.id), saved_km: 0, basis: "road",
+    result = { before_km: Math.round(routeKm(from, stops, dist) * 10) / 10, after_km: Math.round(routeKm(from, best.sequence, dist) * 10) / 10, sequence: best.sequence.map((s) => s.id), saved_km: 0, basis: "road", traffic: !!m.traffic,
       before_min: Math.round(secs(stops) / 60), after_min: Math.round(secs(best.sequence) / 60) };
     result.saved_km = Math.round((result.before_km - result.after_km) * 10) / 10;
   } else {
