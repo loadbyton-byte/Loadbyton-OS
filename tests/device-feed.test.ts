@@ -162,7 +162,7 @@ describe("yard scanner feeds (automotive logistics)", () => {
     await run((c) => recordSpecialistEvent(c, t.ctx, k.id, "evidence", { evidence_kind: "release_authority" }, "Verified evidence", "ev-1", doc));
     await run((c) => transitionSpecialistCase(c, t.ctx, k.id, "ready", "Approved by responsible operator"));
     const dev = await run((c) => registerDevice(c, t.ctx, { label: "Gate A scanner", serial: "YS-1", interval_minutes: 5, sector: "automotive-logistics" }));
-    await expect(run((c) => registerDevice(c, t.ctx, { label: "x", serial: "YS-2", sector: "marine-agency" }))).rejects.toThrow(/Choose cold chain or automotive/);
+    await expect(run((c) => registerDevice(c, t.ctx, { label: "x", serial: "YS-2", sector: "marine-agency" }))).rejects.toThrow(/Choose a sector with device feeds/);
     await expect(run((c) => registerDevice(c, t.ctx, { label: "Cold logger", serial: "CL-1" }))).rejects.toThrow(/cold-chain sector is not selected/);   // only the sectors this workspace uses
     await run((c) => bindDevice(c, t.ctx, dev.id, k.id, iso(60)));
     const body = { readings: [{ id: "s1", at: iso(30), location: "Bay C4" }, { id: "s2", at: iso(20), location: "Bay D1" }, { id: "bad", at: iso(10) }, { id: "s1", at: iso(30), location: "Bay C4" }] };
@@ -180,3 +180,46 @@ describe("yard scanner feeds (automotive logistics)", () => {
     expect(await verifyInvariants(db)).toEqual([]);
   });
 });
+
+describe("scanner and tracker feeds for aviation, distribution and moving", () => {
+  async function caseFor(sector: string, attrs: Record<string, any>, readyEvidence: string[]) {
+    const t = await newTenant(db, undefined, [sector]);
+    const run = <T>(fn: (c: Conn) => Promise<T>) => db.tenant(t.tenantId, fn);
+    const party = await run((c) => createParty(c, t.ctx, { kind: "customer", name: "Customer" }));
+    const doc = await run((c) => uploadDocument(c, t.ctx, { kind: "other", title: "Reviewed evidence", issuer: "Qualified reviewer", filename: "e.pdf", data: Buffer.from("%PDF-1.4 evidence") }));
+    await run((c) => approveSpecialistReview(c, t.ctx, sector, "Qualified reviewer", doc, future()));
+    const k = await run((c) => createSpecialistCase(c, t.ctx, sector, { party_id: party, external_ref: `X-${sector}`, subject_ref: "SUBJ-1", fee: "0", tax_code: "SR5", ...attrs }));
+    let n = 0;
+    for (const e of readyEvidence) await run((c) => recordSpecialistEvent(c, t.ctx, k.id, "evidence", { evidence_kind: e }, "Verified evidence", `ev-${++n}`, doc));
+    await run((c) => transitionSpecialistCase(c, t.ctx, k.id, "ready", "Approved by responsible operator"));
+    return { t, run, k, doc };
+  }
+  it("turns flight-tracker pushes into air milestones and refuses an unknown stage", async () => {
+    resetThrottle();
+    const { t, run, k } = await caseFor("aviation-logistics", { airwaybill: "176-12345675", flight: "EK202", agent: "Handler" }, ["airway_bill", "handling_instructions"]);
+    await run((c) => transitionSpecialistCase(c, t.ctx, k.id, "active", "Approved by responsible operator")).catch(() => undefined);
+    const dev = await run((c) => registerDevice(c, t.ctx, { label: "ULD tracker", serial: "ULD-1", sector: "aviation-logistics" }));
+    await run((c) => bindDevice(c, t.ctx, dev.id, k.id, iso(120)));
+    const res = await push(dev.url, dev.secret, { readings: [{ id: "a", at: iso(70), stage: "Booked", reference: "BK-1" }, { id: "a2", at: iso(60), stage: "Departed", reference: "EK202/ULD-9" }, { id: "b", at: iso(30), stage: "teleported", reference: "x" }, { id: "c", at: iso(20), stage: "arrived" }] });
+    expect(await res.json()).toMatchObject({ received: 4, ingested: 2, rejected: 2 });
+    const ev = (await db.query<any>(`SELECT kind, attributes FROM specialist_events WHERE case_id=$1 AND kind='milestone'`, [k.id])).rows;
+    expect(ev).toHaveLength(2); expect(ev[1].attributes).toMatchObject({ stage: "departed", reference: "EK202/ULD-9" });
+    expect(await importLoggerCsv(db, t.ctx, dev.id, `time,stage,reference\n${iso(10)},arrived,ARR-1\n`)).toMatchObject({ rows: 1, ingested: 1 });
+    await expect(importLoggerCsv(db, t.ctx, dev.id, "time,celsius\n2026-01-01T00:00:00Z,4")).rejects.toThrow(/stage, reference/);
+    expect(await verifyInvariants(db)).toEqual([]);
+  });
+  it("turns dispatch-scanner pushes into dispatch events with a numeric quantity", async () => {
+    resetThrottle();
+    const { t, run, k, doc } = await caseFor("distribution", { customer_order: "SO-1", route: "R1" }, ["stock_handover"]);
+    await run((c) => transitionSpecialistCase(c, t.ctx, k.id, "active", "Approved by responsible operator")).catch(() => undefined);
+    await run((c) => recordSpecialistEvent(c, t.ctx, k.id, "allocation", { sku: "SKU-1", qty: 10, source_ref: "WH-1" }, "Verified stock source", "al-1", doc));
+    const dev = await run((c) => registerDevice(c, t.ctx, { label: "Dock scanner", serial: "DS-1", sector: "distribution" }));
+    await run((c) => bindDevice(c, t.ctx, dev.id, k.id, iso(120)));
+    const res = await push(dev.url, dev.secret, { readings: [{ id: "1", at: iso(60), sku: "SKU-1", qty: 4 }, { id: "2", at: iso(50), sku: "SKU-1", qty: 0 }, { id: "3", at: iso(40), qty: 2 }] });
+    expect(await res.json()).toMatchObject({ received: 3, rejected: 2 });
+    const body = await (await push(dev.url, dev.secret, { readings: [{ id: "1", at: iso(60), sku: "SKU-1", qty: 4 }] })).json() as any;
+    expect(body).toMatchObject({ duplicates: 1 });
+    await expect(run((c) => bindDevice(c, t.ctx, dev.id, k.id))).rejects.toThrow(/already bound/);
+  });
+});
+
