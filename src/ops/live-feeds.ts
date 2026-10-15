@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx, type Perm } from "../lib/perms.js";
 import { getJson, postJson, validateWebhookUrl, type PostOptions, type PostResult } from "../lib/safe-http.js";
+import { CLIENT_ASSERTION_TYPE, SIGN_ALGS, checkKeyForAlg, clientAssertion, detachedJws, httpSignature, type SignAlg } from "../lib/message-signing.js";
 import { parseCsv } from "./importer.js";
 import { seal, unseal } from "../lib/seal.js";
 import { badRequest, randomToken, sha256 } from "../lib/util.js";
@@ -47,7 +48,8 @@ export async function createFeedConnection(c: Conn, ctx: Ctx, f: Record<string, 
   if (scheme === "oauth2_authcode") { try { authorizeUrl = allowedHost(String(f.authorize_url ?? "")).toString(); } catch (e: any) { throw badRequest(`Consent address: ${e.message}`); } }
   if (scheme === "oauth2_client" || scheme === "oauth2_authcode") {
     try { tokenUrl = allowedHost(String(f.token_url ?? "")).toString(); } catch (e: any) { throw badRequest(`Token address: ${e.message}`); }
-    if (!/^[^:\s]{1,200}:.{1,400}$/.test(String(f.secret ?? ""))) throw badRequest("For OAuth2 the credential is entered as client_id:client_secret.");
+    const pk = String(f.client_auth) === "private_key_jwt";
+    if (pk ? !/^[^:\s]{1,200}$/.test(String(f.secret ?? "")) : !/^[^:\s]{1,200}:.{1,400}$/.test(String(f.secret ?? ""))) throw badRequest(pk ? "With a signed client assertion the credential is the client_id only." : "For OAuth2 the credential is entered as client_id:client_secret.");
   }
   const format = f.response_format === "csv" ? "csv" : "json";
   const pageMode = ["none", "cursor", "page", "link"].includes(String(f.page_mode)) ? String(f.page_mode) : "none";
@@ -57,6 +59,7 @@ export async function createFeedConnection(c: Conn, ctx: Ctx, f: Record<string, 
   if (pageMode === "cursor" && !nextPath) throw badRequest("Cursor paging needs the field that holds the next cursor.");
   if (pageMode !== "none" && format === "csv" && pageMode !== "page") throw badRequest("A CSV answer can be paged by page number only.");
   const maxPages = Math.min(50, Math.max(1, Number(f.max_pages ?? 10) || 10));
+  const sec = parseSecurity(f);
   const header = scheme === "header" ? reqStr(f.auth_header, "Header name", 60) : null;
   if (header && !/^[A-Za-z0-9-]{1,60}$/.test(header)) throw badRequest("The header name may contain letters, digits and hyphens.");
   const secret = reqStr(f.secret, "Credential", 2000);
@@ -67,9 +70,9 @@ export async function createFeedConnection(c: Conn, ctx: Ctx, f: Record<string, 
   const since = String(f.since_param ?? "since").trim() || "since";
   if (!/^[A-Za-z0-9_.-]{1,40}$/.test(since)) throw badRequest("The date parameter name is not valid.");
   const row = (await c.query<any>(
-    `INSERT INTO feed_connections(tenant_id,kind,label,url,auth_scheme,auth_header,secret_sealed,items_path,since_param,field_map,created_by,token_url,token_scope,response_format,page_mode,page_param,next_path,max_pages,authorize_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
+    `INSERT INTO feed_connections(tenant_id,kind,label,url,auth_scheme,auth_header,secret_sealed,items_path,since_param,field_map,created_by,token_url,token_scope,response_format,page_mode,page_param,next_path,max_pages,authorize_url,tls_cert_sealed,tls_key_sealed,tls_ca,sign_mode,sign_alg,sign_kid,sign_key_sealed,sign_header,client_auth) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) RETURNING id`,
     [ctx.tenantId, kind, reqStr(f.label, "Name", 80), String(f.url).trim(), scheme, header, seal(secret), String(f.items_path ?? "").trim().slice(0, 80), since, JSON.stringify(map), ctx.userId,
-      tokenUrl, String(f.token_scope ?? "").trim().slice(0, 200) || null, format, pageMode, pageParam || null, nextPath || null, maxPages, authorizeUrl]).catch((e) => {
+      tokenUrl, String(f.token_scope ?? "").trim().slice(0, 200) || null, format, pageMode, pageParam || null, nextPath || null, maxPages, authorizeUrl, sec.tlsCert, sec.tlsKey, sec.tlsCa, sec.signMode, sec.signAlg, sec.signKid, sec.signKey, sec.signHeader, sec.clientAuth]).catch((e) => {
       if (/unique/i.test(String(e.message))) throw badRequest("A feed with that name already exists."); throw e;
     })).rows[0];
   await audit(c, ctx.tenantId, actorOf(ctx), "feed.created", "feed_connection", row.id, { kind });
@@ -115,6 +118,54 @@ async function serviceCtx(db: Db, tenantId: string): Promise<Ctx> {
   return { userId: id, tenantId, roles: ["service"], perms: new Set<Perm>(SERVICE_PERMS), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
 }
 
+export interface FeedSecurity { tlsCert: string | null; tlsKey: string | null; tlsCa: string | null; signMode: string; signAlg: string | null; signKid: string | null; signKey: string | null; signHeader: string; clientAuth: string }
+/** Validates and seals the mutual-TLS and message-signing settings of a feed. Certificates and keys are checked to parse, to match each other, and to suit the algorithm. */
+export function parseSecurity(f: Record<string, any>): FeedSecurity {
+  const pem = (v: unknown) => String(v ?? "").trim();
+  const cert = pem(f.tls_cert), key = pem(f.tls_key), ca = pem(f.tls_ca);
+  let tlsCert: string | null = null, tlsKey: string | null = null;
+  if (cert || key) {
+    if (!cert || !key) throw badRequest("Mutual TLS needs both the client certificate and its private key.");
+    let x: crypto.X509Certificate;
+    try { x = new crypto.X509Certificate(cert); } catch { throw badRequest("The client certificate is not a valid PEM certificate."); }
+    let k: crypto.KeyObject;
+    try { k = crypto.createPrivateKey(key); } catch { throw badRequest("The client key is not a valid unencrypted PEM private key."); }
+    if (!x.checkPrivateKey(k)) throw badRequest("The client key does not belong to the client certificate.");
+    if (new Date(x.validTo).getTime() < Date.now()) throw badRequest("The client certificate has expired.");
+    tlsCert = seal(cert); tlsKey = seal(key);
+  }
+  if (ca) { try { new crypto.X509Certificate(ca); } catch { throw badRequest("The pinned server CA is not a valid PEM certificate."); } }
+  const mode = ["jws", "http_signature"].includes(String(f.sign_mode)) ? String(f.sign_mode) : "none";
+  const clientAuth = String(f.client_auth) === "private_key_jwt" ? "private_key_jwt" : "secret";
+  let signAlg: string | null = null, signKid: string | null = null, signKey: string | null = null;
+  if (mode !== "none" || clientAuth === "private_key_jwt") {
+    signAlg = String(f.sign_alg || "PS256");
+    if (!(SIGN_ALGS as string[]).includes(signAlg)) throw badRequest(`The signing algorithm is one of ${SIGN_ALGS.join(", ")}.`);
+    signKid = String(f.sign_kid ?? "").trim();
+    if (!/^[A-Za-z0-9._:@/=-]{1,200}$/.test(signKid)) throw badRequest("Enter the key identifier (kid / keyId) the bank registered for your signing key.");
+    const sk = pem(f.sign_key);
+    if (!sk) throw badRequest("Enter the signing private key.");
+    try { checkKeyForAlg(signAlg as SignAlg, sk); } catch (e: any) { throw badRequest(e.message); }
+    signKey = seal(sk);
+  }
+  const header = String(f.sign_header || "x-jws-signature").toLowerCase();
+  if (!/^[a-z0-9-]{1,60}$/.test(header)) throw badRequest("The signature header may contain letters, digits and hyphens.");
+  return { tlsCert, tlsKey, tlsCa: ca || null, signMode: mode, signAlg, signKid, signKey, signHeader: header, clientAuth };
+}
+export const tlsOf = (f: any) => (f.tls_cert_sealed && f.tls_key_sealed ? { cert: unseal(f.tls_cert_sealed), key: unseal(f.tls_key_sealed), ...(f.tls_ca ? { ca: f.tls_ca } : {}) } : undefined);
+/** Signature headers for one request, per the feed's profile. */
+export function signHeaders(f: any, method: string, url: string, body = ""): Record<string, string> {
+  if (!f.sign_mode || f.sign_mode === "none") return {};
+  const key = unseal(f.sign_key_sealed);
+  if (f.sign_mode === "jws") return { [f.sign_header || "x-jws-signature"]: detachedJws(body, { alg: f.sign_alg, kid: f.sign_kid, key, extra: { iat: Math.floor(Date.now() / 1000) }, crit: ["iat"] }) };
+  return httpSignature({ method, url, body, keyId: f.sign_kid, key, alg: f.sign_alg });
+}
+/** Client authentication fields for a token request: the shared secret, or a freshly signed assertion. */
+export function clientAuthForm(f: any, clientId: string, clientSecret: string): Record<string, string> {
+  if (f.client_auth === "private_key_jwt") return { client_id: clientId, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: clientAssertion({ clientId, audience: f.token_url, alg: f.sign_alg, kid: f.sign_kid, key: unseal(f.sign_key_sealed) }) };
+  return { client_id: clientId, client_secret: clientSecret };
+}
+
 /** Header(s) that authenticate a pull. OAuth2 client credentials exchange the sealed id:secret for a short-lived token on every pull; nothing is cached. */
 export async function authHeaders(f: any, deps: PullDeps, db?: Db): Promise<Record<string, string>> {
   const secret = unseal(f.secret_sealed);
@@ -122,9 +173,10 @@ export async function authHeaders(f: any, deps: PullDeps, db?: Db): Promise<Reco
   if (f.auth_scheme === "bearer") return { authorization: `Bearer ${secret}` };
   if (f.auth_scheme === "header") return { [f.auth_header]: secret };
   allowedHost(f.token_url);
-  const i = secret.indexOf(":"), id = secret.slice(0, i), sec = secret.slice(i + 1);
-  const form = new URLSearchParams({ grant_type: "client_credentials", ...(f.token_scope ? { scope: f.token_scope } : {}) }).toString();
-  const res = await (deps.post ?? postJson)(f.token_url, form, { authorization: `Basic ${Buffer.from(`${id}:${sec}`).toString("base64")}`, accept: "application/json" }, { ...deps.postOptions, contentType: "application/x-www-form-urlencoded" });
+  const pk = f.client_auth === "private_key_jwt";
+  const i = secret.indexOf(":"), id = pk ? secret : secret.slice(0, i), sec = pk ? "" : secret.slice(i + 1);
+  const form = new URLSearchParams({ grant_type: "client_credentials", ...(f.token_scope ? { scope: f.token_scope } : {}), ...(pk ? clientAuthForm(f, id, "") : {}) }).toString();
+  const res = await (deps.post ?? postJson)(f.token_url, form, { ...(pk ? {} : { authorization: `Basic ${Buffer.from(`${id}:${sec}`).toString("base64")}` }), accept: "application/json" }, { ...deps.postOptions, contentType: "application/x-www-form-urlencoded", tls: tlsOf(f) });
   if (res.status === 400 || res.status === 401 || res.status === 403) throw Object.assign(new Error("refused"), { permanentMessage: "The provider refused the client credentials." });
   if (res.status < 200 || res.status >= 300) throw new Error(`token request answered HTTP ${res.status}`);
   let token = "";
@@ -160,11 +212,11 @@ export async function pullFeed(db: Db, tenantId: string, id: string, deps: PullD
     const u0 = new URL(f.url);
     if (f.cursor) { const from = new Date(f.cursor); from.setUTCDate(from.getUTCDate() - 3); u0.searchParams.set(f.since_param, from.toISOString().slice(0, 10)); }   // a small overlap; remembered ids make it harmless
     const get = deps.get ?? ((u: string, h: Record<string, string>, o?: PostOptions) => getJson(u, h, { ...o, returnHeaders: true }));
-    const headers = await authHeaders(f, deps, db);
+    const headers = await authHeaders(f, deps, db), tls = tlsOf(f);
     let next: URL | null = u0, page = 1;
     for (let n = 0; next && n < f.max_pages; n++) {
       allowedHost(next.toString());                                                              // a paged "next" address is checked like the first
-      const res = await get(next.toString(), headers, deps.postOptions);
+      const res = await get(next.toString(), { ...headers, ...signHeaders(f, "GET", next.toString()) }, tls ? { ...deps.postOptions, tls } : deps.postOptions);
       if (res.status === 401 || res.status === 403) return fail("The provider refused the credential.");
       if (res.status < 200 || res.status >= 300) return fail(`The provider answered HTTP ${res.status}.`);
       const got = parsePage(f, res);
@@ -224,7 +276,7 @@ export async function startConsent(c: Conn, ctx: Ctx, id: string): Promise<strin
 }
 const tokenRequest = async (f: any, form: Record<string, string>, deps: PullDeps) => {
   allowedHost(f.token_url);
-  const res = await (deps.post ?? postJson)(f.token_url, new URLSearchParams(form).toString(), { accept: "application/json" }, { ...deps.postOptions, contentType: "application/x-www-form-urlencoded", maxBodyBytes: 20_000 });
+  const res = await (deps.post ?? postJson)(f.token_url, new URLSearchParams(form).toString(), { accept: "application/json" }, { ...deps.postOptions, contentType: "application/x-www-form-urlencoded", maxBodyBytes: 20_000, tls: tlsOf(f) });
   let body: any = {}; try { body = JSON.parse(res.body); } catch { /* handled by caller */ }
   return { status: res.status, body };
 };
@@ -238,7 +290,7 @@ export async function completeConsent(c: Conn, ctx: Ctx, q: { code?: string; sta
   if (q.error || !q.code) { await clear(); await c.query(`UPDATE feed_connections SET last_status='error', last_error=$2 WHERE id=$1`, [f.id, "The account holder did not give consent."]); return { ok: false, message: "Consent was not given at the provider." }; }
   const [clientId, ...rest] = unseal(f.secret_sealed).split(":");
   let r: Awaited<ReturnType<typeof tokenRequest>>;
-  try { r = await tokenRequest(f, { grant_type: "authorization_code", code: String(q.code), redirect_uri: consentRedirectUri(), client_id: clientId, client_secret: rest.join(":"), code_verifier: unseal(f.consent_verifier_sealed) }, deps); }
+  try { r = await tokenRequest(f, { grant_type: "authorization_code", code: String(q.code), redirect_uri: consentRedirectUri(), ...clientAuthForm(f, clientId, rest.join(":")), code_verifier: unseal(f.consent_verifier_sealed) }, deps); }
   catch { await clear(); return { ok: false, message: "The provider could not be reached to complete consent. Start again." }; }
   await clear();                                                    // the state and verifier are single-use whatever the outcome
   if (r.status < 200 || r.status >= 300 || !r.body?.access_token) return { ok: false, message: "The provider did not accept the consent. Start again." };
@@ -262,7 +314,7 @@ async function consentToken(db: Db, f: any, secret: string, deps: PullDeps): Pro
   if (t.expires_at - 60_000 > Date.now()) return t.access_token;
   if (!t.refresh_token) throw gone("The access token expired and the provider issued no refresh token.");
   const [clientId, ...rest] = secret.split(":");
-  const r = await tokenRequest(f, { grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: clientId, client_secret: rest.join(":") }, deps);
+  const r = await tokenRequest(f, { grant_type: "refresh_token", refresh_token: t.refresh_token, ...clientAuthForm(f, clientId, rest.join(":")) }, deps);
   if (r.status === 400 || r.status === 401) { await db.tenant(f.tenant_id, (c) => c.query(`UPDATE feed_connections SET token_sealed=NULL WHERE id=$1`, [f.id])); throw gone("The provider no longer accepts this consent."); }
   if (r.status < 200 || r.status >= 300 || !r.body?.access_token) throw new Error(`token refresh answered HTTP ${r.status}`);
   const next = { access_token: String(r.body.access_token), refresh_token: r.body.refresh_token ? String(r.body.refresh_token) : t.refresh_token, expires_at: Date.now() + (Number(r.body.expires_in) || 300) * 1000 };

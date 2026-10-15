@@ -12,6 +12,9 @@ const TARGETS: { name: string; table: string; keys: string[]; column: string }[]
   { name: "dlv_merchant_settings", table: "dlv_merchant_settings", keys: ["tenant_id", "merchant_id"], column: "webhook_secret_sealed" },
   { name: "feed_connections.secret_sealed", table: "feed_connections", keys: ["id"], column: "secret_sealed" },
   { name: "feed_connections.token_sealed", table: "feed_connections", keys: ["id"], column: "token_sealed" },
+  { name: "feed_connections.tls_cert_sealed", table: "feed_connections", keys: ["id"], column: "tls_cert_sealed" },
+  { name: "feed_connections.tls_key_sealed", table: "feed_connections", keys: ["id"], column: "tls_key_sealed" },
+  { name: "feed_connections.sign_key_sealed", table: "feed_connections", keys: ["id"], column: "sign_key_sealed" },
   { name: "feed_connections.consent_verifier_sealed", table: "feed_connections", keys: ["id"], column: "consent_verifier_sealed" },
 ];
 export async function resealSessionSecrets(db: Db, current: string, previous: string, apply = false) {
