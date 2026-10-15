@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { config } from "../config.js";
-import { createFeedConnection, listFeeds, pullFeed, setFeedActive } from "../ops/live-feeds.js";
+import { completeConsent, createFeedConnection, listFeeds, pullFeed, setFeedActive, startConsent, withdrawConsent } from "../ops/live-feeds.js";
 import { act, appPage, need, PageHead, withT } from "./appkit.js";
 import { Badge, Csrf, Table } from "./ui.js";
 import { formBody, str, type Env } from "./mw.js";
@@ -21,12 +21,13 @@ feeds.get(U, async (c) => {
     <Table head={["Feed", "Kind", "Status", "Last pull", "Added", ""]} empty="No feeds yet.">
       {list.map((f: any) => <tr><td>{f.label}<div class="small mute">{f.url}</div></td><td>{f.kind}</td><td>{f.last_status ? <Badge s={f.last_status === "ok" ? "good" : "bad"} label={f.last_status} /> : "—"}{f.last_error ? <div class="small">{f.last_error}</div> : null}</td>
         <td>{f.last_pull_at ? new Date(f.last_pull_at).toISOString().slice(0, 16).replace("T", " ") : "never"}</td><td>{f.last_added}</td>
-        <td><form method="post" action={`${U}/${f.id}/pull`}><Csrf t={csrf} /><button class="btn ghost sm">Pull now</button></form> <form method="post" action={`${U}/${f.id}/active`}><Csrf t={csrf} /><input type="hidden" name="active" value={f.active ? "0" : "1"} /><button class="btn ghost sm">{f.active ? "Pause" : "Resume"}</button></form></td></tr>)}</Table>
+        <td>{f.auth_scheme === "oauth2_authcode" ? (f.consented ? <><span class="small mute">Consent until {String(f.consent_expires_at).slice(0, 10)} </span><form method="post" action={`${U}/${f.id}/withdraw`} class="inline-form"><Csrf t={csrf} /><button class="btn ghost sm">Withdraw consent</button></form> </> : <form method="post" action={`${U}/${f.id}/consent`} class="inline-form"><Csrf t={csrf} /><button class="btn sm">Connect account</button></form>) : null}<form method="post" action={`${U}/${f.id}/pull`}><Csrf t={csrf} /><button class="btn ghost sm">Pull now</button></form> <form method="post" action={`${U}/${f.id}/active`}><Csrf t={csrf} /><input type="hidden" name="active" value={f.active ? "0" : "1"} /><button class="btn ghost sm">{f.active ? "Pause" : "Resume"}</button></form></td></tr>)}</Table>
     {enabled ? <form class="card" method="post" action={U}><Csrf t={csrf} /><h2>Add a feed</h2>
       {field("label", "Name", { required: true })}
       <div class="field"><label for="kind">Kind</label><select id="kind" name="kind"><option value="bank">Bank or card settlement</option><option value="fuel">Fuel card</option><option value="salik">Salik</option></select></div>
       {field("url", "Provider address (https)", { type: "url", required: true })}
-      <div class="field"><label for="auth_scheme">Authentication</label><select id="auth_scheme" name="auth_scheme"><option value="bearer">Bearer token</option><option value="header">Named header</option><option value="oauth2_client">OAuth2 client credentials (credential as client_id:client_secret)</option></select></div>
+      <div class="field"><label for="auth_scheme">Authentication</label><select id="auth_scheme" name="auth_scheme"><option value="bearer">Bearer token</option><option value="header">Named header</option><option value="oauth2_client">OAuth2 client credentials (credential as client_id:client_secret)</option><option value="oauth2_authcode">Account-holder consent at the bank (credential as client_id:client_secret)</option></select></div>
+      {field("authorize_url", "Consent address (account-holder consent only)", { type: "url" })}
       {field("token_url", "Token address (OAuth2 only)", { type: "url" })}{field("token_scope", "Scope (OAuth2, optional)")}
       {field("auth_header", "Header name (if a named header)")}{field("secret", "Credential from your provider", { type: "password", required: true, autocomplete: "off" })}
       {field("items_path", "Where the list of transactions is in the answer (blank = the answer itself)")}{field("since_param", "Date parameter name", { value: "since" })}
@@ -39,6 +40,23 @@ feeds.get(U, async (c) => {
       <button class="btn">Save feed</button></form> : null}</>);
 });
 feeds.post(U, async (c) => { const b = await formBody(c); return act(c, U, async () => { await withT(c, (cn, ctx) => createFeedConnection(cn, ctx, b)); return { to: U, ok: "Feed saved. It is pulled on the next cycle, or use Pull now." }; }); });
+feeds.post(`${U}/:id/consent`, async (c) => {
+  need(c, "settings.manage");
+  const id = c.req.param("id");
+  try { return c.redirect(await withT(c, (cn, ctx) => startConsent(cn, ctx, id))); }
+  catch (e: any) { if (e?.status && e.status < 500) { const { back } = await import("./appkit.js"); return back(c, U, undefined, e.message); } throw e; }
+});
+feeds.get(`${U}/callback`, async (c) => {
+  need(c, "settings.manage");
+  const q = { code: c.req.query("code"), state: c.req.query("state"), error: c.req.query("error") };
+  const { back } = await import("./appkit.js");
+  let r: Awaited<ReturnType<typeof completeConsent>>;
+  try { r = await withT(c, (cn, ctx) => completeConsent(cn, ctx, q)); }
+  catch (e: any) { if (e?.status && e.status < 500) return back(c, U, undefined, e.message); throw e; }
+  if (!r.ok) return back(c, U, undefined, r.message);
+  return back(c, U, "Account connected. The feed is pulled on the next cycle, or use Pull now.");
+});
+feeds.post(`${U}/:id/withdraw`, async (c) => { const id = c.req.param("id"); return act(c, U, async () => { await withT(c, (cn, ctx) => withdrawConsent(cn, ctx, id)); return { to: U, ok: "Consent withdrawn. The stored tokens were erased and the feed switched off." }; }); });
 feeds.post(`${U}/:id/active`, async (c) => { const b = await formBody(c); const id = c.req.param("id"); return act(c, U, async () => { await withT(c, (cn, ctx) => setFeedActive(cn, ctx, id, str(b.active) === "1")); return { to: U, ok: "Feed updated." }; }); });
 feeds.post(`${U}/:id/pull`, async (c) => {
   need(c, "settings.manage");
