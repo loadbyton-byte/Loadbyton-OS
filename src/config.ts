@@ -199,7 +199,7 @@ export function validateConfig(c = config, production = isProd) {
   if (c.liveFeeds.allowedHosts.some((h) => !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(h))) problems.push("FEED_ALLOWED_HOSTS must be a comma list of public host names (no schemes, ports or paths)");
   if (!Number.isInteger(c.rf.port) || c.rf.port < 0 || c.rf.port > 65535) problems.push("RF_PORT must be a port number between 1 and 65535, or unset");
   if (c.rf.port && !(Number.isInteger(c.rf.width) && c.rf.width >= 16 && c.rf.width <= 80 && Number.isInteger(c.rf.rows) && c.rf.rows >= 2 && c.rf.rows <= 40)) problems.push("RF_WIDTH is 16 to 80 columns and RF_ROWS is 2 to 40");
-  if (c.rf.port && c.isProd && /^(0\.0\.0\.0|::)$/.test(c.rf.host)) problems.push("RF_HOST must be a private address in production: the RF terminal is cleartext and must not listen on every interface");
+  if (c.rf.port && c.isProd && /^(0\.0\.0\.0|::)$/.test(c.rf.host) && env.RF_BIND_ALL !== "yes") problems.push("RF_HOST must be a private address in production: the RF terminal is cleartext and must not listen on every interface (inside the container compose file, RF_BIND_ALL=yes is set and the published port is limited to RF_PUBLISH)");
   if (!["osrm", "google"].includes(c.routing.provider)) problems.push(`ROUTING_PROVIDER must be "osrm" or "google" (got "${c.routing.provider}")`);
   if (c.routing.provider === "google" && !c.routing.apiKey) problems.push("ROUTING_API_KEY (a Google Maps Platform key with the Routes API enabled) is required when ROUTING_PROVIDER=google");
   if (c.routing.url && !/^https:\/\/[^\s]+$/.test(c.routing.url)) problems.push("ROUTING_URL must be an https address");
