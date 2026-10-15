@@ -396,6 +396,16 @@ async function placeOrder(c: Conn, ctx: Ctx, f: OrderInput): Promise<{ id: strin
   return { id, no, created: true };
 }
 
+/** Order arriving from a connected storefront: same idempotent placement and allocation as an import, without the form-level quota-abort rules. */
+export async function ingestChannelOrder(c: Conn, ctx: Ctx, f: OrderInput): Promise<{ id: string; no: string; created: boolean }> {
+  require(ctx, "wh.write");
+  await assertWritable(c, ctx.tenantId);
+  await must(c.query(`SELECT id FROM parties WHERE id=$1 AND kind='customer'`, [f.party_id]), "Merchant");
+  const r = await placeOrder(c, ctx, f);
+  if (r.created) await allocateInternal(c, ctx, r.id);
+  return r;
+}
+
 /** Manual order entry. The order reserves stock immediately, or is backordered (nothing partially stranded). */
 export async function createOrder(c: Conn, ctx: Ctx, f: Record<string, any>) {
   require(ctx, "wh.write");

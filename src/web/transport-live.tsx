@@ -1,5 +1,6 @@
 import {Hono} from 'hono';
 import {feedWorkspace,importFeed,latestPositions,optimiseTrip,postFeedExpenses,resolveFeedLine,setLegCoordinates} from '../ops/transport-live.js';
+import {geocodeTrip,geocoderEnabled} from '../ops/geocode.js';
 import {getTrip} from '../ops/transport.js';
 import {act,appPage,can,need,PageHead,PostBtn,withT} from './appkit.js';
 import {Badge,Csrf,Money,Table} from './ui.js';
@@ -20,10 +21,12 @@ transportLive.get(`${T}/trips/:id/route`,async c=>{
  const plan=await withT(c,(cn,ctx)=>optimiseTrip(cn,ctx,id,false)).catch((e:any)=>({error:String(e.message)} as any));
  const byId=new Map<string,any>(d.legs.map((l:any)=>[l.id,l]));
  return appPage(c,'Route',<><PageHead title={`Route · ${d.trip.no}`} sub="Straight-line distances between stop coordinates; pickups always stay before their deliveries. Completed stops never move."><a class="btn ghost sm" href={`${T}/trips/${id}`}>Back to trip</a></PageHead>
- <Table head={['#','Stop','Order','Status','Coordinates']}>{d.legs.map((l:any)=><tr><td>{l.seq}</td><td><strong>{l.kind}</strong><div class="small mute">{l.address}</div></td><td>{l.order_no}</td><td>{l.status}</td><td>{l.status==='pending'?<form method="post" action={`${T}/trips/${id}/legs/${l.id}/coords`} class="inline-form"><Csrf t={csrf}/><input name="lat" value={l.lat??''} placeholder="Lat" style="max-width:100px" required aria-label="Latitude"/><input name="lng" value={l.lng??''} placeholder="Lng" style="max-width:100px" required aria-label="Longitude"/><button class="btn ghost sm">Save</button></form>:(l.lat?`${l.lat}, ${l.lng}`:'—')}</td></tr>)}</Table>
+ <Table head={['#','Stop','Order','Status','Coordinates']}>{d.legs.map((l:any)=><tr><td>{l.seq}</td><td><strong>{l.kind}</strong><div class="small mute">{l.address}</div></td><td>{l.order_no}</td><td>{l.status}</td><td>{l.geo_source==='geocoded'?<div class="small mute">looked up: {l.geo_label||'address match'}</div>:null}{l.status==='pending'?<form method="post" action={`${T}/trips/${id}/legs/${l.id}/coords`} class="inline-form"><Csrf t={csrf}/><input name="lat" value={l.lat??''} placeholder="Lat" style="max-width:100px" required aria-label="Latitude"/><input name="lng" value={l.lng??''} placeholder="Lng" style="max-width:100px" required aria-label="Longitude"/><button class="btn ghost sm">Save</button></form>:(l.lat?`${l.lat}, ${l.lng}`:'—')}</td></tr>)}</Table>
+ {geocoderEnabled()&&can(c,'transport.write')&&d.legs.some((l:any)=>l.status==='pending'&&l.lat===null)?<PostBtn action={`${T}/trips/${id}/route/geocode`} csrf={csrf} label="Look up missing coordinates from addresses" cls="ghost sm"/>:null}
  {plan.error?<div class="alert warn">{plan.error}</div>:<><h3>Proposed order</h3><p>Current plan {plan.before_km} km → proposed {plan.after_km} km{plan.saved_km>0?<> (saves {plan.saved_km} km)</>:' (already best)'}.</p><ol>{plan.sequence.map((sid:string)=>{const l=byId.get(sid);return <li>{l.kind} · {l.address} <span class="small mute">({l.order_no})</span></li>;})}</ol>{plan.saved_km>0?<PostBtn action={`${T}/trips/${id}/route/apply`} csrf={csrf} label="Apply this order" cls="red sm"/>:null}</>}</>);
 });
 transportLive.post(`${T}/trips/:id/legs/:leg/coords`,async c=>{const b=await formBody(c),id=c.req.param('id');return act(c,`${T}/trips/${id}/route`,async()=>{await withT(c,(cn,ctx)=>setLegCoordinates(cn,ctx,c.req.param('leg'),str(b.lat),str(b.lng)));return {to:`${T}/trips/${id}/route`,ok:'Coordinates saved.'};});});
+transportLive.post(`${T}/trips/:id/route/geocode`,async c=>{const id=c.req.param('id');return act(c,`${T}/trips/${id}/route`,async()=>{const r=await withT(c,(cn,ctx)=>geocodeTrip(cn,ctx,id));return {to:`${T}/trips/${id}/route`,ok:`${r.found} stop(s) located.${r.failed[0]?` Not located: ${r.failed[0].address} — ${r.failed[0].reason}`:''}`};});});
 transportLive.post(`${T}/trips/:id/route/apply`,async c=>{const id=c.req.param('id');return act(c,`${T}/trips/${id}/route`,async()=>{await withT(c,(cn,ctx)=>optimiseTrip(cn,ctx,id,true));return {to:`${T}/trips/${id}`,ok:'Stop order updated.'};});});
 
 transportLive.get(`${T}/feeds`,async c=>{
