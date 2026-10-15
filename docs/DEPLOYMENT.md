@@ -206,7 +206,7 @@ See [`MONITORING.md`](MONITORING.md): `/healthz` (liveness), `/readyz` (database
 
 ## 11. Known limits of this setup (pilot)
 
-- **One web instance.** Background workers (provisioning, outbox) run inside it. Run more instances only after setting `RUN_WORKERS=false` on all but one.
+- **Several web instances are supported.** Each background job (provisioning, outbox, storage, subscriptions, ledger, feeds, e-invoicing, privacy) runs under a short database lease (`worker_leases`), so it runs on one instance at a time and moves to another within about 30 seconds if its holder dies. `RUN_WORKERS=false` still keeps workers off an instance. Share the rate limiter (Upstash) and object storage (`s3`) when you run more than one.
 - With `STORAGE_DRIVER=fs`, uploaded documents live on the VM's Docker volume: back it up (`scripts/backup.sh`). Use `s3` to move them off the VM.
 - **Alerting is yours to wire**: the app exposes health and metrics; something outside it must watch them and page a person (see MONITORING.md). Until that is running, sectors stay *Pilot*.
 - Merchant webhooks and the merchant API are in place, but a merchant's own endpoint reliability is outside our control: failed deliveries are retried 12 times with growing back-off (about three hours in total) and then wait in the dead queue.
