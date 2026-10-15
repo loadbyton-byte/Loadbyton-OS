@@ -8,27 +8,38 @@ import { assertWritable } from "../platform/entitlements.js";
 import { must, recordId, reqStr } from "./common.js";
 import { cancelFulfilOrder, ingestChannelOrder } from "./fulfilment.js";
 import { allowedHost, authHeaders, parsePage, pick, type PullDeps } from "./live-feeds.js";
+import { orderProfile } from "./order-profiles.js";
+import { postJson } from "../lib/safe-http.js";
 
 /**
  * Order pulls for marketplaces and shops that expose a REST list of orders (Noon, Amazon through a gateway, Magento, a custom shop). The workspace maps the answer's field
  * names; each order becomes a fulfilment order for one merchant, idempotently on the marketplace's order reference. Orders in a "cancel" status cancel the fulfilment order
  * only while it can still be cancelled. Unknown SKUs are reported and retried on the next pull. The provider host must be on the installation's allow-list (FEED_ALLOWED_HOSTS).
  */
-const KEYS = ["ref", "name", "phone", "address", "city", "country", "lines_path", "sku", "qty", "status", "time"] as const;
+const KEYS = ["ref", "name", "phone", "address", "city", "country", "lines_path", "sku", "qty", "status", "time", "line_skip_if_set"] as const;
 const PATH = /^[A-Za-z0-9_.-]{1,80}$/;
 const csv = (v: unknown) => String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 const listVals = (v: unknown) => csv(v).map((x) => x.toLowerCase()).slice(0, 20);
 
-export async function createOrderPull(c: Conn, ctx: Ctx, f: Record<string, any>) {
+export async function createOrderPull(c: Conn, ctx: Ctx, input: Record<string, any>) {
   require(ctx, "settings.manage");
+  const prof = input.profile ? orderProfile(input.profile) : undefined;
+  if (input.profile && !prof) throw badRequest("Unknown marketplace profile.");
+  // a profile fills what was left blank; anything typed wins
+  const f: Record<string, any> = { ...(prof?.defaults ?? {}), ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== "" && v !== undefined && v !== null)) };
   await assertWritable(c, ctx.tenantId);
   if (!(await c.query(`SELECT 1 FROM tenant_sectors WHERE sector='ecommerce-fulfilment'`)).rows.length) throw forbidden("The e-commerce fulfilment sector is not selected.");
   await must(c.query(`SELECT id FROM parties WHERE id=$1 AND kind='customer'`, [recordId(f.party_id, "Merchant")]), "Merchant");
   let url: string, tokenUrl: string | null = null;
   try { url = allowedHost(String(f.url ?? "")).toString(); } catch (e: any) { throw badRequest(e.message); }
   const scheme = String(f.auth_scheme ?? "bearer");
-  if (!["bearer", "header", "oauth2_client"].includes(scheme)) throw badRequest("Authentication is a bearer token, a named header or OAuth2 client credentials.");
+  if (!["bearer", "header", "oauth2_client", "oauth2_refresh"].includes(scheme)) throw badRequest("Authentication is a bearer token, a named header, OAuth2 client credentials or a refresh token.");
   const secret = reqStr(f.secret, "Credential", 2000);
+  if (scheme === "oauth2_refresh") {
+    try { tokenUrl = allowedHost(String(f.token_url ?? "")).toString(); } catch (e: any) { throw badRequest(`Token address: ${e.message}`); }
+    let cred: any; try { cred = JSON.parse(secret); } catch { throw badRequest("For a refresh-token sign-in the credential is JSON with client_id, client_secret and refresh_token."); }
+    if (!cred?.client_id || !cred?.client_secret || !cred?.refresh_token) throw badRequest("The credential needs client_id, client_secret and refresh_token.");
+  }
   if (scheme === "oauth2_client") {
     try { tokenUrl = allowedHost(String(f.token_url ?? "")).toString(); } catch (e: any) { throw badRequest(`Token address: ${e.message}`); }
     if (!/^[^:\s]{1,200}:.{1,400}$/.test(secret)) throw badRequest("For OAuth2 the credential is entered as client_id:client_secret.");
@@ -40,6 +51,23 @@ export async function createOrderPull(c: Conn, ctx: Ctx, f: Record<string, any>)
   for (const need of ["ref", "name", "address", "lines_path", "sku", "qty"]) if (!map[need]) throw badRequest(`Map the ${need} field.`);
   map.accept_values = listVals(f.accept_values); map.cancel_values = listVals(f.cancel_values);
   if ((map.accept_values.length || map.cancel_values.length) && !map.status) throw badRequest("Status values need the status field mapped.");
+  const extra: Record<string, any> = { staticParams: {}, detailUrl: null, tokenHeader: null, exchangeUrl: null, exchangeBody: null, exchangePath: null };
+  const sp = typeof f.static_params === "string" ? (() => { try { return JSON.parse(f.static_params); } catch { throw badRequest("Fixed query parameters must be a JSON object."); } })() : f.static_params ?? {};
+  if (!sp || typeof sp !== "object" || Array.isArray(sp) || Object.keys(sp).length > 20 || Object.values(sp).some((v) => typeof v !== "string" && typeof v !== "number")) throw badRequest("Fixed query parameters are up to 20 name/value pairs.");
+  extra.staticParams = Object.fromEntries(Object.entries(sp).map(([k, v]) => [String(k).slice(0, 120), String(v).slice(0, 300)]));
+  if (f.detail_url) {
+    try { allowedHost(String(f.detail_url).replace("{ref}", "x")); } catch (e: any) { throw badRequest(`Detail address: ${e.message}`); }
+    if (!String(f.detail_url).includes("{ref}")) throw badRequest("The per-order detail address must contain {ref}.");
+    extra.detailUrl = String(f.detail_url);
+  }
+  if (f.exchange_url) {
+    try { allowedHost(String(f.exchange_url)); } catch (e: any) { throw badRequest(`Access-token exchange address: ${e.message}`); }
+    if (!f.exchange_token_path || !PATH.test(String(f.exchange_token_path))) throw badRequest("Name the field that holds the exchanged token.");
+    extra.exchangeUrl = String(f.exchange_url); extra.exchangeBody = String(f.exchange_body ?? "").slice(0, 4000); extra.exchangePath = String(f.exchange_token_path);
+  }
+  if (f.token_header) { if (!/^[A-Za-z0-9-]{1,60}$/.test(String(f.token_header))) throw badRequest("The token header may contain letters, digits and hyphens."); extra.tokenHeader = String(f.token_header); }
+  const sinceFormat = ["iso", "date", "sql"].includes(String(f.since_format)) ? String(f.since_format) : "iso";
+  const lookback = f.lookback_days ? Math.min(90, Math.max(1, Number(f.lookback_days) || 7)) : null;
   const format = f.response_format === "csv" ? "csv" : "json";
   const pageMode = ["none", "cursor", "page", "link"].includes(String(f.page_mode)) ? String(f.page_mode) : "none";
   const pageParam = String(f.page_param ?? "").trim() || (pageMode === "page" ? "page" : pageMode === "cursor" ? "cursor" : "");
@@ -47,10 +75,11 @@ export async function createOrderPull(c: Conn, ctx: Ctx, f: Record<string, any>)
   if (pageMode === "cursor" && !nextPath) throw badRequest("Cursor paging needs the field that holds the next cursor.");
   if (format === "csv") throw badRequest("Order lists with nested lines are read as JSON.");
   const id = (await c.query<any>(
-    `INSERT INTO order_pulls(tenant_id,party_id,label,url,auth_scheme,auth_header,secret_sealed,token_url,token_scope,items_path,since_param,page_mode,page_param,next_path,max_pages,field_map,channel,created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+    `INSERT INTO order_pulls(tenant_id,party_id,label,url,auth_scheme,auth_header,secret_sealed,token_url,token_scope,items_path,since_param,page_mode,page_param,next_path,max_pages,field_map,channel,created_by,profile,static_params,since_format,lookback_days,cursor_only,detail_url,token_header,exchange_url,exchange_body,exchange_token_path)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) RETURNING id`,
     [ctx.tenantId, f.party_id, reqStr(f.label, "Name", 80), url, scheme, header, seal(secret), tokenUrl, String(f.token_scope ?? "").trim().slice(0, 200) || null, String(f.items_path ?? "").trim().slice(0, 80),
-      String(f.since_param ?? "").trim() || "since", pageMode, pageParam || null, nextPath || null, Math.min(50, Math.max(1, Number(f.max_pages ?? 10) || 10)), JSON.stringify(map), reqStr(f.channel || "marketplace", "Channel name", 40).toLowerCase(), ctx.userId])
+      String(f.since_param ?? "").trim() || "since", pageMode, pageParam || null, nextPath || null, Math.min(50, Math.max(1, Number(f.max_pages ?? 10) || 10)), JSON.stringify(map), reqStr(f.channel || "marketplace", "Channel name", 40).toLowerCase(), ctx.userId,
+      prof ? String(input.profile) : null, JSON.stringify(extra.staticParams), sinceFormat, lookback, f.cursor_only === true || f.cursor_only === "true", extra.detailUrl, extra.tokenHeader, extra.exchangeUrl, extra.exchangeBody, extra.exchangePath])
     .catch((e) => { if (/unique/i.test(String(e.message))) throw badRequest("A pull with that name already exists."); throw e; })).rows[0].id;
   await audit(c, ctx.tenantId, actorOf(ctx), "order_pull.created", "order_pull", id);
   return id as string;
@@ -81,8 +110,10 @@ export function mapPulledOrder(o: any, m: Record<string, any>): { kind: "order";
   if (m.accept_values?.length ? !m.accept_values.includes(status) : false) return { kind: "skip" };
   const raw = pick(o, m.lines_path);
   if (!Array.isArray(raw) || !raw.length) return { kind: "invalid", ref, reason: "The order has no lines." };
+  if (!raw.some((l) => !(m.line_skip_if_set && text(pick(l, m.line_skip_if_set), 40)))) return { kind: "invalid", ref, reason: "The order has no lines." };
   const by = new Map<string, number>();
   for (const l of raw) {
+    if (m.line_skip_if_set && text(pick(l, m.line_skip_if_set), 40)) continue;        // for example a configurable product's child line, whose parent line is counted
     const sku = text(pick(l, m.sku), 80), qty = Number(pick(l, m.qty));
     if (!sku) return { kind: "invalid", ref, reason: "A line has no SKU." };
     if (!Number.isInteger(qty) || qty <= 0 || qty > 100_000) return { kind: "invalid", ref, reason: `Line ${sku} has an invalid quantity.` };
@@ -101,12 +132,26 @@ export async function pullOrders(db: Db, tenantId: string, id: string, deps: Pul
   if (!f) return { added: 0, cancelled: 0, rejected: 0, error: "Pull not found or switched off." };
   f.response_format = "json";
   const items: unknown[] = [];
+  const get = deps.get ?? ((u: string, h: Record<string, string>, o?: PostOptions) => getJson(u, h, { ...o, returnHeaders: true }));
+  let headers: Record<string, string> = {};
   try {
     allowedHost(f.url);
     const u0 = new URL(f.url);
-    if (f.cursor) { const from = new Date(f.cursor); from.setUTCDate(from.getUTCDate() - 1); u0.searchParams.set(f.since_param, from.toISOString()); }
-    const get = deps.get ?? ((u: string, h: Record<string, string>, o?: PostOptions) => getJson(u, h, { ...o, returnHeaders: true }));
-    const headers = await authHeaders(f, deps, db);
+    for (const [k, v] of Object.entries(f.static_params ?? {})) u0.searchParams.set(k, String(v));
+    if (f.page_mode === "page") u0.searchParams.set(f.page_param || "page", "1");
+    // the window: from a day before the newest order seen, or on the first pull the configured lookback (otherwise the provider's default window)
+    const sinceFrom = f.cursor ? (() => { const d = new Date(f.cursor); d.setUTCDate(d.getUTCDate() - 1); return d; })() : f.lookback_days ? new Date(Date.now() - f.lookback_days * 86400_000) : null;
+    if (sinceFrom) u0.searchParams.set(f.since_param, f.since_format === "date" ? sinceFrom.toISOString().slice(0, 10) : f.since_format === "sql" ? sinceFrom.toISOString().slice(0, 19).replace("T", " ") : sinceFrom.toISOString());
+    headers = await authHeaders(f, deps, db);
+    if (f.exchange_url) {
+      // a second token for restricted data (Amazon's Restricted Data Token): exchanged with the first, sent in place of it
+      allowedHost(f.exchange_url);
+      const ex = await (deps.post ?? postJson)(f.exchange_url, f.exchange_body || "{}", headers, { ...deps.postOptions, maxBodyBytes: 20_000 });
+      if (ex.status < 200 || ex.status >= 300) return fail(`The provider would not issue the restricted-data token (HTTP ${ex.status}). Check the application's permissions.`);
+      let tok = ""; try { tok = String(pick(JSON.parse(ex.body), f.exchange_token_path) ?? ""); } catch { /* below */ }
+      if (!tok) return fail("The provider's token-exchange answer had no token.");
+      headers = f.token_header ? { [f.token_header]: tok } : { authorization: `Bearer ${tok}` };
+    }
     let next: URL | null = u0, page = 1;
     for (let n = 0; next && n < f.max_pages; n++) {
       allowedHost(next.toString());
@@ -119,12 +164,13 @@ export async function pullOrders(db: Db, tenantId: string, id: string, deps: Pul
       next = null;
       if (!got.items.length) break;
       if (f.page_mode === "page") { page++; next = new URL(u0); next.searchParams.set(f.page_param || "page", String(page)); }
-      else if (f.page_mode === "cursor" && got.cursor) { next = new URL(u0); next.searchParams.set(f.page_param || "cursor", got.cursor); }
+      else if (f.page_mode === "cursor" && got.cursor) { next = f.cursor_only ? new URL(u0.origin + u0.pathname) : new URL(u0); next.searchParams.set(f.page_param || "cursor", got.cursor); }
       else if (f.page_mode === "link" && got.link) next = new URL(got.link, u0);
     }
   } catch (e: any) { return fail(e.permanentMessage ?? `The provider could not be reached or answered unexpectedly: ${e.message}`); }
   const svc = await serviceCtx(db, tenantId);
   const out = { added: 0, cancelled: 0, rejected: 0 };
+  let details = 0;
   let latest: number | null = null;
   await db.tenant(tenantId, async (c) => {
     await c.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [`${tenantId}:orderpull:${id}`]);
@@ -134,8 +180,23 @@ export async function pullOrders(db: Db, tenantId: string, id: string, deps: Pul
     };
     for (const it of items) {
       if (f.field_map.time) { const t = Date.parse(String(pick(it, f.field_map.time) ?? "")); if (Number.isFinite(t) && (latest === null || t > latest)) latest = t; }
-      const m = mapPulledOrder(it, f.field_map);
+      let m = mapPulledOrder(it, f.field_map);
       if (m.kind === "skip") continue;
+      if (f.detail_url && (m.kind === "order" || (m.kind === "invalid" && m.ref && /no lines/.test(m.reason)))) {
+        // the list does not carry the lines: ask for them, once per new order, and never for orders already received
+        const ref = m.ref;
+        if ((await c.query(`SELECT 1 FROM fulfil_orders WHERE party_id=$1 AND external_ref=$2`, [f.party_id, ref])).rows.length) continue;
+        if (details >= 100) continue;                                                              // the rest on the next pull
+        details++;
+        try {
+          allowedHost(f.detail_url.replace("{ref}", "x"));
+          const dr = await (deps.get ?? get)(f.detail_url.replace("{ref}", encodeURIComponent(ref)), headers, deps.postOptions);
+          if (dr.status < 200 || dr.status >= 300) { out.rejected++; await log(ref, "rejected", `The provider's order detail answered HTTP ${dr.status}.`, null); continue; }
+          (it as any).detail = JSON.parse(dr.body);
+        } catch { out.rejected++; await log(ref, "rejected", "The order's lines could not be fetched.", null); continue; }
+        m = mapPulledOrder(it, f.field_map);
+        if (m.kind === "skip") continue;
+      }
       if (m.kind === "invalid") { out.rejected++; await log(m.ref || "(no reference)", "rejected", m.reason, null); continue; }
       await c.query("SAVEPOINT pull_order");
       try {

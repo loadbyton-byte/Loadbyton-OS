@@ -170,6 +170,18 @@ export function clientAuthForm(f: any, clientId: string, clientSecret: string): 
 export async function authHeaders(f: any, deps: PullDeps, db?: Db): Promise<Record<string, string>> {
   const secret = unseal(f.secret_sealed);
   if (f.auth_scheme === "oauth2_authcode") return { authorization: `Bearer ${await consentToken(db!, f, secret, deps)}` };
+  if (f.auth_scheme === "oauth2_refresh") {
+    // Refresh-token sign-in (for example Amazon's Login with Amazon): the sealed credential is JSON {client_id, client_secret, refresh_token}; a short-lived access token is fetched on every pull.
+    allowedHost(f.token_url);
+    let cred: any; try { cred = JSON.parse(secret); } catch { throw Object.assign(new Error("bad credential"), { permanentMessage: "The stored sign-in credential is unreadable. Re-enter it." }); }
+    const form = new URLSearchParams({ grant_type: "refresh_token", refresh_token: cred.refresh_token, client_id: cred.client_id, client_secret: cred.client_secret }).toString();
+    const res = await (deps.post ?? postJson)(f.token_url, form, { accept: "application/json" }, { ...deps.postOptions, contentType: "application/x-www-form-urlencoded", maxBodyBytes: 20_000 });
+    if (res.status === 400 || res.status === 401 || res.status === 403) throw Object.assign(new Error("refused"), { permanentMessage: "The provider refused the refresh token. Re-authorise the connection." });
+    if (res.status < 200 || res.status >= 300) throw new Error(`token request answered HTTP ${res.status}`);
+    let token = ""; try { token = String(JSON.parse(res.body).access_token ?? ""); } catch { /* below */ }
+    if (!token) throw Object.assign(new Error("no token"), { permanentMessage: "The provider's sign-in answer had no access token." });
+    return f.token_header ? { [f.token_header]: token } : { authorization: `Bearer ${token}` };
+  }
   if (f.auth_scheme === "bearer") return { authorization: `Bearer ${secret}` };
   if (f.auth_scheme === "header") return { [f.auth_header]: secret };
   allowedHost(f.token_url);
