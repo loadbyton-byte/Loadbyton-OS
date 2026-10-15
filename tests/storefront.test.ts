@@ -5,7 +5,7 @@ import { buildApp } from "../src/app.js";
 import { freshDb, newTenant } from "./helpers.js";
 import { createParty } from "../src/ops/crm.js";
 import { createInbound, createLocation, createSku, getInbound, receiveInbound } from "../src/ops/fulfilment.js";
-import { mapShopify, mapWoo, registerStorefront, setStorefrontStatus } from "../src/ops/storefront.js";
+import { configureNoon, mapShopify, mapWoo, registerStorefront, setStorefrontStatus } from "../src/ops/storefront.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 import { resetThrottle } from "../src/platform/auth.js";
 
@@ -134,10 +134,44 @@ describe("storefront connectors", () => {
     const party = await db.tenant(other.tenantId, (c) => createParty(c, other.ctx, { kind: "customer", name: "X" }));
     await expect(db.tenant(other.tenantId, (c) => registerStorefront(c, other.ctx, { platform: "shopify", party_id: party, label: "s", secret: "12345678" }))).rejects.toThrow(/not selected/);
     const s = await store();
-    await expect(s.run((c) => registerStorefront(c, s.t.ctx, { platform: "magento", party_id: s.merchant, label: "m", secret: "12345678" }))).rejects.toThrow(/Shopify or WooCommerce/);
+    await expect(s.run((c) => registerStorefront(c, s.t.ctx, { platform: "magento", party_id: s.merchant, label: "m", secret: "12345678" }))).rejects.toThrow(/Choose Shopify/);
     await expect(s.run((c) => registerStorefront(c, s.t.ctx, { platform: "shopify", party_id: s.merchant, label: "m", secret: "short" }))).rejects.toThrow(/at least 8/);
     await expect(s.run((c) => registerStorefront(c, s.t.ctx, { platform: "shopify", party_id: s.merchant, label: "Main store", secret: "12345678" }))).rejects.toThrow(/already exists/);
     const warehouse = { ...s.t.ctx, perms: new Set(["read", "wh.write"]) as any };
     await expect(s.run((c) => registerStorefront(c, warehouse, { platform: "shopify", party_id: s.merchant, label: "z", secret: "12345678" }))).rejects.toThrow();
+  });
+});
+
+describe("noon connector (own-integrator webhook with an operator field map)", () => {
+  const KEY = "noon-api-key-0123456789";
+  const noonMap = { map_ref: "order.id", map_name: "order.customer.name", map_address: "order.address.line", map_city: "order.address.city", map_country: "order.address.cc", map_lines_path: "order.items", map_sku: "partner_sku", map_qty: "qty", map_status: "order.state", accept_values: "new,accepted", cancel_values: "cancelled" };
+  const body = (over: Record<string, any> = {}) => ({ order: { id: "N-1", state: "new", customer: { name: "Aisha" }, address: { line: "Marina 1", city: "Dubai", cc: "ae" }, items: [{ partner_sku: "TEE-M", qty: 2 }] }, ...over });
+  const send = (path: string, b: object, headers: Record<string, string> = { "x-api-key": KEY }) => app.request(path, { method: "POST", body: JSON.stringify(b), headers });
+  async function noonStore(extra: Record<string, any>) {
+    const s = await store();
+    const conn = await s.run((c) => registerStorefront(c, s.t.ctx, { platform: "noon", party_id: s.merchant, label: "Noon FBP", secret: KEY, ...extra }));
+    return { ...s, conn, path: new URL(conn.url).pathname };
+  }
+  it("refuses a wrong key, creates an order once from the mapped payload, and cancels it", async () => {
+    resetThrottle();
+    const s = await noonStore(noonMap);
+    expect((await send(s.path, body(), { "x-api-key": "wrong-key-0123456789" })).status).toBe(401);
+    const ok = await send(s.path, body());
+    expect(await ok.json()).toMatchObject({ outcome: "ingested" });
+    expect(await (await send(s.path, body(), { authorization: `Bearer ${KEY}` })).json()).toMatchObject({ outcome: "duplicate" });
+    expect(await (await send(s.path, body({ order: { ...body().order, state: "paused" } }))).json()).toMatchObject({ ignored: expect.any(String) });
+    expect(await (await send(s.path, body({ order: { ...body().order, state: "cancelled" } }))).json()).toMatchObject({ outcome: "cancelled" });
+    expect((await verifyInvariants(db)).filter((v: any) => String(v.detail).includes(s.t.tenantId))).toEqual([]);
+  });
+  it("captures raw deliveries, creates nothing while capturing, and needs a map before orders", async () => {
+    resetThrottle();
+    const s = await noonStore({ capture: "1" });
+    expect(await (await send(s.path, body())).json()).toEqual({ captured: true });
+    const n = (await db.query<any>(`SELECT count(*)::int AS n FROM storefront_samples`)).rows[0].n; expect(n).toBeGreaterThan(0);
+    expect((await db.query<any>(`SELECT count(*)::int AS n FROM fulfil_orders WHERE external_ref='N-1' AND tenant_id=$1`, [s.t.tenantId])).rows[0].n).toBe(0);
+    await s.run((c) => configureNoon(c, s.t.ctx, s.conn.id, noonMap));
+    expect(await (await send(s.path, body())).json()).toMatchObject({ outcome: "ingested" });
+    await expect(s.run((c) => registerStorefront(c, s.t.ctx, { platform: "noon", party_id: s.merchant, label: "x", secret: KEY }))).rejects.toThrow(/Map the/);
+    await expect(s.run((c) => registerStorefront(c, s.t.ctx, { platform: "noon", party_id: s.merchant, label: "y", secret: "tenchars10", ...noonMap }))).rejects.toThrow(/16 characters/);
   });
 });

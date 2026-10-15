@@ -21,6 +21,16 @@ const PATH = /^[A-Za-z0-9_.-]{1,80}$/;
 const csv = (v: unknown) => String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 const listVals = (v: unknown) => csv(v).map((x) => x.toLowerCase()).slice(0, 20);
 
+/** The field map a person types for a marketplace's order JSON: paths are checked, the essentials must be present, and status values need the status field. */
+export function parseFieldMap(f: Record<string, any>): Record<string, any> {
+  const map: Record<string, any> = {};
+  for (const k of KEYS) { const v = String(f[`map_${k}`] ?? "").trim(); if (v) { if (!csv(v).every((p) => PATH.test(p))) throw badRequest(`The ${k} field path is not valid.`); map[k] = v; } }
+  for (const need of ["ref", "name", "address", "lines_path", "sku", "qty"]) if (!map[need]) throw badRequest(`Map the ${need} field.`);
+  map.accept_values = listVals(f.accept_values); map.cancel_values = listVals(f.cancel_values);
+  if ((map.accept_values.length || map.cancel_values.length) && !map.status) throw badRequest("Status values need the status field mapped.");
+  return map;
+}
+
 export async function createOrderPull(c: Conn, ctx: Ctx, input: Record<string, any>) {
   require(ctx, "settings.manage");
   const prof = input.profile ? orderProfile(input.profile) : undefined;
@@ -46,11 +56,7 @@ export async function createOrderPull(c: Conn, ctx: Ctx, input: Record<string, a
   }
   const header = scheme === "header" ? reqStr(f.auth_header, "Header name", 60) : null;
   if (header && !/^[A-Za-z0-9-]{1,60}$/.test(header)) throw badRequest("The header name may contain letters, digits and hyphens.");
-  const map: Record<string, any> = {};
-  for (const k of KEYS) { const v = String(f[`map_${k}`] ?? "").trim(); if (v) { if (!csv(v).every((p) => PATH.test(p))) throw badRequest(`The ${k} field path is not valid.`); map[k] = v; } }
-  for (const need of ["ref", "name", "address", "lines_path", "sku", "qty"]) if (!map[need]) throw badRequest(`Map the ${need} field.`);
-  map.accept_values = listVals(f.accept_values); map.cancel_values = listVals(f.cancel_values);
-  if ((map.accept_values.length || map.cancel_values.length) && !map.status) throw badRequest("Status values need the status field mapped.");
+  const map = parseFieldMap(f);
   const extra: Record<string, any> = { staticParams: {}, detailUrl: null, tokenHeader: null, exchangeUrl: null, exchangeBody: null, exchangePath: null };
   const sp = typeof f.static_params === "string" ? (() => { try { return JSON.parse(f.static_params); } catch { throw badRequest("Fixed query parameters must be a JSON object."); } })() : f.static_params ?? {};
   if (!sp || typeof sp !== "object" || Array.isArray(sp) || Object.keys(sp).length > 20 || Object.values(sp).some((v) => typeof v !== "string" && typeof v !== "number")) throw badRequest("Fixed query parameters are up to 20 name/value pairs.");

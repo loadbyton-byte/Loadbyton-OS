@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { formatDate } from "../lib/util.js";
 import { listParties } from "../ops/crm.js";
-import { PLATFORMS, handleStorefront, listStorefronts, recentStorefrontEvents, registerStorefront, setStorefrontStatus } from "../ops/storefront.js";
+import { PLATFORMS, configureNoon, handleStorefront, listStorefronts, recentSamples, recentStorefrontEvents, registerStorefront, setStorefrontStatus } from "../ops/storefront.js";
 import { act, appPage, can, need, PageHead, withT } from "./appkit.js";
 import { Badge, Csrf, Table } from "./ui.js";
 import { formBody, str, type Env } from "./mw.js";
@@ -28,12 +28,18 @@ storefrontUi.get(U, async (c) => {
         <td>{x.status === "active" ? <Badge s="ok" label="active" /> : x.status === "paused" ? <Badge s="warn" label="paused" /> : <Badge s="closed" label="retired" />}</td>
         <td>{x.status !== "retired" && can(c, "settings.manage") ? <div class="inline-form">
           <form method="post" action={`${U}/${x.id}/${x.status === "active" ? "pause" : "resume"}`}><Csrf t={csrf} /><button class="btn ghost sm">{x.status === "active" ? "Pause" : "Resume"}</button></form>
-          <form method="post" action={`${U}/${x.id}/retire`}><Csrf t={csrf} /><button class="btn ghost sm">Retire</button></form></div> : null}</td></tr>)}</Table>
+          {x.platform === "noon" ? <a class="btn ghost sm" href={`${U}/${x.id}/noon`}>Samples & map</a> : null}<form method="post" action={`${U}/${x.id}/retire`}><Csrf t={csrf} /><button class="btn ghost sm">Retire</button></form></div> : null}</td></tr>)}</Table>
     <form class="card" method="post" action={U}><Csrf t={csrf} /><h2>Connect a store</h2>
       <div class="field"><label for="platform">Platform</label><select id="platform" name="platform">{Object.entries(PLATFORMS).map(([k, v]) => <option value={k}>{v.name}</option>)}</select></div>
       <div class="field"><label for="party_id">Merchant</label><select id="party_id" name="party_id">{d.merchants.map((m: any) => <option value={m.id}>{m.name}</option>)}</select></div>
       <div class="field"><label for="label">Name</label><input id="label" name="label" required /></div>
-      <div class="field"><label for="secret">Webhook signing secret</label><input id="secret" name="secret" type="password" autocomplete="off" required minlength={8} /></div>
+      <div class="field"><label for="secret">Webhook signing secret (noon: the API key you give noon, 16+ characters)</label><input id="secret" name="secret" type="password" autocomplete="off" required minlength={8} /></div>
+      <details><summary>noon only: key header, order position and field map</summary>
+        <p class="small">Create the connection with capture on and leave the map empty. After noon sends an order, open the captured sample below, then fill the map. Dots reach into nested fields; commas join fields.</p>
+        {[["key_header", "Header noon sends the key in (blank: x-api-key; an Authorization: Bearer key is also accepted)"], ["order_path", "Where the order is in the delivery (blank: the whole body)"]].map(([k, t]) => <div class="field"><label for={k}>{t}</label><input id={k} name={k} /></div>)}
+        <label class="small"><input type="checkbox" name="capture" value="1" /> Capture deliveries instead of creating orders</label>
+        {[["map_ref", "Order reference"], ["map_name", "Recipient name"], ["map_phone", "Phone"], ["map_address", "Address"], ["map_city", "City"], ["map_country", "Country (2 letters)"], ["map_lines_path", "Where the lines are"], ["map_sku", "SKU inside a line"], ["map_qty", "Quantity inside a line"], ["map_status", "Status field"], ["accept_values", "Statuses that mean ship this"], ["cancel_values", "Statuses that mean cancelled"]].map(([k, t]) => <div class="field"><label for={k}>{t}</label><input id={k} name={k} /></div>)}
+      </details>
       <button class="btn">Create connection</button></form>
     <section class="card"><h2>How a store is set up</h2>
       {Object.values(PLATFORMS).map((p) => <p class="small"><strong>{p.name}.</strong> {p.hint}</p>)}
@@ -48,11 +54,24 @@ storefrontUi.post(U, async (c) => {
   need(c, "settings.manage");
   const b = await formBody(c);
   try {
-    const r = await withT(c, (cn, ctx) => registerStorefront(cn, ctx, { platform: str(b.platform), party_id: str(b.party_id), label: str(b.label), secret: str(b.secret) }));
+    const r = await withT(c, (cn, ctx) => registerStorefront(cn, ctx, { ...b, platform: str(b.platform), party_id: str(b.party_id), label: str(b.label), secret: str(b.secret) }));
     return appPage(c, "Store connected", <><PageHead title="Store connected" sub="Paste this address into the store's webhook settings. It is not shown again." />
       <section class="card"><p><strong>Webhook URL</strong><br /><code>{r.url}</code></p></section><p><a class="btn" href={U}>Back to connectors</a></p></>);
   } catch (e: any) { if (e?.status && e.status < 500) { const { back } = await import("./appkit.js"); return back(c, U, undefined, e.message); } throw e; }
 });
+storefrontUi.get(`${U}/:id/noon`, async (c) => {
+  need(c, "settings.manage");
+  const csrf = c.get("csrf"), id = c.req.param("id");
+  const samples = await withT(c, (cn) => recentSamples(cn, id));
+  return appPage(c, "noon sample deliveries", <>
+    <PageHead title="noon sample deliveries" sub="The last five deliveries captured from noon. Read the field names here, then save the field map and switch capture off. Samples contain customer details: they are kept only until newer ones replace them." />
+    {samples.length ? samples.map((x: any) => <section class="card"><p class="small">{formatDate(x.received_at)}</p><pre style="white-space:pre-wrap;overflow:auto">{x.body}</pre></section>) : <p class="mute">Nothing captured yet.</p>}
+    <form class="card" method="post" action={`${U}/${id}/noon`}><Csrf t={csrf} /><h2>Field map</h2>
+      <label class="small"><input type="checkbox" name="capture" value="1" /> Keep capturing instead of creating orders</label>
+      {[["order_path", "Where the order is in the delivery"], ["map_ref", "Order reference"], ["map_name", "Recipient name"], ["map_phone", "Phone"], ["map_address", "Address"], ["map_city", "City"], ["map_country", "Country (2 letters)"], ["map_lines_path", "Where the lines are"], ["map_sku", "SKU inside a line"], ["map_qty", "Quantity inside a line"], ["map_status", "Status field"], ["accept_values", "Statuses that mean ship this"], ["cancel_values", "Statuses that mean cancelled"]].map(([k, t]) => <div class="field"><label for={k}>{t}</label><input id={k} name={k} /></div>)}
+      <button class="btn">Save</button></form></>);
+});
+storefrontUi.post(`${U}/:id/noon`, async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, U, async () => { await withT(c, (cn, ctx) => configureNoon(cn, ctx, id, b)); return { to: U, ok: "Saved." }; }); });
 const sp = (path: string, status: "active" | "paused" | "retired", ok: string) =>
   storefrontUi.post(`${U}/:id/${path}`, async (c) => { const id = c.req.param("id"); return act(c, U, async () => { await withT(c, (cn, ctx) => setStorefrontStatus(cn, ctx, id, status)); return { to: U, ok }; }); });
 sp("pause", "paused", "Connection paused. The store will redeliver when you resume.");
