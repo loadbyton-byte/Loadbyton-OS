@@ -46,6 +46,7 @@ export function navFor(c: C): NavItem[] {
       { href: "/app/warehouse/outbound", label: "Dispatch", section: "Warehouse" }, { href: "/app/warehouse/stock", label: "Stock", section: "Warehouse" },
       { href: "/app/warehouse/counts", label: "Counts", section: "Warehouse" }, { href: "/app/warehouse/setup", label: "Locations & SKUs", section: "Warehouse" }, {href:"/app/warehouse/traceability",label:"Lots, expiry & serials",section:"Warehouse"});
     n.push({href:'/app/warehouse/count-schedules',label:'Count schedules',section:'Warehouse'},{href:'/app/warehouse/returns',label:'Customer returns',section:'Warehouse'},{href:'/app/warehouse/policy',label:'Custody policy',section:'Warehouse'},{href:'/app/warehouse/labels',label:'Labels',section:'Warehouse'},{href:'/app/warehouse/rf',label:'Handheld',section:'Warehouse'});
+    n.push({ href: "/app/warehouse/printing", label: "Label printing", section: "Warehouse" });
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
   }
   for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
