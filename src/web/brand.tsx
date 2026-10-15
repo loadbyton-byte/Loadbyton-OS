@@ -11,6 +11,17 @@ export const Lbt = ({ tag }: { tag?: string }) => (
   </span>
 );
 
+/** One centered lockup for navigation and footer branding. */
+export const BrandLockup = ({ light = false }: { light?: boolean }) => (
+  <span class="brand-lockup" aria-hidden="true">
+    <span class="brand-wordmark">
+      {!light ? <img class="logo-light" src="/brand/lbt-logo-navy.png" alt="" width="1600" height="237" /> : null}
+      <img class={light ? "" : "logo-dark"} src="/brand/lbt-logo-white.png" alt="" width="1600" height="237" />
+    </span>
+    <span class="brand-store">store</span>
+  </span>
+);
+
 const WORD = "LOAD|BY|TON";
 /** Render text, replacing every literal LOAD|BY|TON with the drawn wordmark. Everything else is passed through unchanged. */
 export function Brandy({ text }: { text: string }) {

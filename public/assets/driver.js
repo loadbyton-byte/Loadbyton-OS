@@ -5,7 +5,8 @@
   var scopeMeta = document.querySelector("meta[name=driver-scope]"), SCOPE = scopeMeta ? scopeMeta.getAttribute("content") : "";
   // queues are per signed-in driver, so a shared phone never replays one driver's actions under another's login
   var KEY = "lbt_driver_queue_v2:" + SCOPE, GPS_KEY = "lbt_driver_gps_v1:" + SCOPE;
-  try { var legacy = localStorage.getItem("lbt_driver_queue_v1"); if (legacy && SCOPE && !localStorage.getItem(KEY)) { localStorage.setItem(KEY, legacy); } localStorage.removeItem("lbt_driver_queue_v1"); } catch (e) {}
+  // Legacy unscoped queues cannot establish which driver created them; never import them into a new login.
+
   function csrf() { var m = document.querySelector("meta[name=csrf-token]"); return m ? m.getAttribute("content") : ""; }
   function load() { try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch (e) { return []; } }
   function save(q) { try { localStorage.setItem(KEY, JSON.stringify(q)); } catch (e) {} }

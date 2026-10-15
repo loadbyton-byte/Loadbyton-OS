@@ -1,3 +1,4 @@
+import { assertWritable } from "../platform/entitlements.js";
 import type { Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
@@ -55,7 +56,7 @@ export async function getJob(c: Conn, id: string) {
     c.query<any>(`SELECT * FROM job_milestones WHERE job_id=$1 ORDER BY position`, [id]),
     c.query<any>(`SELECT x.*, u.name AS owner_name FROM job_exceptions x LEFT JOIN team_members u ON u.user_id=x.owner_id WHERE x.job_id=$1 ORDER BY x.created_at DESC`, [id]),
     c.query<any>(`SELECT * FROM documents WHERE job_id=$1 ORDER BY created_at DESC`, [id]),
-    c.query<any>(`SELECT * FROM invoices WHERE job_id=$1 ORDER BY issued_at`, [id]),
+    c.query<any>(`SELECT i.*, coalesce((SELECT sum(n.subtotal_minor) FROM credit_notes n WHERE n.invoice_id=i.id AND n.status='issued'),0) AS credited_subtotal_minor FROM invoices i WHERE job_id=$1 ORDER BY issued_at`, [id]),
   ]);
   return { job, charges: charges.rows, costs: costs.rows, milestones: milestones.rows, exceptions: exceptions.rows, docs: docs.rows, invoices: invoices.rows,
     margin: jobMargin(charges.rows, costs.rows, invoices.rows, await quoteEstimate(c, job.quote_version_id)) };
@@ -72,16 +73,17 @@ async function quoteEstimate(c: Conn, versionId: string | null) {
  *  quotation estimate → updated expected (actual where reconciled, else estimate) → actual reconciled (only when nothing is estimated).
  */
 export function jobMargin(charges: any[], costs: any[], invoices: any[], est: { sell: number; cost: number } | null) {
-  const sell = charges.reduce((a, l) => a + lineNet(l.qty, l.unit_minor), 0);
+  const credits = invoices.filter(i => i.status !== "void").reduce((sum, i) => sum + Number(i.credited_subtotal_minor ?? 0), 0);
+  const sell = charges.reduce((a, l) => a + lineNet(l.qty, l.unit_minor), 0) - credits;
   const unreconciled = costs.filter((k) => k.actual_minor == null);
   const expectedCost = costs.reduce((a, k) => a + Number(k.actual_minor ?? k.estimated_minor), 0);
   const accrual = unreconciled.reduce((a, k) => a + Number(k.estimated_minor), 0);
-  const invoicedNet = invoices.filter((i) => i.status !== "void").reduce((a, i) => a + Number(i.subtotal_minor), 0);
+  const invoicedNet = invoices.filter((i) => i.status !== "void").reduce((a, i) => a + Number(i.subtotal_minor) - Number(i.credited_subtotal_minor ?? 0), 0);
   const actualCost = costs.filter((k) => k.actual_minor != null).reduce((a, k) => a + Number(k.actual_minor), 0);
   return {
     quotation: est ? { sell: est.sell, cost: est.cost, bps: marginBps(est.sell, est.cost) } : null,
     expected: { sell, cost: expectedCost, bps: marginBps(sell, expectedCost) },
-    actual: unreconciled.length || invoicedNet === 0 ? null : { sell: invoicedNet, cost: actualCost, bps: marginBps(invoicedNet, actualCost) },
+    actual: unreconciled.length || !invoices.some(i => i.status !== "void") ? null : { sell: invoicedNet, cost: actualCost, bps: marginBps(invoicedNet, actualCost) },
     accrualMinor: accrual, unreconciledCosts: unreconciled.length,
   };
 }
@@ -93,6 +95,7 @@ export const listJobs = (c: Conn, partyId?: string | null) =>
 
 export async function updateJobRefs(c: Conn, ctx: Ctx, id: string, f: Record<string, any>) {
   require(ctx, "job.write");
+  await assertWritable(c, ctx.tenantId);
   await c.query(`UPDATE jobs SET booking_ref=$2, master_ref=$3, house_ref=$4, carrier=$5, incoterm=$6, assigned_to=coalesce($7,assigned_to) WHERE id=$1`,
     [id, optStr(f.booking_ref, 80), optStr(f.master_ref, 80), optStr(f.house_ref, 80), optStr(f.carrier, 120), optStr(f.incoterm, 10), optStr(f.assigned_to, 40)]);
   await audit(c, ctx.tenantId, actorOf(ctx), "job.refs_updated", "job", id);
@@ -100,17 +103,19 @@ export async function updateJobRefs(c: Conn, ctx: Ctx, id: string, f: Record<str
 
 export async function planMilestone(c: Conn, ctx: Ctx, milestoneId: string, plannedAt: string) {
   require(ctx, "job.write");
+  await assertWritable(c, ctx.tenantId);
   await c.query(`UPDATE job_milestones SET planned_at=$2 WHERE id=$1`, [milestoneId, plannedAt || null]);
 }
 
 /** Record an actual milestone. Delivery requires proof of delivery on file; a notification failure never reverses it. */
 export async function recordMilestone(c: Conn, ctx: Ctx, milestoneId: string, note?: string) {
   require(ctx, "job.write");
+  await assertWritable(c, ctx.tenantId);
   const m = await must(c.query<any>(`SELECT * FROM job_milestones WHERE id=$1`, [milestoneId]), "Milestone");
   if (m.actual_at) throw badRequest("Milestone already recorded.");
   if (m.code === "delivered") {
-    const pod = await c.query(`SELECT 1 FROM documents WHERE job_id=$1 AND kind='pod' LIMIT 1`, [m.job_id]);
-    if (!pod.rows.length) throw badRequest("Attach proof of delivery (document kind “pod”) before recording delivery.");
+    const pod = await c.query(`SELECT 1 FROM documents WHERE job_id=$1 AND kind='pod' AND status='issued' AND NOT hold LIMIT 1`, [m.job_id]);
+    if (!pod.rows.length) throw badRequest("Attach issued, unheld proof of delivery (document kind “pod”) before recording delivery.");
   }
   await c.query(`UPDATE job_milestones SET actual_at=now(), note=$2, recorded_by=$3 WHERE id=$1`, [milestoneId, optStr(note, 500), ctx.userId]);
   const status = m.code === "delivered" ? "delivered" : m.code === "booked" ? null : "in_transit";
@@ -120,12 +125,14 @@ export async function recordMilestone(c: Conn, ctx: Ctx, milestoneId: string, no
 
 export async function completeOperationally(c: Conn, ctx: Ctx, jobId: string) {
   require(ctx, "job.write");
+  await assertWritable(c, ctx.tenantId);
   await must(c.query(`UPDATE jobs SET status='operationally_complete' WHERE id=$1 AND status='delivered' RETURNING id`, [jobId]), "Delivered job");
   await audit(c, ctx.tenantId, actorOf(ctx), "job.operationally_complete", "job", jobId);
 }
 
 export async function addCost(c: Conn, ctx: Ctx, jobId: string, f: Record<string, any>) {
   require(ctx, "job.cost");
+  await assertWritable(c, ctx.tenantId);
   const supplier = optStr(f.supplier_id, 40);
   let override: string | null = null;
   if (supplier) {
@@ -145,6 +152,7 @@ export async function addCost(c: Conn, ctx: Ctx, jobId: string, f: Record<string
 /** Reconcile a supplier invoice against an estimate: actual replaces the estimate in expected margin. */
 export async function reconcileCost(c: Conn, ctx: Ctx, costId: string, actual: string, ref: string) {
   require(ctx, "finance.write");
+  await assertWritable(c, ctx.tenantId);
   const k = await must(c.query<any>(`UPDATE job_costs SET actual_minor=$2, supplier_invoice_ref=$3, status='posted' WHERE id=$1 AND status<>'posted' RETURNING job_id`,
     [costId, toMinor(actual), reqStr(ref, "Supplier invoice reference", 100)]), "Open cost");
   await audit(c, ctx.tenantId, actorOf(ctx), "cost.reconciled", "job", k.job_id, { costId });
@@ -152,13 +160,15 @@ export async function reconcileCost(c: Conn, ctx: Ctx, costId: string, actual: s
 
 export async function addExceptionItem(c: Conn, ctx: Ctx, f: Record<string, any>) {
   require(ctx, "job.write");
+  await assertWritable(c, ctx.tenantId);
   if (!f.due_at) throw badRequest("Set a deadline.");
   await c.query(`INSERT INTO job_exceptions(tenant_id,job_id,title,detail,owner_id,due_at,escalate_to) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     [ctx.tenantId, optStr(f.job_id, 40), reqStr(f.title, "Title", 200), optStr(f.detail, 1000), optStr(f.owner_id, 40) ?? ctx.userId, f.due_at, optStr(f.escalate_to, 40)]);
   await audit(c, ctx.tenantId, actorOf(ctx), "exception.opened", "job", f.job_id ?? undefined);
 }
 export async function resolveException(c: Conn, ctx: Ctx, id: string) {
-  require(ctx, ctx.perms.has("job.write") ? "job.write" : "wh.write");   // warehouse staff close the short-pick tasks they raise
+  require(ctx, ctx.perms.has("job.write") ? "job.write" : "wh.write");
+  await assertWritable(c, ctx.tenantId);   // warehouse staff close the short-pick tasks they raise
   await c.query(`UPDATE job_exceptions SET status='resolved', resolved_at=now() WHERE id=$1`, [id]);
 }
 
@@ -180,6 +190,7 @@ export async function financialClosureBlockers(c: Conn, jobId: string) {
 
 export async function closeFinancially(c: Conn, ctx: Ctx, jobId: string) {
   require(ctx, "finance.write");
+  await assertWritable(c, ctx.tenantId);
   const reasons = await financialClosureBlockers(c, jobId);
   if (reasons.length) throw badRequest(`Cannot close financially: ${reasons.join("; ")}.`);
   await c.query(`UPDATE jobs SET financial_status='closed', status=CASE WHEN status='delivered' THEN 'operationally_complete' ELSE status END WHERE id=$1`, [jobId]);

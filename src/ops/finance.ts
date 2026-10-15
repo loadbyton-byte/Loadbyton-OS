@@ -114,6 +114,7 @@ async function receiptSync(c: Conn): Promise<"not_connected" | "manual" | "pendi
 
 export async function recordReceipt(c: Conn, ctx: Ctx, invoiceId: string, f: Record<string, any>) {
   require(ctx, "finance.write");
+  await assertWritable(c, ctx.tenantId);
   const inv = await must(c.query<any>(`SELECT * FROM invoices WHERE id=$1 FOR UPDATE`, [invoiceId]), "Invoice");
   if (inv.status === "void") throw badRequest("Invoice is void.");
   const outstanding = Number(inv.balance_minor), receivedAt = f.received_at || today();
@@ -153,6 +154,7 @@ export async function recordReceipt(c: Conn, ctx: Ctx, invoiceId: string, f: Rec
 /** A wrongly recorded receipt is never edited: a reversal is recorded with a reason, and the invoice is open again for that amount. */
 export async function reverseReceipt(c: Conn, ctx: Ctx, receiptId: string, reason: string) {
   require(ctx, "finance.void");
+  await assertWritable(c, ctx.tenantId);
   const rc = await must(c.query<any>(`SELECT * FROM receipts WHERE id=$1 FOR UPDATE`, [receiptId]), "Receipt");
   if ((await c.query(`SELECT 1 FROM receipt_reversals WHERE receipt_id=$1`, [rc.id])).rows.length) throw badRequest("This receipt is already reversed.");
   const inv = await must(c.query<any>(`SELECT * FROM invoices WHERE id=$1 FOR UPDATE`, [rc.invoice_id]), "Invoice");
@@ -171,6 +173,7 @@ export async function reverseReceipt(c: Conn, ctx: Ctx, receiptId: string, reaso
 /** Posted invoices are never edited; a void is an authorised reversal that releases the charges. */
 export async function voidInvoice(c: Conn, ctx: Ctx, invoiceId: string, reason: string) {
   require(ctx, "finance.void");
+  await assertWritable(c, ctx.tenantId);
   const inv = await must(c.query<any>(`SELECT * FROM invoices WHERE id=$1 FOR UPDATE`, [invoiceId]), "Invoice");
   if (Number(inv.paid_minor) > 0) throw badRequest("Invoice has receipts. Reverse receipts first.");
   if (Number(inv.credited_minor) > 0) throw badRequest("Invoice has credit notes; a credited invoice cannot be voided.");
@@ -199,7 +202,7 @@ export async function voidInvoice(c: Conn, ctx: Ctx, invoiceId: string, reason: 
 }
 
 export async function getInvoice(c: Conn, id: string) {
-  const inv = await must(c.query<any>(`SELECT i.*, p.name AS party_name, p.name_ar AS party_name_ar, p.tax_id AS party_tax_id, e.legal_name, e.legal_name_ar, e.name AS entity_name, e.tax_id AS entity_tax_id, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' WHEN i.dlv_run_id IS NOT NULL THEN 'Delivery activity' WHEN i.cus_case_id IS NOT NULL THEN 'Customs case' END) AS job_no
+  const inv = await must(c.query<any>(`SELECT i.*, i.buyer_snapshot->>'name' AS party_name, i.buyer_snapshot->>'name_ar' AS party_name_ar, i.buyer_snapshot->>'tax_id' AS party_tax_id, i.seller_snapshot->>'legal_name' AS legal_name, i.seller_snapshot->>'legal_name_ar' AS legal_name_ar, i.seller_snapshot->>'name' AS entity_name, i.seller_snapshot->>'tax_id' AS entity_tax_id, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' WHEN i.dlv_run_id IS NOT NULL THEN 'Delivery activity' WHEN i.cus_case_id IS NOT NULL THEN 'Customs case' END) AS job_no
     FROM invoices i JOIN parties p ON p.id=i.party_id JOIN entities e ON e.id=i.entity_id LEFT JOIN jobs j ON j.id=i.job_id LEFT JOIN transport_orders o ON o.id=i.transport_order_id WHERE i.id=$1`, [id]), "Invoice");
   const lines = (await c.query<any>(`SELECT * FROM invoice_lines WHERE invoice_id=$1`, [id])).rows;
   const receipts = (await c.query<any>(`SELECT r.*, v.reason AS reversal_reason, (v.receipt_id IS NOT NULL) AS reversed FROM receipts r LEFT JOIN receipt_reversals v ON v.receipt_id=r.id WHERE r.invoice_id=$1 ORDER BY r.received_at, r.id`, [id])).rows;
@@ -208,7 +211,7 @@ export async function getInvoice(c: Conn, id: string) {
 }
 
 export const listInvoices = (c: Conn, partyId?: string | null) =>
-  c.query<any>(`SELECT i.*, p.name AS party_name, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' WHEN i.dlv_run_id IS NOT NULL THEN 'Delivery activity' WHEN i.cus_case_id IS NOT NULL THEN 'Customs case' END) AS job_no, (i.due_at < now() AND i.status IN ('issued','part_paid')) AS overdue
+  c.query<any>(`SELECT i.*, i.buyer_snapshot->>'name' AS party_name, coalesce(j.no, o.no, CASE WHEN i.wh_run_id IS NOT NULL THEN 'Warehouse activity' WHEN i.dlv_run_id IS NOT NULL THEN 'Delivery activity' WHEN i.cus_case_id IS NOT NULL THEN 'Customs case' END) AS job_no, (i.due_at < now() AND i.status IN ('issued','part_paid')) AS overdue
     FROM invoices i JOIN parties p ON p.id=i.party_id LEFT JOIN jobs j ON j.id=i.job_id LEFT JOIN transport_orders o ON o.id=i.transport_order_id WHERE ($1::uuid IS NULL OR i.party_id=$1) ORDER BY i.issued_at DESC`, [partyId ?? null]).then((r) => r.rows);
 
 /** Receivables ageing by days past due. */

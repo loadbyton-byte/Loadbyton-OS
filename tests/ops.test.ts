@@ -70,7 +70,7 @@ describe("job → cash (acceptance: late supplier invoice, accounting retry)", (
       const d = await getJob(c, j.jobId);
       const delivered = d.milestones.find((m: any) => m.code === "delivered");
       await expect(recordMilestone(c, t.ctx, delivered.id)).rejects.toThrow(/proof of delivery/);
-      await uploadDocument(c, t.ctx, { job_id: j.jobId, kind: "pod", title: "POD", filename: "pod.pdf", data: pdf });
+      await uploadDocument(c, t.ctx, { job_id: j.jobId, kind: "pod", title: "POD", issuer: "Consignee", filename: "pod.pdf", data: pdf });
       for (const m of d.milestones) await recordMilestone(c, t.ctx, m.id);
       await completeOperationally(c, t.ctx, j.jobId);
       const inv = await invoiceJob(c, t.ctx, j.jobId);

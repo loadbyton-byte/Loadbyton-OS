@@ -17,8 +17,8 @@ import { channelUrl } from "./inbound.js";
 export const TRACKING_STATUSES = ["info_received", "in_transit", "out_for_delivery", "delivered", "exception", "returned", "other"] as const;
 export type TrackingStatus = (typeof TRACKING_STATUSES)[number];
 const DEFAULT_WORDS: [RegExp, TrackingStatus][] = [
-  [/deliver(ed|y complete)/i, "delivered"], [/out for delivery|with courier|on vehicle/i, "out_for_delivery"], [/return/i, "returned"],
-  [/exception|fail|undeliver|attempt|held|damag|lost|refus/i, "exception"], [/transit|picked up|collected|departed|arrived|hub|customs|dispatch/i, "in_transit"], [/label|created|info|booked|pending|manifest/i, "info_received"],
+  [/exception|fail|undeliver|attempt|held|damag|lost|refus|not delivered|delivery incomplete/i, "exception"],
+  [/return/i, "returned"], [/out for delivery|with courier|on vehicle/i, "out_for_delivery"], [/^(delivered|delivery complete)$/i, "delivered"], [/transit|picked up|collected|departed|arrived|hub|customs|dispatch/i, "in_transit"], [/label|created|info|booked|pending|manifest/i, "info_received"],
 ];
 export const trackingUrl = (token: string) => channelUrl(token).replace("/webhooks/inbound/", "/webhooks/carrier/");
 const pick = (obj: any, path: string): unknown => (path ? path.split(".") : []).reduce((o, k) => (o == null ? undefined : o[k]), obj);

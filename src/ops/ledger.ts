@@ -161,7 +161,7 @@ export async function decideManualEntry(c: Conn, ctx: Ctx, id: string, approve: 
   await assertWritable(c, ctx.tenantId);
   const e = await must(c.query<any>(`SELECT * FROM gl_manual_entries WHERE id=$1 FOR UPDATE`, [recordId(id, "Entry")]), "Entry");
   if (e.status !== "proposed") throw badRequest(`This entry is already ${e.status}.`);
-  if (e.proposed_by === ctx.userId && !ctx.roles.includes("owner")) throw badRequest("A manual entry is approved by someone other than the person who proposed it.");
+  if (e.proposed_by === ctx.userId) throw badRequest("A manual entry is approved by someone other than the person who proposed it.");
   if (!approve) { await c.query(`UPDATE gl_manual_entries SET status='rejected', decided_by=$2, decided_at=now() WHERE id=$1`, [e.id, ctx.userId]); await audit(c, ctx.tenantId, actorOf(ctx), "ledger.entry_rejected", "gl_manual_entry", e.id); return null; }
   const lines: Line[] = (e.lines as any[]).map((l) => ({ account_id: l.account_id, debit: l.debit, credit: l.credit, memo: l.memo }));
   const journalId = await postJournal(c, ctx.tenantId, ctx.userId, { posted_on: day(e.entry_date), source_type: "manual", source_id: e.id, memo: e.memo, lines });

@@ -59,7 +59,7 @@ describe("order pulls", () => {
       r = await pullOrders(db, s.t.tenantId, id, deps);
       expect(r).toMatchObject({ added: 0, rejected: 1 });
       expect((await s.run((c) => recentPullEvents(c))).filter((e: any) => e.outcome === "rejected")).toHaveLength(1);
-      expect(new URL(urls[1]).searchParams.get("since")).toBe("2026-10-04T10:00:00.000Z");        // resumes a day before the newest order
+      expect(new URL(urls[1]).searchParams.get("since")).toBeNull(); // do not move the cursor past a refused order
       // the SKU is added, the order is taken on the next pull; the marketplace cancels N1
       await s.run((c) => createSku(c, s.t.ctx, { party_id: s.merchant, code: "NOPE", name: "Nope", barcode: "6291000000028" }));
       payload = { data: [order("N3", { items: [{ sku: "NOPE", qty: 1 }] }), order("N1", { state: "Cancelled" })] };

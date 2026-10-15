@@ -13,6 +13,8 @@ export const listPage=(page:number)=>Math.min(100000,Math.max(1,Number.isSafeInt
  * permissions; otherwise the value is replaced by a marker (text) or null. Support-staff sessions never see these fields.
  */
 export const FIELD_POLICY: Record<string, Record<string, import('./perms.js').Perm[]>> = {
+ conversations:{subject:['inbox.write'],contact_name:['inbox.write'],contact_email:['inbox.write'],contact_phone:['inbox.write']},
+ conversation_messages:{body:['inbox.write'],subject:['inbox.write'],recipient:['inbox.write']},
  parties:{email:['party.write','finance.write'],phone:['party.write','finance.write'],tax_id:['party.write','finance.write']},
  dlv_shipments:{consignee_name:['dlv.write'],consignee_phone:['dlv.write'],address:['dlv.write'],delivered_to:['dlv.write']},
  drivers:{phone:['transport.write'],licence_no:['transport.write']},

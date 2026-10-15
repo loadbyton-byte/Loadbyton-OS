@@ -113,10 +113,10 @@ export async function cancelCreditNote(c: Conn, ctx: Ctx, id: string) {
 
 export async function listCreditNotes(c: Conn, invoiceId?: string) {
   return (await c.query<any>(
-    `SELECT n.*, i.no AS invoice_no, p.name AS party_name FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id JOIN parties p ON p.id=n.party_id WHERE ($1::uuid IS NULL OR n.invoice_id=$1) ORDER BY n.created_at DESC LIMIT 300`, [invoiceId || null])).rows;
+    `SELECT n.*, i.no AS invoice_no, i.buyer_snapshot->>'name' AS party_name FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id JOIN parties p ON p.id=n.party_id WHERE ($1::uuid IS NULL OR n.invoice_id=$1) ORDER BY n.created_at DESC LIMIT 300`, [invoiceId || null])).rows;
 }
 export async function getCreditNote(c: Conn, id: string) {
-  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no, p.name AS party_name, e.legal_name, e.name AS entity_name, e.tax_id AS entity_tax_id FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id JOIN parties p ON p.id=n.party_id JOIN entities e ON e.id=n.entity_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
+  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no, i.buyer_snapshot->>'name' AS party_name, i.seller_snapshot->>'legal_name' AS legal_name, i.seller_snapshot->>'name' AS entity_name, i.seller_snapshot->>'tax_id' AS entity_tax_id FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id JOIN parties p ON p.id=n.party_id JOIN entities e ON e.id=n.entity_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
   return { note: n, lines: (await c.query<any>(`SELECT * FROM credit_note_lines WHERE credit_note_id=$1 ORDER BY id`, [n.id])).rows };
 }
 

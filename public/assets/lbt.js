@@ -16,16 +16,16 @@
   };
   var tray;
   LBT.toast = function (o) {
-    if (!tray) { tray = doc.createElement("div"); tray.className = "toasts"; tray.setAttribute("role", "region"); tray.setAttribute("aria-label", "Notifications"); tray.setAttribute("aria-live", "polite"); doc.body.appendChild(tray); }
-    while (tray.children.length >= 3) tray.removeChild(tray.firstChild);
-    var t = doc.createElement("div"); t.className = "toast" + (o.banner ? " has-banner" : ""); t.setAttribute("role", "status");
-    var banner = o.banner ? '<span class="tbn"><img src="' + esc(o.banner) + '" alt="" width="800" height="450" decoding="async">' + (o.badge ? '<em>' + esc(o.badge) + '</em>' : "") + "</span>" : "";
-    var icon = o.img ? '<span class="ti"><img src="' + esc(o.img) + '" alt=""></span>' : '<span class="ti red">' + (o.icon || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>') + "</span>";
+    // Notices occupy their own row: never cover navigation, copy or form controls.
+    if (!tray) { tray = doc.createElement("div"); tray.className = "toasts"; tray.setAttribute("role", "region"); tray.setAttribute("aria-label", "Notifications"); var main = doc.getElementById("main") || doc.body; main.insertBefore(tray, main.firstChild); }
+    while (tray.firstChild) tray.removeChild(tray.firstChild);
+    var t = doc.createElement("div"); t.className = "toast" + (o.image ? " toast-photo" : ""); t.setAttribute("role", "status");
+    var icon = o.image ? '<img class="notice-photo" src="' + esc(o.image) + '" alt="' + esc(o.imageAlt || "") + '" width="800" height="450" decoding="async">' : o.img ? '<span class="ti"><img src="' + esc(o.img) + '" alt="" width="40" height="40" decoding="async"></span>' : '<span class="ti red">' + (o.icon || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>') + "</span>";
     var acts = "";
     if (o.href) acts += '<a href="' + esc(o.href) + '"' + (o.ext ? ' target="_blank" rel="noopener"' : "") + ">" + esc(o.cta || "Open") + "</a>";
     if (o.action) acts += '<button type="button" data-act>' + esc(o.actionLabel || "Open") + "</button>";
     if (acts) acts = '<div class="ta">' + acts + "</div>";
-    t.innerHTML = banner + icon + "<div><b>" + esc(o.title || "") + '</b><span class="tx">' + esc(o.text || "") + "</span>" + acts + '</div><button class="x" type="button" aria-label="Dismiss">×</button>';
+    t.innerHTML = icon + "<div><b>" + esc(o.title || "") + '</b><span class="tx">' + esc(o.text || "") + "</span>" + acts + '</div><button class="x" type="button" aria-label="Dismiss">×</button>';
     var close = function () { if (!t.parentNode) return; t.classList.add("out"); setTimeout(function () { t.parentNode && t.parentNode.removeChild(t); }, 360); };
     t.querySelector(".x").addEventListener("click", function () { close(); o.onClose && o.onClose(); });
     var a = t.querySelector("[data-act]"); if (a) a.addEventListener("click", function () { o.action(); close(); });
@@ -102,7 +102,7 @@
       el.addEventListener("pointermove", function (e) { var b = el.getBoundingClientRect(); el.style.setProperty("--mx", (e.clientX - b.left) + "px"); el.style.setProperty("--my", (e.clientY - b.top) + "px"); });
     });
     /* magnetic primary buttons */
-    $$(".btn.red, .btn.mag").forEach(function (el) {
+    $$(".public-experience .btn.mag").forEach(function (el) {
       el.addEventListener("pointermove", function (e) { var b = el.getBoundingClientRect(); el.style.transform = "translate(" + ((e.clientX - b.left - b.width / 2) * .12).toFixed(1) + "px," + ((e.clientY - b.top - b.height / 2) * .22 - 1).toFixed(1) + "px)"; });
       el.addEventListener("pointerleave", function () { el.style.transform = ""; });
     });
@@ -174,11 +174,16 @@
     b.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
       if (openPop === pop) { closePop(); return; } closePop(); pop.hidden = false; b.setAttribute("aria-expanded", "true"); openPop = pop;
+      var topbar = b.closest(".topbar"), anchor = b.getBoundingClientRect(), y = (topbar ? topbar.getBoundingClientRect().bottom : anchor.bottom) + 8;
+      var viewport = window.visualViewport, vh = viewport ? viewport.height : window.innerHeight;
+      pop.style.position = "fixed"; pop.style.top = y + "px"; pop.style.left = Math.max(12, Math.min(anchor.right - pop.offsetWidth, window.innerWidth - pop.offsetWidth - 12)) + "px"; pop.style.right = "auto";
+      pop.style.maxHeight = Math.max(100, vh - y - 12) + "px";
       if (b.hasAttribute("data-alerts")) loadAlerts(pop);
     });
   });
   doc.addEventListener("click", function (e) { if (openPop && !openPop.contains(e.target)) closePop(); });
   doc.addEventListener("keydown", function (e) { if (e.key === "Escape") closePop(); });
+  window.addEventListener("resize", closePop);
   function loadAlerts(pop) {
     var list = $(".list", pop); if (!list) return;
     fetch("/app/alerts.json", { credentials: "same-origin", headers: { accept: "application/json" } }).then(function (r) { return r.ok ? r.json() : { alerts: [] }; }).then(function (d) { renderAlerts(list, d.alerts || []); }).catch(function () { list.innerHTML = '<div class="empty">Could not load alerts. Open the dashboard instead.</div>'; });

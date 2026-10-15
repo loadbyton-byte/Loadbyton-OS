@@ -24,16 +24,18 @@
 
   host.innerHTML =
     '<div class="chat-launch"><button class="chat-fab" type="button" aria-label="Open chat" aria-expanded="false" aria-controls="lbt-chat-panel"><img src="/brand/lbt-chat-avatar.png" alt="" width="62" height="62"><span class="badge-n" aria-hidden="true"></span></button></div>' +
-    '<section class="chat-panel" id="lbt-chat-panel" role="dialog" aria-label="Chat with LOAD|BY|TON" aria-modal="false">' +
+    '<dialog class="chat-panel" id="lbt-chat-panel" aria-label="Chat with LOAD|BY|TON">' +
     '<div class="chat-head"><div class="who"><span class="av"><img src="/brand/lbt-chat-avatar.png" alt="" width="46" height="46"></span><div><b>' + brand("LOAD|BY|TON") + ' assistant</b><small><i class="' + (staffed ? "" : "off") + '"></i><span data-status></span></small></div></div>' +
     '<button class="cx" type="button" aria-label="Close chat">×</button>' +
     '<div class="chat-tabs" role="tablist"><button type="button" role="tab" data-tab="bot" aria-selected="true">Ask the assistant</button><button type="button" role="tab" data-tab="live" aria-selected="false">Live chat</button><button type="button" role="tab" data-tab="wa" aria-selected="false">WhatsApp</button></div></div>' +
     '<div class="chat-body" data-body aria-live="polite"></div><div class="chat-suggest" data-suggest></div><div class="chat-join" data-join hidden></div>' +
     '<form class="chat-form" data-form autocomplete="off"><label class="sr-only" for="lbt-chat-input">Message</label><input id="lbt-chat-input" type="text" maxlength="500" placeholder="Ask about plans, sectors, security…" required><button type="submit" aria-label="Send">' + ICON.send + "</button></form>" +
-    '<div class="chat-foot">Assistant answers come from our product notes. Live chat reaches a person.</div></section>';
+    '<div class="chat-foot">Assistant answers come from our product notes. Live chat reaches a person.</div></dialog>';
 
   var fab = host.querySelector(".chat-fab"), panel = host.querySelector(".chat-panel"), body = host.querySelector("[data-body]"), sug = host.querySelector("[data-suggest]"), join = host.querySelector("[data-join]"),
     form = host.querySelector("[data-form]"), input = host.querySelector("#lbt-chat-input"), statusEl = host.querySelector("[data-status]"), badge = host.querySelector(".badge-n"), launch = host.querySelector(".chat-launch");
+  var navigation = document.querySelector(".head-cta");
+  if (navigation) navigation.insertBefore(launch, navigation.firstChild);
   var tab = "bot", opened = false, lastId = 0, liveStarted = false, poller = null, unread = 0, busy = false, botHist = [];
 
   function brand(h) { return h.split("LOAD|BY|TON").join('<span class="lbt">LOAD<span class="by"><i></i><b><span>B</span><span>Y</span></b><i></i></span>TON</span>'); }
@@ -118,13 +120,16 @@
   function clearBump() { unread = 0; badge.classList.remove("on"); }
 
   function open(t) {
-    opened = true; panel.classList.add("open"); fab.setAttribute("aria-expanded", "true"); clearBump();
+    if (document.querySelector("dialog[open]") && !panel.open) return;
+    opened = true; if (!panel.open) panel.showModal(); panel.classList.add("open"); fab.setAttribute("aria-expanded", "true"); clearBump();
     var nudge = launch.querySelector(".chat-nudge"); if (nudge) nudge.remove(); store.sset("lbt-nudged", "1");
     if (!body.childNodes.length || (t && t !== tab)) setTab(t || tab);
     else if (tab === "live" && liveStarted) startPoll();
     setTimeout(function () { input.focus(); }, 60);
   }
-  function close() { opened = false; panel.classList.remove("open"); fab.setAttribute("aria-expanded", "false"); if (liveStarted) startPoll(); fab.focus(); }
+  function close() { opened = false; panel.close(); panel.classList.remove("open"); fab.setAttribute("aria-expanded", "false"); if (liveStarted) startPoll(); fab.focus(); }
+  panel.addEventListener("cancel", function (e) { e.preventDefault(); close(); });
+  panel.addEventListener("click", function (e) { var b = panel.getBoundingClientRect(); if (e.target === panel && (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom)) close(); });
   LBT.openChat = open;
 
   fab.addEventListener("click", function () { opened ? close() : open(); });
@@ -140,12 +145,10 @@
   // returning visitor with an open conversation: show unread replies on the launcher
   if (store.get("lbt-chat-token") && store.get("lbt-chat-live")) { liveStarted = true; startPoll(); }
 
-  // one gentle nudge per session, never while another panel is open
+  // The optional invitation uses the same in-flow notice region as other notices.
   if (!store.sget("lbt-nudged")) setTimeout(function () {
-    if (opened || store.sget("lbt-nudged") || document.querySelector("dialog[open]")) return;
-    var n = document.createElement("div"); n.className = "chat-nudge"; n.setAttribute("role", "status");
-    n.innerHTML = "<b>Questions?</b>Ask the assistant, or chat with the team." + '<button type="button" aria-label="Dismiss">×</button>';
-    n.addEventListener("click", function (e) { if (e.target.tagName === "BUTTON") { n.remove(); store.sset("lbt-nudged", "1"); } else open(); });
-    launch.insertBefore(n, launch.firstChild);
+    if (opened || store.sget("lbt-nudged") || document.querySelector("dialog[open], .toast, .site-head.is-open") || document.activeElement.matches("input, textarea, select")) return;
+    store.sset("lbt-nudged", "1");
+    if (LBT.toast) LBT.toast({ title: "Questions?", text: "Ask the assistant, or chat with the team.", img: "/brand/lbt-chat-avatar.png", action: function () { open(); }, actionLabel: "Open chat" });
   }, 28000);
 })();

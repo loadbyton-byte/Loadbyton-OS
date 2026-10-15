@@ -55,6 +55,9 @@ core.use("/app/*", async (c, next) => {
     if (c.req.method !== "GET") return c.redirect("/app/verify?err=" + encodeURIComponent(gateMessage(t.verification_status)));
     if (p === "/app") return c.redirect("/app/verify");
   }
+  if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method) && ["restricted", "cancelled"].includes(t.sub_status)
+      && !p.startsWith("/app/billing") && p !== "/app/switch")
+    throw new HttpError(402, "This workspace is read-only until its subscription is restored.");
   if (portalOnly && !p.startsWith("/app/portal") && !p.startsWith("/app/documents/") && !p.startsWith("/app/invoices/") && p !== "/app/switch") return c.redirect("/app/portal");
   const driverDocument=c.req.method==='GET'&&/^\/app\/documents\/[0-9a-f-]{36}\/download$/i.test(p);
   if (driverOnly && !p.startsWith("/app/driver") && !driverDocument && p !== "/app/switch") return c.redirect("/app/driver");
@@ -248,9 +251,9 @@ core.get("/app", async (c) => {
           <dl><div><dt>Plan</dt><dd>{t.plan}</dd></div><div><dt>Sectors</dt><dd>{t.sectors.length || "—"}</dd></div><div><dt>Jobs this month</dt><dd class="mono">{lim("jobs_per_month", usage.used.jobs)}</dd></div><div><dt>Users</dt><dd class="mono">{lim("max_users", usage.used.users)}</dd></div></dl>
           {can(c, "billing.manage") ? <a class="btn glass sm" style="margin-top:18px" href="/app/billing">Plan &amp; billing <Icon name="arrow" size={14} /></a> : null}</div>
         <section class="panel"><header><h2>Quick actions</h2></header><div class="body"><div class="quick-actions">
-          {t.sectors.includes("freight-forwarding") && can(c, "enquiry.write") ? <a href="/app/enquiries/new"><Icon name="mail" />New enquiry</a> : null}
-          <a href="/app/parties"><Icon name="people" />Customers</a><a href="/app/documents"><Icon name="document" />Documents</a><a href="/app/invoices"><Icon name="money" />Invoices</a>
-          {can(c, "team.manage") ? <a href="/app/team"><Icon name="users" />Invite team</a> : null}
+          {t.sectors.includes("freight-forwarding") && can(c, "enquiry.write") ? <a class="btn ghost" href="/app/enquiries/new"><Icon name="mail" />New enquiry</a> : null}
+          <a class="btn ghost" href="/app/parties"><Icon name="people" />Customers</a><a class="btn ghost" href="/app/documents"><Icon name="document" />Documents</a><a class="btn ghost" href="/app/invoices"><Icon name="money" />Invoices</a>
+          {can(c, "team.manage") ? <a class="btn ghost" href="/app/team"><Icon name="users" />Invite team</a> : null}
         </div></div></section>
       </aside>
     </div>

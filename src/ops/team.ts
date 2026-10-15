@@ -1,10 +1,10 @@
 import type { Db, Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
-import { ROLES, actorOf, require, type Ctx } from "../lib/perms.js";
+import { ROLES, actorOf, permsFor, require, type Ctx } from "../lib/perms.js";
 import { HttpError, badRequest, baseUrl, checkPasswordStrength, hashPassword, randomToken, sha256, verifyPassword } from "../lib/util.js";
 import { encryptSecret } from "../lib/encryption.js";
 import { rateLimit } from "../adapters/rate-limit.js";
-import { assertCapacity, getLimit } from "../platform/entitlements.js";
+import { assertCapacity, assertWritable, getLimit } from "../platform/entitlements.js";
 import { optStr } from "./common.js";
 
 export const listTeam = (c: Conn) => c.query<any>(`SELECT * FROM team_members ORDER BY name`).then((r) => r.rows);
@@ -15,13 +15,23 @@ function cleanRoles(r: unknown): string[] {
   return [...new Set(arr)];
 }
 
+function assertRoleGrant(actorRoles: string[], targetRoles: string[]) {
+  if (actorRoles.includes("owner")) return;
+  if (targetRoles.includes("owner")) throw new HttpError(403, "Only an owner can grant owner access.");
+  const allowed = permsFor(actorRoles);
+  if (targetRoles.includes("owner") || [...permsFor(targetRoles)].some(p => !allowed.has(p)))
+    throw new HttpError(403, "An owner must grant roles with permissions you do not hold.");
+}
+
 /** Individual accounts only: an invitation carries no password; the invitee sets their own. */
 export async function invite(c: Conn, ctx: Ctx, f: { email: string; roles: unknown; party_id?: string; driver_id?: string }) {
   require(ctx, "team.manage");
+  await assertWritable(c, ctx.tenantId);
   const email = String(f.email ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw badRequest("Enter a valid email address.");
   if((await c.query(`SELECT 1 FROM team_members WHERE email=$1 AND active`,[email])).rows.length)throw new HttpError(409,'This account already belongs to the workspace. Change its roles in Team.');
   const roles = cleanRoles(f.roles);
+  assertRoleGrant(ctx.roles, roles);
   if(roles.includes('portal')&&roles.length>1)throw badRequest('A portal seat is limited and cannot be combined with other roles.');
   if (roles.includes("owner") && !ctx.roles.includes("owner")) throw badRequest("Only an owner can invite another owner.");
   const limited = roles.includes("portal") || roles.includes("driver");
@@ -63,6 +73,8 @@ export async function acceptInvite(db: Db, token: string, f: { name: string; pas
     if(!active)throw new HttpError(410,'This invitation was already accepted or expired');
     const creator=(await c.query<any>(`SELECT roles FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND active`,[inv.tenant_id,inv.created_by])).rows[0];
     if(!creator||!['owner','hr'].some(r=>creator.roles.includes(r))||(inv.roles.includes('owner')&&!creator.roles.includes('owner')))throw new HttpError(403,'The invitation is no longer authorized by its issuer');
+    assertRoleGrant(creator.roles, inv.roles);
+    await assertWritable(c, inv.tenant_id);
     let user = (await c.query<any>(`SELECT id,password_hash FROM users WHERE email=$1`, [inv.email])).rows[0];
     if(user&&!await verifyPassword(f.password,user.password_hash))throw new HttpError(401,'Enter the existing account password to accept this invitation');
     const membership=user?(await c.query<any>(`SELECT roles,active FROM memberships WHERE tenant_id=$1 AND user_id=$2`,[inv.tenant_id,user.id])).rows[0]:null;
@@ -88,7 +100,9 @@ export async function acceptInvite(db: Db, token: string, f: { name: string; pas
 
 export async function setRoles(c: Conn, ctx: Ctx, userId: string, roles: unknown) {
   require(ctx, "team.manage");
+  await assertWritable(c, ctx.tenantId);
   const rs = cleanRoles(roles);
+  assertRoleGrant(ctx.roles, rs);
   await c.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`team:${ctx.tenantId}`]);
   if(rs.includes('portal')&&rs.length>1)throw badRequest('A portal seat cannot be combined with staff roles');
   if(rs.includes('owner')&&!ctx.roles.includes('owner'))throw badRequest('Only an owner can grant owner access');
@@ -106,6 +120,7 @@ export async function setRoles(c: Conn, ctx: Ctx, userId: string, roles: unknown
 
 export async function deactivate(c: Conn, ctx: Ctx, userId: string) {
   require(ctx, "team.manage");
+  await assertWritable(c, ctx.tenantId);
   await c.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`team:${ctx.tenantId}`]);
   const owners = (await c.query<any>(`SELECT user_id FROM memberships WHERE active AND 'owner' = ANY(roles)`)).rows;
   if (owners.length === 1 && owners[0].user_id === userId) throw badRequest("A workspace must keep at least one owner.");
