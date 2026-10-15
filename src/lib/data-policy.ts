@@ -25,3 +25,5 @@ export function redactFields<T extends Record<string,any>>(table:string,row:T,ct
  for(const f of Object.keys(rules))if(f in row&&row[f]!==null&&!canReadField(table,f,ctx)){out??={...row};out[f]=typeof row[f]==='string'&&['consignee_name','delivered_to','address','sender','sender_name','subject','body'].includes(f)?'Restricted':null;}
  return (out??row) as T;
 }
+
+export const redactAll=<T extends Record<string,any>>(table:string,rows:T[],ctx:Ctx):T[]=>rows.map(r=>redactFields(table,r,ctx));
