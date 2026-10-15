@@ -206,6 +206,7 @@ its *billing currency* on the customer details page; invoices then need a curren
 - **Road routing** — `ROUTING_URL` (OSRM-compatible `/table/v1`), `ROUTING_API_KEY`, `ROUTING_PROFILE`, `ROUTING_MAX_POINTS`. Times are the service's own; the planner states whether it used road or straight-line distances.
 - **Self-hosted OCR** — `OCR_PROVIDER=self-hosted`, `OCR_API_BASE=http://ocr:8080`, and start the sidecar with `docker compose -f docker-compose.prod.yml --profile ocr up -d`. Untested against real scans in this repository: run a sample of your own documents through it and have a person check the text.
 - **Store and carrier connectors** — set up under *Fulfilment → Store connectors* (Shopify, WooCommerce) and *Carrier tracking*; each gives a secret webhook address once.
+- **Label printing** — *Warehouse → Label printing*: create an agent, add each printer's LAN address, then run `PRINT_SERVER=https://your-host PRINT_TOKEN=lbtp_… node scripts/print-agent.mjs` on a PC on the warehouse network (it only makes outbound HTTPS calls). Jobs are retried three times, then marked failed for a person. Tested against a local socket, not a physical printer.
 - **Account-holder consent for bank feeds** — add the bank's consent and token hosts to `FEED_ALLOWED_HOSTS`, register `PUBLIC_BASE_URL/app/settings/feeds/callback` as the redirect address in the bank's developer portal, then *Connect account* on the feed.
 
 ## 10. Monitoring

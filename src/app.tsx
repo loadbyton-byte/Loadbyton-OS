@@ -40,6 +40,7 @@ import { ledger } from "./web/ledger.js";
 import { deviceHooks, deviceUi } from "./web/devices.js";
 import { storefrontHooks, storefrontUi } from "./web/storefront.js";
 import { carrierHooks, carrierUi } from "./web/carrier-feeds.js";
+import { printApi, printUi } from "./web/printing.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
 import { connections } from "./web/connections.js";
@@ -130,6 +131,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", deviceHooks);
   app.route("/", storefrontHooks);
   app.route("/", carrierHooks);
+  app.route("/", printApi);
   app.route("/", adminConsole);
   app.route("/", adminReadiness);
   app.route("/", adminEInvoice);
@@ -146,6 +148,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", deviceUi);
   app.route("/", storefrontUi);
   app.route("/", carrierUi);
+  app.route("/", printUi);
   app.route("/", connections);
   app.route("/", privacy);
   app.route("/", service);
