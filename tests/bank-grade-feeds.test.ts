@@ -66,7 +66,7 @@ describe("a bank feed over mutual TLS with signed requests", () => {
   const PORT = 8443;
   it("presents the client certificate, pins the bank's CA, signs each request and rejects a missing or wrong certificate", async () => {
     const seen: { cn?: string; sig?: string; digest?: string; auth?: string }[] = [];
-    const server = https.createServer({ key: read("server.key"), cert: read("server.pem"), ca: read("ca.pem"), requestCert: true, rejectUnauthorized: false }, (req, res) => {
+    const server = https.createServer({ key: read("server.key"), cert: read("server.pem"), ca: read("ca.pem"), requestCert: true }, (req, res) => {
       const peer = (req.socket as any).getPeerCertificate?.();
       if (!(req.socket as any).authorized) { res.writeHead(401).end(); return; }
       seen.push({ cn: peer?.subject?.CN, sig: String(req.headers["x-jws-signature"] ?? ""), auth: req.headers.authorization });
