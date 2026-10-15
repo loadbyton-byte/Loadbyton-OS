@@ -86,8 +86,20 @@ export const config = {
     templateLanguage: text("WHATSAPP_TEMPLATE_LANGUAGE") || "en", templateOutForDelivery: text("WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY"), templateAttemptFailed: text("WHATSAPP_TEMPLATE_ATTEMPT_FAILED"),
   },
 
+  // ── RF terminal server for handheld guns (cleartext line protocol: private network or VPN only). Off unless RF_PORT is set.
+  rf: { port: Number(env.RF_PORT ?? 0), host: env.RF_HOST ?? "127.0.0.1", width: Number(env.RF_WIDTH ?? 24), rows: Number(env.RF_ROWS ?? 8), mode: (env.RF_MODE === "vt100" ? "vt100" : "lines") as "lines" | "vt100" },
+
   // ── live statement feeds (bank / card settlement / fuel card / Salik). A workspace may only point a feed at a host listed here; its credentials are its own.
   liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
+
+  // ── company verification at registration. Required by default in production: a new workspace stays read-only until email, mobile, trade licence and staff review are done.
+  kyc: { required: env.KYC_REQUIRED === undefined ? isProd : flag("KYC_REQUIRED"), allowFreeMail: flag("KYC_ALLOW_FREE_MAIL"), signupsPerIpPerDay: Number(env.KYC_SIGNUPS_PER_IP_PER_DAY ?? 3), phoneCountry: (text("KYC_PHONE_COUNTRY") || "AE").toUpperCase() },
+
+  // ── address geocoding for transport stops: any service answering the Nominatim /search JSON shape (self-hosted Nominatim, Photon-compatible gateways, commercial proxies). Empty URL = off.
+  geocoder: { url: text("GEOCODER_URL"), apiKey: text("GEOCODER_API_KEY"), countryCodes: (text("GEOCODER_COUNTRY_CODES") || "ae").toLowerCase(), userAgent: text("GEOCODER_USER_AGENT") || "LOADBYTON-OS/1.0" },
+
+  // ── road-network routing for trip planning: any OSRM-compatible /table/v1 service (self-hosted OSRM, or a gateway speaking the same API). Empty = straight-line planning. Durations are the service's own (free-flow unless it models traffic).
+  routing: { provider: (text("ROUTING_PROVIDER").toLowerCase() || "osrm"), googleBase: (env.ROUTING_GOOGLE_BASE ?? "https://routes.googleapis.com").replace(/\/$/, ""), url: text("ROUTING_URL").replace(/\/$/, ""), apiKey: text("ROUTING_API_KEY"), profile: text("ROUTING_PROFILE") || "driving", maxPoints: Number(env.ROUTING_MAX_POINTS ?? 60) },
 
   // ── OCR for scanned documents: "none" (default) or "google-vision". Document content is sent to the provider, so its processing must be reviewed first.
   ocr: { provider: (text("OCR_PROVIDER").toLowerCase() || "none"), apiKey: text("OCR_API_KEY"), apiBase: (env.OCR_API_BASE ?? "https://vision.googleapis.com").replace(/\/$/, ""), maxPages: Number(env.OCR_MAX_PAGES ?? 5), reviewed: flag("OCR_DATA_PROCESSING_REVIEWED") },
@@ -185,8 +197,13 @@ export function validateConfig(c = config, production = isProd) {
     if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(c.whatsapp.templateLanguage)) problems.push("WHATSAPP_TEMPLATE_LANGUAGE must be a language code such as en or ar");
   }
   if (c.liveFeeds.allowedHosts.some((h) => !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(h))) problems.push("FEED_ALLOWED_HOSTS must be a comma list of public host names (no schemes, ports or paths)");
+  if (!["osrm", "google"].includes(c.routing.provider)) problems.push(`ROUTING_PROVIDER must be "osrm" or "google" (got "${c.routing.provider}")`);
+  if (c.routing.provider === "google" && !c.routing.apiKey) problems.push("ROUTING_API_KEY (a Google Maps Platform key with the Routes API enabled) is required when ROUTING_PROVIDER=google");
+  if (c.routing.url && !/^https:\/\/[^\s]+$/.test(c.routing.url)) problems.push("ROUTING_URL must be an https address");
+  if (c.geocoder.url && !/^https:\/\/[^\s]+$/.test(c.geocoder.url)) problems.push("GEOCODER_URL must be an https address");
   if (!Number.isInteger(c.liveFeeds.intervalMinutes) || c.liveFeeds.intervalMinutes < 15 || c.liveFeeds.intervalMinutes > 1440) problems.push("FEED_PULL_INTERVAL_MINUTES must be a whole number between 15 and 1440");
-  if (!["none", "google-vision"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none" or "google-vision" (got "${c.ocr.provider}")`);
+  if (!["none", "google-vision", "self-hosted"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none", "google-vision" or "self-hosted" (got "${c.ocr.provider}")`);
+  if (c.ocr.provider === "self-hosted" && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(c.ocr.apiBase)) problems.push("OCR_API_BASE must be the sidecar's address (for example http://ocr:8080) when OCR_PROVIDER=self-hosted");
   if (c.ocr.provider === "google-vision") {
     if (!c.ocr.apiKey) problems.push("OCR_API_KEY is required when OCR_PROVIDER=google-vision");
     if (!c.ocr.reviewed) problems.push("OCR sends document content to the provider: set OCR_DATA_PROCESSING_REVIEWED=true once that processing has been reviewed");

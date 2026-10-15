@@ -4,6 +4,7 @@ import { importParties } from "../ops/importer.js";
 import { createEnquiry, createParty, createRate, listEnquiries, listParties, listRates, loseEnquiry } from "../ops/crm.js";
 import { acceptQuote, approveQuote, createQuote, getQuote, listQuotes, rejectQuote, reviseQuote, sendQuote, submitQuote, type LineInput } from "../ops/quotes.js";
 import { arr, formBody, str, type Env } from "./mw.js";
+import { redactAll } from "../lib/data-policy.js";
 import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table } from "./ui.js";
 import { today } from "../ops/common.js";
@@ -14,7 +15,7 @@ const plus = (d: number) => new Date(Date.now() + d * 86400000).toISOString().sl
 // ───────── customers & suppliers
 sales.get("/app/parties", async (c) => {
   const kind = c.req.query("kind");
-  const rows = await withT(c, (cn) => listParties(cn, kind));
+  const rows = redactAll("parties", await withT(c, (cn) => listParties(cn, kind)), ctxOf(c));
   const csrf = c.get("csrf");
   return appPage(c, "Customers & suppliers", (<>
     <PageHead title="Customers & suppliers" sub="One master record per party, shared by quotes, jobs, invoices and the portal.">

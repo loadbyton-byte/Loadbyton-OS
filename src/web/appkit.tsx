@@ -38,7 +38,7 @@ export function navFor(c: C): NavItem[] {
   if (t?.sectors.includes("ecommerce-fulfilment")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Fulfilment" });
     w("/app/fulfilment", "Fulfilment board"); w("/app/fulfilment/orders", "Orders"); w("/app/fulfilment/pick", "Pick list"); w("/app/fulfilment/inbound", "Inbound");
-    w("/app/fulfilment/stock", "Stock"); w("/app/fulfilment/returns", "Returns"); w("/app/fulfilment/catalog", "Catalogue"); w("/app/fulfilment/locations", "Locations");
+    w("/app/fulfilment/stock", "Stock"); w("/app/fulfilment/returns", "Returns"); w("/app/fulfilment/catalog", "Catalogue"); w("/app/fulfilment/locations", "Locations"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/connectors", "Store connectors"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/carriers", "Carrier tracking"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/order-pulls", "Order pulls"); if (ctx.perms.has("wh.floor")) w("/app/fulfilment/carrier-labels", "Carrier labels");
     if (ctx.perms.has("wh.rates") || ctx.perms.has("finance.write")) {w("/app/fulfilment/billing", "Billing activity");w('/app/fulfilment/daily-storage','Daily storage');}
   }
   if (t?.sectors.includes("contract-warehouse-3pl")) {
@@ -46,10 +46,13 @@ export function navFor(c: C): NavItem[] {
       { href: "/app/warehouse/outbound", label: "Dispatch", section: "Warehouse" }, { href: "/app/warehouse/stock", label: "Stock", section: "Warehouse" },
       { href: "/app/warehouse/counts", label: "Counts", section: "Warehouse" }, { href: "/app/warehouse/setup", label: "Locations & SKUs", section: "Warehouse" }, {href:"/app/warehouse/traceability",label:"Lots, expiry & serials",section:"Warehouse"});
     n.push({href:'/app/warehouse/count-schedules',label:'Count schedules',section:'Warehouse'},{href:'/app/warehouse/returns',label:'Customer returns',section:'Warehouse'},{href:'/app/warehouse/policy',label:'Custody policy',section:'Warehouse'},{href:'/app/warehouse/labels',label:'Labels',section:'Warehouse'},{href:'/app/warehouse/rf',label:'Handheld',section:'Warehouse'});
+    n.push({ href: "/app/warehouse/printing", label: "Label printing", section: "Warehouse" });
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
+    if (ctx.perms.has("settings.manage")) n.push({ href: "/app/warehouse/rf-pins", label: "RF terminal PINs", section: "Warehouse" });
   }
   for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
   if(t?.sectors.includes('cold-chain')&&ctx.perms.has('specialist.write'))n.push({href:'/app/cold-chain/devices',label:'Temperature loggers',section:'Specialist cases'});
+  if(ctx.perms.has('specialist.write')&&t?.sectors.some(x=>['cold-chain','automotive-logistics','aviation-logistics','distribution','moving-relocation'].includes(x)))n.push({href:'/app/devices/certificates',label:'Device certificates',section:'Specialist cases'});
   if (t?.sectors.includes("courier-last-mile")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Delivery" });
     w("/app/delivery", "Delivery board"); w("/app/delivery/shipments", "Parcels"); w("/app/delivery/runs", "Runs"); w("/app/delivery/riders", "Riders"); w("/app/delivery/cash", "Cash desk");
@@ -65,6 +68,7 @@ export function navFor(c: C): NavItem[] {
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });
   if (fwd && ctx.perms.has('quote.write')) n.push({href:'/app/freight/weight',label:'Chargeable weight',section:'Sell'});
+  if (fwd && ctx.perms.has('doc.write')) n.push({href:'/app/freight/air-waybills',label:'Air waybills',section:'Operate'});
   if (fwd) n.push({ href: "/app/freight/opportunities", label: "Opportunities & tenders", section: "Sell" }, { href: "/app/freight/contracts", label: "Supplier contracts", section: "Sell" }, { href: "/app/freight/masters", label: "Master shipments", section: "Operate" });
   n.push({ href: "/app/documents", label: "Documents", section: "Operate" });
   if (ctx.perms.has("doc.write")) n.push({ href: "/app/extractions", label: "Document extraction", section: "Operate" });
@@ -104,7 +108,7 @@ export function appPage(c: C, title: string, body: Child, extra: Partial<Page> =
   ) : null;
   return c.html(
     <AppShell p={p} nav={navFor(c)} tenantName={t.name} roles={ctx.roles}
-      banner={ctx.readOnly ? "Support access: read-only, time-limited, audited under your identity." : t.subStatus === "grace" ? "Payment overdue — your workspace enters read-only mode when the grace period ends." : t.subStatus === "restricted" ? "Workspace is read-only until the subscription is restored. You can still read and export everything." : undefined}
+      banner={t.verification && t.verification !== "verified" ? "Company not verified yet: this workspace is read-only. Open Company verification to finish." : ctx.readOnly ? "Support access: read-only, time-limited, audited under your identity." : t.subStatus === "grace" ? "Payment overdue — your workspace enters read-only mode when the grace period ends." : t.subStatus === "restricted" ? "Workspace is read-only until the subscription is restored. You can still read and export everything." : undefined}
       switcher={switcher}>
       {body}
     </AppShell>,

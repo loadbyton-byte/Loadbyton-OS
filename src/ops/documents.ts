@@ -44,14 +44,14 @@ export async function uploadDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scann
 export interface DocInput { job_id?: string | null; trip_id?: string | null; transport_order_id?: string | null; dlv_shipment_id?: string | null; cus_case_id?: string | null; kind: string; title: string; issuer?: string; customer_visible?: boolean; filename: string; data: Buffer }
 
 /** Permission-free storage path: callers (office upload, driver POD photo) enforce their own authorisation first. */
-export async function storeDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scanner = basicScan) {
+export async function storeDocument(c: Conn, ctx: Ctx, f: DocInput, scan: Scanner = basicScan, opts: { skipVerification?: boolean } = {}) {
   const ext = path.extname(f.filename).slice(1).toLowerCase();
   if (!ALLOWED[ext]) throw badRequest(`File type .${ext || "?"} is not allowed. Allowed: ${Object.keys(ALLOWED).join(", ")}.`);
   if (f.data.length === 0) throw badRequest("The file is empty.");
   if (f.data.length > config.maxUploadBytes) throw badRequest(`Files are limited to ${config.maxUploadBytes / 1048576} MB.`);
   if (MAGIC[ext] && !MAGIC[ext](f.data)) throw badRequest("File content does not match its extension.");
   await scan(f.data, f.filename);
-  await assertWritable(c, ctx.tenantId);
+  await assertWritable(c, ctx.tenantId, { skipVerification: opts.skipVerification });
   await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`document-storage:${ctx.tenantId}`]);   // concurrent uploads cannot both pass the quota check
   const limitCheck = await c.query<{ n: string | number }>(`SELECT (SELECT coalesce(sum(size_bytes),0) FROM documents)+(SELECT coalesce(sum(size_bytes),0) FROM generated_documents) n`);
   const limitBytes = (await getLimit(c, ctx.tenantId, "storage_mb")) * 1048576;

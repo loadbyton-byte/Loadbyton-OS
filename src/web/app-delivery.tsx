@@ -12,7 +12,8 @@ import { rateLimit } from "../lib/ratelimit.js";
 import { raw } from "hono/html";
 import { barcodeSvg } from "../lib/code128.js";
 import { createApiKey, listApiKeys, listMerchantSettings, revokeApiKey, sendTestWebhook, setNotifySms, setNotifyWhatsApp, setWebhook } from "../ops/delivery-notify.js";
-import { act, appPage, can, Confirm, need, PageHead, PostBtn, withT } from "./appkit.js";
+import { redactAll, redactFields } from "../lib/data-policy.js";
+import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, PublicShell, Table } from "./ui.js";
 import { config } from "../config.js";
 
@@ -74,6 +75,7 @@ delivery.get(`${D}/shipments`, async (c) => {
   need(c, "read");
   const status = c.req.query("status") ?? "", q = c.req.query("q") ?? "", merchant = c.req.query("merchant") ?? "";
   const d = await withT(c, async (cn) => ({ rows: await listShipments(cn, { status: status || undefined, q, merchantId: merchant || undefined }), merchants: await listParties(cn, "customer") }));
+  d.rows = redactAll("dlv_shipments", d.rows, ctxOf(c));
   return appPage(c, "Parcels", (<>
     <PageHead title="Parcels" sub="Latest 300 matching.">
       {can(c, "dlv.write") ? <><a class="btn red sm" href={`${D}/shipments/new`}>New parcel</a><a class="btn sm" href={`${D}/shipments/import`}>Import CSV</a></> : null}
@@ -158,6 +160,7 @@ delivery.get(`${D}/shipments/:id`, async (c) => {
   need(c, "read");
   const id = c.req.param("id");
   const d = await withT(c, (cn) => getShipment(cn, id));
+  d.shipment = redactFields("dlv_shipments", d.shipment, ctxOf(c));
   const s = d.shipment, csrf = c.get("csrf"), w = can(c, "dlv.write");
   const k = d.collection;
   return appPage(c, s.no, (<>
@@ -221,6 +224,7 @@ delivery.get(`${D}/runs/new`, async (c) => {
     riders: (await cn.query<any>(`SELECT d.*, (SELECT email FROM team_members m WHERE m.driver_id=d.id AND m.active LIMIT 1) AS login_email FROM drivers d WHERE active ORDER BY name`)).rows,
     parcels: await listShipments(cn, { status: "new", limit: 400 }),
   }));
+  d.riders = redactAll("drivers", d.riders, ctxOf(c)); d.parcels = redactAll("dlv_shipments", d.parcels, ctxOf(c));
   const csrf = c.get("csrf");
   return appPage(c, "New run", (<>
     <PageHead title="New run" />
@@ -246,6 +250,7 @@ delivery.get(`${D}/runs/:id`, async (c) => {
   need(c, "read");
   const id = c.req.param("id");
   const d = await withT(c, async (cn) => ({ ...(await getRun(cn, id)), free: await listShipments(cn, { status: "new", limit: 200 }) }));
+  d.shipments = redactAll("dlv_shipments", d.shipments, ctxOf(c)); d.free = redactAll("dlv_shipments", d.free, ctxOf(c));
   const r = d.run, csrf = c.get("csrf"), w = can(c, "dlv.write");
   const cod = d.shipments.reduce((a: number, s: any) => a + (s.status === "cancelled" ? 0 : Number(s.cod_minor)), 0);
   return appPage(c, r.no, (<>
@@ -287,7 +292,7 @@ runPost("cancel", "Run cancelled.", () => `${D}/runs`, (cn, ctx, id) => cancelRu
 // ───────── riders
 delivery.get(`${D}/riders`, async (c) => {
   need(c, "read");
-  const rows = await withT(c, async (cn) => (await cn.query<any>(`SELECT d.*, (SELECT email FROM team_members m WHERE m.driver_id=d.id AND m.active LIMIT 1) AS login_email FROM drivers d WHERE active ORDER BY name`)).rows);
+  const rows = await withT(c, async (cn) => (await cn.query<any>(`SELECT d.*, (SELECT email FROM team_members m WHERE m.driver_id=d.id AND m.active LIMIT 1) AS login_email FROM drivers d WHERE active ORDER BY name`)).rows).then((r) => redactAll("drivers", r, ctxOf(c)));
   const csrf = c.get("csrf"), w = can(c, "dlv.write");
   return appPage(c, "Riders", (<>
     <PageHead title="Riders" sub="Riders sign in on their phone with a limited seat: they see only their own runs." />

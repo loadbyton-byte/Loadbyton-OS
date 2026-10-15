@@ -116,20 +116,38 @@ export async function recordReceipt(c: Conn, ctx: Ctx, invoiceId: string, f: Rec
   require(ctx, "finance.write");
   const inv = await must(c.query<any>(`SELECT * FROM invoices WHERE id=$1 FOR UPDATE`, [invoiceId]), "Invoice");
   if (inv.status === "void") throw badRequest("Invoice is void.");
-  const amount = toMinor(f.amount);
-  if (amount <= 0) throw badRequest("Enter an amount above zero.");
-  const outstanding = Number(inv.balance_minor);
-  if (amount > outstanding) throw badRequest("Receipt exceeds the outstanding balance.");
+  const outstanding = Number(inv.balance_minor), receivedAt = f.received_at || today();
+  // Foreign-currency settlement: the customer paid in the invoice's billing currency. The invoice is settled at its own rate; the value actually received is
+  // converted at the approved rate on the day, and the difference is the realised exchange gain or loss.
+  let amount: number, fx: { cash: number; billing: number; rate: number; rateId: string } | null = null;
+  if (String(f.billing_amount ?? "").trim() !== "") {
+    if (!inv.billing_currency) throw badRequest("This invoice is in the company currency, so a foreign amount cannot be recorded against it.");
+    const billing = toMinor(f.billing_amount);
+    if (billing <= 0) throw badRequest("Enter the amount paid in the billing currency.");
+    const r = await rateOn(c, inv.billing_currency, receivedAt);
+    if (!r) throw badRequest(`There is no approved ${inv.billing_currency} exchange rate on or before ${receivedAt}. Enter a rate and have another person approve it first.`);
+    if ((Date.parse(receivedAt) - Date.parse(r.as_of)) / 86400000 > FX_RATE_MAX_AGE_DAYS) throw badRequest(`The latest approved ${inv.billing_currency} rate is from ${r.as_of}, more than ${FX_RATE_MAX_AGE_DAYS} days before the receipt. Approve a current rate first.`);
+    const open = Math.round(outstanding / Number(inv.fx_rate));
+    if (billing > open) throw badRequest(`The amount exceeds what is still open on this invoice (${(open / 100).toFixed(2)} ${inv.billing_currency}).`);
+    amount = billing === open ? outstanding : Math.round(billing * Number(inv.fx_rate));
+    if (amount <= 0 || amount > outstanding) throw badRequest("That amount is too small to settle any of the invoice.");
+    fx = { cash: Math.round(billing * r.rate), billing, rate: r.rate, rateId: r.id };
+    if (fx.cash <= 0) throw badRequest("That amount converts to nothing at the approved rate.");
+  } else {
+    amount = toMinor(f.amount);
+    if (amount <= 0) throw badRequest("Enter an amount above zero.");
+    if (amount > outstanding) throw badRequest("Receipt exceeds the outstanding balance.");
+  }
   const sync = await receiptSync(c);
-  const r = await c.query<{ id: string }>(`INSERT INTO receipts(tenant_id,invoice_id,amount_minor,received_at,method,reference,recorded_by,sync_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [ctx.tenantId, invoiceId, amount, f.received_at || today(), reqStr(f.method || "bank transfer", "Method", 40), f.reference || null, ctx.userId, sync]);
+  const r = await c.query<{ id: string }>(`INSERT INTO receipts(tenant_id,invoice_id,amount_minor,received_at,method,reference,recorded_by,sync_status,cash_minor,billing_amount_minor,settlement_rate,settlement_rate_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+    [ctx.tenantId, invoiceId, amount, receivedAt, reqStr(f.method || "bank transfer", "Method", 40), f.reference || null, ctx.userId, sync, fx?.cash ?? null, fx?.billing ?? null, fx?.rate ?? null, fx?.rateId || null]);
   if (sync === "pending") await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'accounting.receipt',$2,$3) ON CONFLICT (key) DO NOTHING`, [ctx.tenantId, `receipt:${r.rows[0].id}`, JSON.stringify({ receiptId: r.rows[0].id })]);
   const paid = Number(inv.paid_minor) + amount;
   const status = settledStatus(Number(inv.total_minor), paid, Number(inv.credited_minor));
   await c.query(`UPDATE invoices SET paid_minor=$2, status=$3 WHERE id=$1`, [invoiceId, paid, status]);
   await refreshCollection(c, inv, status);
-  await audit(c, ctx.tenantId, actorOf(ctx), "receipt.recorded", "invoice", invoiceId, { amount });
-  return { status };
+  await audit(c, ctx.tenantId, actorOf(ctx), "receipt.recorded", "invoice", invoiceId, { amount, ...(fx ? { billing_amount: fx.billing, cash: fx.cash, realised_fx: fx.cash - amount } : {}) });
+  return { status, realised_fx_minor: fx ? fx.cash - amount : 0 };
 }
 
 /** A wrongly recorded receipt is never edited: a reversal is recorded with a reason, and the invoice is open again for that amount. */

@@ -9,3 +9,6 @@ data/*
 !data/.gitkeep
 .env
 *.log
+
+# generated video output lives outside git (R2 / Releases)
+*.mp4

@@ -11,7 +11,8 @@ import {
 import { listParties } from "../ops/crm.js";
 import { invite } from "../ops/team.js";
 import { arr, formBody, str, type Env } from "./mw.js";
-import { act, appPage, can, Confirm, need, PageHead, PostBtn, withT } from "./appkit.js";
+import { redactAll } from "../lib/data-policy.js";
+import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table } from "./ui.js";
 
 export const transport = new Hono<Env>();
@@ -205,6 +206,7 @@ transport.post(`${T}/expenses/:id`, async (c) => { const b = await formBody(c), 
 // ───────── fleet, drivers, compliance, maintenance
 transport.get(`${T}/fleet`, async (c) => {
   const d = await withT(c, async (cn) => ({ vehicles: await listVehicles(cn), drivers: await listDrivers(cn), compliance: await listCompliance(cn), maintenance: await listMaintenance(cn) }));
+  d.drivers = redactAll("drivers", d.drivers, ctxOf(c));
   const csrf = c.get("csrf"), link = c.req.query("link"), w = can(c, "transport.write");
   const subjects = [...d.vehicles.map((v: any) => ({ id: v.id, type: "vehicle", name: v.reg_no })), ...d.drivers.map((x: any) => ({ id: x.id, type: "driver", name: x.name }))];
   return appPage(c, "Fleet & drivers", (<>

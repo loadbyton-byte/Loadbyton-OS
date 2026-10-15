@@ -200,13 +200,28 @@ field extraction and validation as any other document; the result is labelled as
 No configuration. The owner enables the general ledger under *Money → General ledger* (start date fixed once enabled; earlier balances enter as an opening-balance manual entry). A customer is billed in a foreign currency by setting
 its *billing currency* on the customer details page; invoices then need a current approved exchange rate (no older than seven days) and are issued in both currencies with VAT also stated in AED. The books and receipts stay in AED.
 
+## 9f. Optional services added later
+
+- **Address geocoding** — `GEOCODER_URL` (any Nominatim-shaped `/search`), `GEOCODER_API_KEY`, `GEOCODER_COUNTRY_CODES`. The public OpenStreetMap server forbids bulk use: run your own or use a commercial gateway.
+- **Road routing** — `ROUTING_URL` (OSRM-compatible `/table/v1`), `ROUTING_API_KEY`, `ROUTING_PROFILE`, `ROUTING_MAX_POINTS`. Times are the service's own; the planner states whether it used road or straight-line distances.
+- **Self-hosted OCR** — `OCR_PROVIDER=self-hosted`, `OCR_API_BASE=http://ocr:8080`, and start the sidecar with `docker compose -f docker-compose.prod.yml --profile ocr up -d`. Untested against real scans in this repository: run a sample of your own documents through it and have a person check the text.
+- **Store and carrier connectors** — set up under *Fulfilment → Store connectors* (Shopify, WooCommerce) and *Carrier tracking*; each gives a secret webhook address once.
+- **Order pulls** — *Fulfilment → Order pulls*: needs the marketplace host in `FEED_ALLOWED_HOSTS`; map the answer's field names once. Not exercised against any real marketplace API: check the first pulls by hand.
+- **Label printing** — *Warehouse → Label printing*: create an agent, add each printer's LAN address, then run `PRINT_SERVER=https://your-host PRINT_TOKEN=lbtp_… node scripts/print-agent.mjs` on a PC on the warehouse network (it only makes outbound HTTPS calls). Jobs are retried three times, then marked failed for a person. Tested against a local socket, not a physical printer.
+- **Account-holder consent for bank feeds** — add the bank's consent and token hosts to `FEED_ALLOWED_HOSTS`, register `PUBLIC_BASE_URL/app/settings/feeds/callback` as the redirect address in the bank's developer portal, then *Connect account* on the feed.
+
+## 9g. Company verification (anti-abuse)
+
+On by default in production (`KYC_REQUIRED`). Registration asks for the owner's mobile number, the trade licence number and issuing authority, and optionally the TRN. Disposable mailboxes are refused; personal mailboxes (gmail, outlook…) are refused unless `KYC_ALLOW_FREE_MAIL=true`. One workspace per licence, TRN, mobile number and mailbox — email aliases (`+tag`, Gmail dots) count as the same mailbox — and a rejected identity stays reserved. A new workspace is **read-only** until the owner confirms the email link and an SMS code and uploads the licence, and platform staff approve it at `/admin/kyc` (look-alike company names, reused email domains and repeated network addresses are shown as risk signals). The SMS needs `SMS_PROVIDER=twilio`; with the default `log` provider no code is delivered, so use Twilio before enabling this in production. Sign-ups are also rate-limited per network address (`KYC_SIGNUPS_PER_IP_PER_DAY`; set `TRUST_PROXY` so the real address is seen). Existing workspaces were marked verified by the migration.
+**Still yours:** checking each licence against the issuing authority's register — software cannot do it; staff review does. This reduces fake and duplicate free accounts; it does not make them impossible (a determined person with a real licence, mobile and mailbox can still register once).
+
 ## 10. Monitoring
 
 See [`MONITORING.md`](MONITORING.md): `/healthz` (liveness), `/readyz` (database + background workers), `/metrics` (Prometheus text, bearer `METRICS_TOKEN`), recommended alerts.
 
 ## 11. Known limits of this setup (pilot)
 
-- **One web instance.** Background workers (provisioning, outbox) run inside it. Run more instances only after setting `RUN_WORKERS=false` on all but one.
+- **Several web instances are supported.** Each background job (provisioning, outbox, storage, subscriptions, ledger, feeds, e-invoicing, privacy) runs under a short database lease (`worker_leases`), so it runs on one instance at a time and moves to another within about 30 seconds if its holder dies. `RUN_WORKERS=false` still keeps workers off an instance. Share the rate limiter (Upstash) and object storage (`s3`) when you run more than one.
 - With `STORAGE_DRIVER=fs`, uploaded documents live on the VM's Docker volume: back it up (`scripts/backup.sh`). Use `s3` to move them off the VM.
 - **Alerting is yours to wire**: the app exposes health and metrics; something outside it must watch them and page a person (see MONITORING.md). Until that is running, sectors stay *Pilot*.
 - Merchant webhooks and the merchant API are in place, but a merchant's own endpoint reliability is outside our control: failed deliveries are retried 12 times with growing back-off (about three hours in total) and then wait in the dead queue.

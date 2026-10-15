@@ -12,10 +12,13 @@ import {applyDueSubscriptionChanges} from './billing.js';
 import {postAllLedgers} from '../ops/ledger.js';
 import {pullDueFeeds} from '../ops/live-feeds.js';
 import {processDataMinimisation} from '../ops/privacy-retention.js';
+import {kycSmsHandlers} from '../adapters/kyc-sms.js';
+import {acquireLease,releaseLease} from './worker-lease.js';
+import {pullDueOrders} from '../ops/order-pull.js';
 import {pollSubmittedDocuments,processEInvoiceRetries} from '../ops/einvoice-sync.js';
 
 export function startWorkers(db:Db,metrics:RuntimeMetrics) {
- const handlers={...defaultHandlers,...accountingHandlers(db),...mailHandlers(db),...inboxHandlers(db),...deliveryNotifyHandlers(db)};
+ const handlers={...defaultHandlers,...accountingHandlers(db),...mailHandlers(db),...inboxHandlers(db),...deliveryNotifyHandlers(db),...kycSmsHandlers()};
  const timers:NodeJS.Timeout[]=[],running=new Set<Promise<void>>(),active=new Set<string>();
  for(const [name,interval,work] of [
   ['provisioning',5000,()=>processProvisioningQueue(db)],['outbox',5000,()=>drainOutbox(db,handlers)],
@@ -23,15 +26,16 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   ['subscriptions',60000,()=>applyDueSubscriptionChanges(db)],
   ['ledger',300000,async()=>{const r=await postAllLedgers(db);if(r.failed)throw new Error('Ledger posting review needed');}],
   ['feeds',300000,async()=>{const r=await pullDueFeeds(db);if(r.failed)throw new Error('Statement feed review needed');}],
+  ['orders',300000,async()=>{const r=await pullDueOrders(db);if(r.failed)throw new Error('Order pull review needed');}],
   ['einvoice',60000,async()=>{const r=await processEInvoiceRetries(db);if(r.failed)throw new Error('E-invoice retry review needed');await pollSubmittedDocuments(db);}],
   ['privacy',3600000,async()=>{const r=await processDataMinimisation(db);if(r.failed)throw new Error('Data minimisation review needed');}],
  ] as const) {
   const run=()=>{
    if(active.has(name))return;active.add(name);
-   const p=(async()=>{try{await work();metrics.worker(name);markWorker(name,true);}catch{metrics.worker(name,true);markWorker(name,false);console.error(`[worker:${name}] failed`);}finally{active.delete(name);}})();
+   const p=(async()=>{try{if(await acquireLease(db,name,Math.max(30000,interval*3)))await work();metrics.worker(name);markWorker(name,true);}catch{metrics.worker(name,true);markWorker(name,false);console.error(`[worker:${name}] failed`);}finally{active.delete(name);}})();
    running.add(p);void p.finally(()=>running.delete(p));
   };
   timers.push(setInterval(run,interval));
  }
- return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);};
+ return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','ledger','feeds','orders','einvoice','privacy'].map((n)=>releaseLease(db,n)));};
 }

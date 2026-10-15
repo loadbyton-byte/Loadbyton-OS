@@ -65,6 +65,8 @@ const wrap = (title: string, paras: string[], cta?: { label: string; href: strin
 /** Pure templates: (payload facts) → subject/body. Unknown templates are never sent (the row is dead-lettered so a human sees the gap). */
 export const templates: Record<string, (d: Record<string, any>) => { subject: string; text: string; html: string }> = {
   password_recovery: (d) => ({ subject: 'Reset your LOAD|BY|TON.store password', ...wrap('Reset your password', ['A password reset was requested for your account. This link expires in one hour and works once. If you did not request it, you can ignore this email.'], d.link ? { label: 'Reset password', href: d.link } : undefined) }),
+  email_verification: (d) => ({ subject: "Confirm your email address for LOAD|BY|TON.store", ...wrap("Confirm your email address", ["Confirm this address to continue verifying your company. The link works once and expires in 24 hours. If you did not register, ignore this email."], d.link ? { label: "Confirm email address", href: d.link } : undefined) }),
+  kyc_decision: (d) => ({ subject: d.decision === "verified" ? "Your company is verified" : d.decision === "rejected" ? "We could not verify your company" : "Your company verification needs attention", ...wrap(d.decision === "verified" ? "Your company is verified" : d.decision === "rejected" ? "We could not verify your company" : "Your company is back in review", [d.decision === "verified" ? "Your workspace is now active." : d.decision === "rejected" ? "Your workspace stays read-only." : "Our team is looking at your company details again.", `Note from our team: ${String(d.note ?? "").slice(0, 500)}`], d.link ? { label: "Open your workspace", href: d.link } : undefined) }),
   invitation: (d) => ({ subject: "You have been invited to LOAD|BY|TON.store", ...wrap("You have been invited", ["Someone on your team invited you to their workspace. Set your own password to join — the link works for 7 days."], d.link ? { label: "Accept the invitation", href: d.link } : undefined) }),
   payment_received: (d) => ({ subject: `Payment received · ${d.reference}`, ...wrap("Payment received", [`We received payment ${d.reference}. Your plan is being activated; you will get another email when your workspace is ready.`], d.link ? { label: "Open plan & billing", href: d.link } : undefined) }),
   chat_started: (d) => ({ subject: `New live chat: ${String(d.name ?? "A visitor").slice(0, 60)}`, ...wrap("New live chat", [`${d.name ?? "A visitor"}${d.email ? ` (${d.email})` : ""} started a chat${d.page ? ` on ${d.page}` : ""}.`, `First message: ${d.first ?? ""}`], d.link ? { label: "Open the conversation", href: d.link } : undefined) }),
@@ -95,6 +97,14 @@ export function mailHandlers(db: Db, mailer: Mailer = defaultMailer()): OutboxHa
         to = [recovery.email];
         d = { ...p, link: `${baseUrl()}/reset-password?token=${encodeURIComponent(token)}` };
       }
+      else if (p.template === "email_verification") {
+        if (!p.tokenEncrypted) throw new PermanentMailError("Verification token is unavailable");
+        const token = decryptSecret(p.tokenEncrypted);
+        const u = (await db.query<any>(`SELECT u.email FROM email_verifications v JOIN users u ON u.id=v.user_id WHERE v.token_hash=$1 AND v.user_id=$2 AND v.consumed_at IS NULL AND v.expires_at>now()`, [sha256(token), p.userId])).rows[0];
+        if (!u) return {};                                     // replaced or already used: completed without delivery
+        to = [u.email]; d = { ...p, link: `${baseUrl()}/verify-email?token=${encodeURIComponent(token)}` };
+      }
+      else if (p.template === "kyc_decision") { to = await owners(row.tenant_id); d = { ...p, link: `${baseUrl()}/app/verify` }; }
       else if (p.template === "payment_received") {
         const o = (await db.query<any>(`SELECT o.reference, u.email FROM orders o LEFT JOIN users u ON u.id=o.created_by WHERE o.id=$1`, [p.orderId])).rows[0];
         if (!o) throw new PermanentMailError("order not found");
