@@ -12,6 +12,7 @@ import {
 import { RATE_CODES, billingSummary, invoiceMerchant, listRates, runStorageCharges, setRate, unbilledForParty } from "../ops/fulfil-billing.js";
 import { listParties } from "../ops/crm.js";
 import { issuedEvidence } from "../ops/fulfil-lots.js";
+import { shipmentTracking } from "../ops/carrier-tracking.js";
 import { listSites } from "../ops/fulfil-sites.js";
 import { formBody, str, type Env } from "./mw.js";
 import { act, appPage, can, Confirm, ctxOf, need, PageHead, PostBtn, withT } from "./appkit.js";
@@ -152,6 +153,7 @@ fulfil.post(`${F}/orders/import`, async (c) => {
 fulfil.get(`${F}/orders/:id`, async (c) => {
   const id = c.req.param("id");
   const d = await withT(c, (cn,ctx) => getFulfilOrder(cn, id,ctx));
+  const track = d.shipment ? await withT(c, (cn) => shipmentTracking(cn, d.shipment.carrier, d.shipment.tracking_no)) : null;
   const o = d.order, csrf = c.get("csrf"), floor = can(c, "wh.floor"), wr = can(c, "wh.write");
   const live = ["new", "backordered", "allocated", "picking", "picked", "packed"].includes(o.status);
   const waiting = d.lines.reduce((a: number, l: any) => a + l.waiting, 0);
@@ -196,7 +198,7 @@ fulfil.get(`${F}/orders/:id`, async (c) => {
           <div class="row"><div class="field"><label for="cn">Cartons</label><input id="cn" name="cartons" type="number" min="1" value="1" /></div><div class="field"><label for="wg">Weight (g)</label><input id="wg" name="weight_g" type="number" min="1" /></div></div>
           <button class="btn red" type="submit">Dispatch</button><p class="hint">Carrier label printing and live tracking APIs are not built: enter the tracking number from the carrier.</p></form>)}</>) : null}
 
-    {d.shipment ? <div class="card" style="margin-top:20px"><h3>Shipment</h3><p style="margin:0">{d.shipment.carrier} · <strong>{d.shipment.tracking_no}</strong> · {d.shipment.cartons} carton(s){d.shipment.weight_g ? ` · ${d.shipment.weight_g} g` : ""} · {dt(d.shipment.shipped_at)}</p></div> : null}
+    {d.shipment ? <div class="card" style="margin-top:20px"><h3>Shipment</h3><p style="margin:0">{d.shipment.carrier} · <strong>{d.shipment.tracking_no}</strong> · {d.shipment.cartons} carton(s){d.shipment.weight_g ? ` · ${d.shipment.weight_g} g` : ""} · {dt(d.shipment.shipped_at)}</p>{track?.events.length ? <><h4 style="margin-top:12px">Carrier tracking</h4><Table head={["Time", "Status", "Carrier says", "Location"]}>{track.events.map((e: any) => <tr><td class="small">{dt(e.occurred_at)}</td><td><Badge s={e.status === "delivered" ? "delivered" : e.status === "exception" || e.status === "returned" ? "bad" : "info"} label={String(e.status).replace(/_/g, " ")} /></td><td class="small">{e.raw_status}</td><td class="small">{e.location ?? "—"}</td></tr>)}</Table></> : null}</div> : null}
     {d.charges.length ? <><h3 style="margin-top:22px">Billable activity</h3><Table head={["Activity", ["Qty", "num"], ["Rate", "num"], "Invoiced"]}>{d.charges.map((x: any) => <tr><td class="small">{x.description}</td><td class="num">{x.qty}</td><td class="num"><Money v={x.unit_minor} /></td><td>{x.invoice_id ? <Badge s="invoiced" /> : <Badge s="open" label="not yet" />}</td></tr>)}</Table></> : null}
     {d.returns.length ? <><h3 style="margin-top:22px">Returns</h3><Table head={["Return", "Status"]}>{d.returns.map((r: any) => <tr><td><a href={`${F}/returns/${r.id}`}>{r.no}</a></td><td><Badge s={r.status} /></td></tr>)}</Table></> : null}
   </>));

@@ -39,6 +39,7 @@ import { feeds } from "./web/feeds.js";
 import { ledger } from "./web/ledger.js";
 import { deviceHooks, deviceUi } from "./web/devices.js";
 import { storefrontHooks, storefrontUi } from "./web/storefront.js";
+import { carrierHooks, carrierUi } from "./web/carrier-feeds.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
 import { connections } from "./web/connections.js";
@@ -128,6 +129,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", inboundHooks);
   app.route("/", deviceHooks);
   app.route("/", storefrontHooks);
+  app.route("/", carrierHooks);
   app.route("/", adminConsole);
   app.route("/", adminReadiness);
   app.route("/", adminEInvoice);
@@ -143,6 +145,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", ledger);
   app.route("/", deviceUi);
   app.route("/", storefrontUi);
+  app.route("/", carrierUi);
   app.route("/", connections);
   app.route("/", privacy);
   app.route("/", service);
