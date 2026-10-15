@@ -159,7 +159,7 @@ export async function pullFeed(db: Db, tenantId: string, id: string, deps: PullD
     allowedHost(f.url);                                                                          // the allow-list is re-checked on every pull, not only at set-up
     const u0 = new URL(f.url);
     if (f.cursor) { const from = new Date(f.cursor); from.setUTCDate(from.getUTCDate() - 3); u0.searchParams.set(f.since_param, from.toISOString().slice(0, 10)); }   // a small overlap; remembered ids make it harmless
-    const get = deps.get ?? getJson;
+    const get = deps.get ?? ((u: string, h: Record<string, string>, o?: PostOptions) => getJson(u, h, { ...o, returnHeaders: true }));
     const headers = await authHeaders(f, deps, db);
     let next: URL | null = u0, page = 1;
     for (let n = 0; next && n < f.max_pages; n++) {
