@@ -5,7 +5,10 @@ import { mapWafeqResult } from "../adapters/einvoice-wafeq.js";
 import type { EInvoiceResult } from "../adapters/einvoice.js";
 import { audit } from "../lib/audit.js";
 import { decryptSecret } from "../lib/encryption.js";
-import { HttpError, badRequest, forbidden } from "../lib/util.js";
+import { actorOf, require, type Ctx } from "../lib/perms.js";
+import { HttpError, TAX_CODES, badRequest, forbidden } from "../lib/util.js";
+import { assertWritable } from "../platform/entitlements.js";
+import { enterBill } from "./finance-bridge.js";
 import { adapterForDocument, sendDocument } from "./einvoice.js";
 import { routeFor, SERVICE_PROVIDERS } from "./einvoice-service.js";
 import { must, recordId } from "./common.js";
@@ -132,7 +135,7 @@ async function enrichInbound(c: Conn, tenantId: string, ref: string, fetchImpl?:
 
 // ───────── workspace reads
 export async function listInbound(c: Conn) {
-  return (await c.query<any>(`SELECT id, provider, number, sender_name, currency, total_minor, issued_on, received_at FROM einvoice_inbound ORDER BY received_at DESC LIMIT 100`)).rows;
+  return (await c.query<any>(`SELECT id, provider, number, sender_name, currency, total_minor, issued_on, received_at, status, bill_id FROM einvoice_inbound ORDER BY received_at DESC LIMIT 100`)).rows;
 }
 
 /** The provider's archived UBL for a received supplier invoice. */
@@ -228,4 +231,40 @@ export async function pollSubmittedDocuments(db: Db, fetchImpl?: typeof fetch) {
     } catch { failed++; await db.system((c) => c.query(`UPDATE einvoice_documents SET polled_at=now() WHERE id=$1`, [row.id])); }
   }
   return { due: rows.length, checked, failed };
+}
+
+// ───────── forwarding a received supplier invoice into purchasing
+/**
+ * Turns a received supplier invoice into a DRAFT supplier bill (approval, payment and reconciliation stay with the normal bill workflow). The bill must equal the received
+ * invoice's total to the fils, in its own currency: by default a single line at the chosen tax code, or the lines the person enters. A received invoice becomes a bill once.
+ */
+export async function forwardInboundToBill(c: Conn, ctx: Ctx, inboundId: string, f: { supplier_id: string; due_date: string; tax_code?: string; lines?: { description: string; net: number | string; tax_code?: string }[] }) {
+  require(ctx, "finance.write");
+  await assertWritable(c, ctx.tenantId);
+  const inv = await must(c.query<any>(`SELECT * FROM einvoice_inbound WHERE id=$1 FOR UPDATE`, [recordId(inboundId, "Received invoice")]), "Received invoice");
+  if (inv.status !== "received") throw badRequest(inv.status === "billed" ? "This invoice has already been entered as a bill." : "This invoice was dismissed.");
+  if (!inv.number || !inv.currency || inv.total_minor === null || !inv.issued_on) throw badRequest("The provider has not yet supplied this invoice's number, currency, date and total. Try again shortly, or enter the bill by hand.");
+  const total = Number(inv.total_minor);
+  let lines = f.lines;
+  if (!lines?.length) {
+    const code = f.tax_code && TAX_CODES[f.tax_code] ? f.tax_code : "SR5", bps = TAX_CODES[code].bps;
+    const net = Math.round((total * 10_000) / (10_000 + bps));
+    lines = [{ description: `Supplier invoice ${inv.number}${inv.sender_name ? ` from ${inv.sender_name}` : ""}`, net, tax_code: code }];
+  }
+  const issued = new Date(inv.issued_on).toISOString().slice(0, 10);
+  const bill = await enterBill(c, ctx, { supplier_id: f.supplier_id, supplier_ref: inv.number, currency: inv.currency, bill_date: issued, due_date: f.due_date, lines });
+  const made = await must(c.query<any>(`SELECT total_minor FROM vendor_bills WHERE id=$1`, [bill.id]), "Bill");
+  if (Number(made.total_minor) !== total) throw badRequest(`The bill would total ${(Number(made.total_minor) / 100).toFixed(2)} but the received invoice is ${(total / 100).toFixed(2)} ${inv.currency}. Enter the lines and tax codes as they appear on the invoice.`);
+  await c.query(`UPDATE einvoice_inbound SET status='billed', bill_id=$2, handled_by=$3, handled_at=now() WHERE id=$1`, [inv.id, bill.id, ctx.userId]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.inbound_billed", "einvoice_inbound", inv.id, { bill: bill.no });
+  return bill;
+}
+export async function dismissInbound(c: Conn, ctx: Ctx, inboundId: string, reason: string) {
+  require(ctx, "finance.write");
+  const inv = await must(c.query<any>(`SELECT status FROM einvoice_inbound WHERE id=$1 FOR UPDATE`, [recordId(inboundId, "Received invoice")]), "Received invoice");
+  if (inv.status !== "received") throw badRequest("This invoice has already been handled.");
+  const why = String(reason ?? "").trim();
+  if (why.length < 5 || why.length > 300) throw badRequest("Give a reason of 5–300 characters.");
+  await c.query(`UPDATE einvoice_inbound SET status='dismissed', dismiss_reason=$2, handled_by=$3, handled_at=now() WHERE id=$1`, [inboundId, why, ctx.userId]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "einvoice.inbound_dismissed", "einvoice_inbound", inboundId);
 }

@@ -101,7 +101,7 @@ export async function setLegCoordinates(c: Conn, ctx: Ctx, legId: string, lat: u
   require(ctx, "transport.write");
   const la = Number(lat), lo = Number(lng);
   if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || lat === "" || lng === "") throw badRequest("Latitude must be −90..90 and longitude −180..180.");
-  await must(c.query(`UPDATE trip_legs SET lat=$2, lng=$3 WHERE id=$1 AND status='pending' RETURNING id`, [recordId(legId), la.toFixed(6), lo.toFixed(6)]), "Pending stop");
+  await must(c.query(`UPDATE trip_legs SET lat=$2, lng=$3, geo_source='manual', geo_label=NULL WHERE id=$1 AND status='pending' RETURNING id`, [recordId(legId), la.toFixed(6), lo.toFixed(6)]), "Pending stop");
   await audit(c, ctx.tenantId, actorOf(ctx), "trip_leg.coordinates_set", "trip_leg", legId);
 }
 /** Propose (or apply) a better order for the trip's pending stops. Done stops are never moved; every pending stop needs coordinates. */

@@ -1,7 +1,8 @@
+import { listParties } from "../ops/crm.js";
 import { Hono } from "hono";
 import { formatDay } from "../lib/util.js";
 import { PACKAGES, getService, requestActivation } from "../ops/einvoice-service.js";
-import { archivedXml, handleAigentrixWebhook, handleWafeqWebhook, inboundXml, listInbound } from "../ops/einvoice-sync.js";
+import { archivedXml, handleAigentrixWebhook, handleWafeqWebhook, dismissInbound, forwardInboundToBill, inboundXml, listInbound } from "../ops/einvoice-sync.js";
 import { config } from "../config.js";
 import { FORMAT_LABEL, generateEInvoice, getEInvoice, getSettings, listEInvoices, previewReadiness, refreshEInvoice, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../ops/einvoice.js";
 import { act, appPage, can, need, PageHead, withT } from "./appkit.js";
@@ -30,7 +31,7 @@ einvoice.get(U, async (c) => {
   need(c, "finance.write");
   const csrf = c.get("csrf");
   const d = await withT(c, async (cn) => ({
-    settings: await getSettings(cn), docs: await listEInvoices(cn), service: await getService(cn), inbound: await listInbound(cn),
+    settings: await getSettings(cn), docs: await listEInvoices(cn), service: await getService(cn), inbound: await listInbound(cn), suppliers: ((await listParties(cn)) as any[]).filter((p) => p.kind !== "customer"),
     entity: (await cn.query<any>(`SELECT * FROM entities ORDER BY created_at LIMIT 1`)).rows[0],
     invoices: (await cn.query<any>(`SELECT i.id,i.no,p.name AS party,i.total_minor,i.currency FROM invoices i JOIN parties p ON p.id=i.party_id WHERE i.status IN ('issued','part_paid','paid') AND NOT EXISTS (SELECT 1 FROM einvoice_documents e WHERE e.invoice_id=i.id AND e.status IN ('generated','submitted','accepted')) ORDER BY i.issued_at DESC LIMIT 50`)).rows,
     parties: (await cn.query<any>(`SELECT id,name FROM parties WHERE kind='customer' AND (address_line IS NULL OR city IS NULL OR tax_id IS NULL) ORDER BY name LIMIT 50`)).rows,
@@ -53,7 +54,9 @@ einvoice.get(U, async (c) => {
     {can(c, "finance.write") ? <form class="card" method="post" action={`${U}/generate`}><Csrf t={csrf} /><h2>Prepare a document</h2>
       <div class="field"><label for="invoice_id">Invoice</label><select id="invoice_id" name="invoice_id">{d.invoices.map((i: any) => <option value={i.id}>{i.no} · {i.party}</option>)}</select></div><button class="btn sm">Check data and generate</button></form> : null}
     {d.inbound.length ? <section class="card"><h2>Supplier invoices received</h2>
-      <Table head={["Number", "From", "Date", "Total", ""]}>{d.inbound.map((x: any) => <tr><td>{x.number ?? "—"}</td><td>{x.sender_name ?? "—"}</td><td class="small">{x.issued_on ? formatDay(x.issued_on) : formatDay(x.received_at)}</td><td class="small">{x.total_minor !== null ? `${(Number(x.total_minor) / 100).toFixed(2)} ${x.currency ?? ""}` : "—"}</td><td><a href={`${U}/inbound/${x.id}/xml`}>Download XML</a></td></tr>)}</Table></section> : null}
+      <Table head={["Number", "From", "Date", "Total", ""]}>{d.inbound.map((x: any) => <tr><td>{x.number ?? "—"}</td><td>{x.sender_name ?? "—"}</td><td class="small">{x.issued_on ? formatDay(x.issued_on) : formatDay(x.received_at)}</td><td class="small">{x.total_minor !== null ? `${(Number(x.total_minor) / 100).toFixed(2)} ${x.currency ?? ""}` : "—"}</td><td><a href={`${U}/inbound/${x.id}/xml`}>Download XML</a>{x.status === "billed" ? <div class="small">Entered as a bill</div> : x.status === "dismissed" ? <div class="small mute">Dismissed</div> : can(c, "finance.write") ? <>
+        <form method="post" action={`${U}/inbound/${x.id}/bill`} class="inline-form"><Csrf t={csrf} /><select name="supplier_id" aria-label="Supplier">{d.suppliers.map((p: any) => <option value={p.id}>{p.name}</option>)}</select><input name="due_date" type="date" required aria-label="Due date" /><select name="tax_code" aria-label="Tax code"><option value="SR5">5%</option><option value="ZR0">0%</option></select><button class="btn sm">Create draft bill</button></form>
+        <form method="post" action={`${U}/inbound/${x.id}/dismiss`} class="inline-form"><Csrf t={csrf} /><input name="reason" placeholder="Reason" required minlength={5} aria-label="Reason" /><button class="btn ghost sm">Dismiss</button></form></> : null}</td></tr>)}</Table></section> : null}
     {d.parties.length ? <section class="card"><h2>Customers missing details</h2><p class="small">Address, city and tax registration number are expected on a business customer's tax invoice.</p>
       <ul>{d.parties.map((p: any) => <li><a href={`/app/parties/${p.id}/details`}>{p.name}</a></li>)}</ul></section> : null}
     {can(c, "settings.manage") ? <>
@@ -67,6 +70,8 @@ einvoice.get(U, async (c) => {
   </>);
 });
 einvoice.post(`${U}/activate`, async (c) => { const b = await formBody(c); return act(c, U, async () => { await withT(c, (cn, ctx) => requestActivation(cn, ctx, str(b.package))); return { to: U, ok: "Requested. Our team will contact you to complete onboarding." }; }); });
+einvoice.post(`${U}/inbound/:id/bill`, async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, U, async () => { const r = await withT(c, (cn, ctx) => forwardInboundToBill(cn, ctx, id, { supplier_id: str(b.supplier_id), due_date: str(b.due_date), tax_code: str(b.tax_code) })); return { to: U, ok: `Draft bill ${r.no} created. Approve it in the normal bill workflow.` }; }); });
+einvoice.post(`${U}/inbound/:id/dismiss`, async (c) => { const b = await formBody(c), id = c.req.param("id"); return act(c, U, async () => { await withT(c, (cn, ctx) => dismissInbound(cn, ctx, id, str(b.reason))); return { to: U, ok: "Dismissed." }; }); });
 einvoice.get(`${U}/inbound/:id/xml`, async (c) => {
   need(c, "finance.write");
   const r = await withT(c, (cn) => inboundXml(cn, c.req.param("id")));

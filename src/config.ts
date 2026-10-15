@@ -89,6 +89,9 @@ export const config = {
   // ── live statement feeds (bank / card settlement / fuel card / Salik). A workspace may only point a feed at a host listed here; its credentials are its own.
   liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
 
+  // ── address geocoding for transport stops: any service answering the Nominatim /search JSON shape (self-hosted Nominatim, Photon-compatible gateways, commercial proxies). Empty URL = off.
+  geocoder: { url: text("GEOCODER_URL"), apiKey: text("GEOCODER_API_KEY"), countryCodes: (text("GEOCODER_COUNTRY_CODES") || "ae").toLowerCase(), userAgent: text("GEOCODER_USER_AGENT") || "LOADBYTON-OS/1.0" },
+
   // ── OCR for scanned documents: "none" (default) or "google-vision". Document content is sent to the provider, so its processing must be reviewed first.
   ocr: { provider: (text("OCR_PROVIDER").toLowerCase() || "none"), apiKey: text("OCR_API_KEY"), apiBase: (env.OCR_API_BASE ?? "https://vision.googleapis.com").replace(/\/$/, ""), maxPages: Number(env.OCR_MAX_PAGES ?? 5), reviewed: flag("OCR_DATA_PROCESSING_REVIEWED") },
 
@@ -185,6 +188,7 @@ export function validateConfig(c = config, production = isProd) {
     if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(c.whatsapp.templateLanguage)) problems.push("WHATSAPP_TEMPLATE_LANGUAGE must be a language code such as en or ar");
   }
   if (c.liveFeeds.allowedHosts.some((h) => !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(h))) problems.push("FEED_ALLOWED_HOSTS must be a comma list of public host names (no schemes, ports or paths)");
+  if (c.geocoder.url && !/^https:\/\/[^\s]+$/.test(c.geocoder.url)) problems.push("GEOCODER_URL must be an https address");
   if (!Number.isInteger(c.liveFeeds.intervalMinutes) || c.liveFeeds.intervalMinutes < 15 || c.liveFeeds.intervalMinutes > 1440) problems.push("FEED_PULL_INTERVAL_MINUTES must be a whole number between 15 and 1440");
   if (!["none", "google-vision"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none" or "google-vision" (got "${c.ocr.provider}")`);
   if (c.ocr.provider === "google-vision") {
