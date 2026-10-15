@@ -38,7 +38,7 @@ export function navFor(c: C): NavItem[] {
   if (t?.sectors.includes("ecommerce-fulfilment")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Fulfilment" });
     w("/app/fulfilment", "Fulfilment board"); w("/app/fulfilment/orders", "Orders"); w("/app/fulfilment/pick", "Pick list"); w("/app/fulfilment/inbound", "Inbound");
-    w("/app/fulfilment/stock", "Stock"); w("/app/fulfilment/returns", "Returns"); w("/app/fulfilment/catalog", "Catalogue"); w("/app/fulfilment/locations", "Locations"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/connectors", "Store connectors"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/carriers", "Carrier tracking"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/order-pulls", "Order pulls");
+    w("/app/fulfilment/stock", "Stock"); w("/app/fulfilment/returns", "Returns"); w("/app/fulfilment/catalog", "Catalogue"); w("/app/fulfilment/locations", "Locations"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/connectors", "Store connectors"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/carriers", "Carrier tracking"); if (ctx.perms.has("settings.manage")) w("/app/fulfilment/order-pulls", "Order pulls"); if (ctx.perms.has("wh.floor")) w("/app/fulfilment/carrier-labels", "Carrier labels");
     if (ctx.perms.has("wh.rates") || ctx.perms.has("finance.write")) {w("/app/fulfilment/billing", "Billing activity");w('/app/fulfilment/daily-storage','Daily storage');}
   }
   if (t?.sectors.includes("contract-warehouse-3pl")) {
