@@ -12,7 +12,7 @@ import {applyDueSubscriptionChanges} from './billing.js';
 import {postAllLedgers} from '../ops/ledger.js';
 import {pullDueFeeds} from '../ops/live-feeds.js';
 import {processDataMinimisation} from '../ops/privacy-retention.js';
-import {processEInvoiceRetries} from '../ops/einvoice-sync.js';
+import {pollSubmittedDocuments,processEInvoiceRetries} from '../ops/einvoice-sync.js';
 
 export function startWorkers(db:Db,metrics:RuntimeMetrics) {
  const handlers={...defaultHandlers,...accountingHandlers(db),...mailHandlers(db),...inboxHandlers(db),...deliveryNotifyHandlers(db)};
@@ -23,7 +23,7 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   ['subscriptions',60000,()=>applyDueSubscriptionChanges(db)],
   ['ledger',300000,async()=>{const r=await postAllLedgers(db);if(r.failed)throw new Error('Ledger posting review needed');}],
   ['feeds',300000,async()=>{const r=await pullDueFeeds(db);if(r.failed)throw new Error('Statement feed review needed');}],
-  ['einvoice',60000,async()=>{const r=await processEInvoiceRetries(db);if(r.failed)throw new Error('E-invoice retry review needed');}],
+  ['einvoice',60000,async()=>{const r=await processEInvoiceRetries(db);if(r.failed)throw new Error('E-invoice retry review needed');await pollSubmittedDocuments(db);}],
   ['privacy',3600000,async()=>{const r=await processDataMinimisation(db);if(r.failed)throw new Error('Data minimisation review needed');}],
  ] as const) {
   const run=()=>{

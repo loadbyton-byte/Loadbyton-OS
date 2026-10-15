@@ -11,6 +11,8 @@ import { handleWafeqWebhook, listInbound, processEInvoiceRetries, verifyStandard
 
 const reply = (status: number, body: unknown, headers: Record<string, string> = { "content-type": "application/json" }) => new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers });
 const KEY = "pk_test_abc123", TXP = "txpay_0123abc";
+/** Each workspace has its own provider account; the same one cannot be attached twice. */
+const own = (tenantId: string) => `txpay_${tenantId.replace(/-/g, "").slice(0, 12)}`;
 let db: Db, n = 0;
 beforeAll(async () => { db = await freshDb(); });
 
@@ -101,14 +103,14 @@ describe("e-invoicing as an add-on", () => {
     await expect(db.tenant(t.tenantId, (c) => c.query(`UPDATE einvoice_service SET used_docs=0, allowance_docs=99999`))).rejects.toThrow(/platform staff/);
     await expect(db.tenant(t.tenantId, (c) => c.query(`INSERT INTO einvoice_credentials(tenant_id,provider,credentials_enc,updated_by) VALUES ($1,'wafeq','x',$2)`, [t.tenantId, t.ctx.userId]))).rejects.toThrow();
 
-    await expect(staffConfigure(db, { userId: staff.userId, role: "auditor" }, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: TXP })).rejects.toThrow(/cannot configure/);
-    await expect(staffConfigure(db, staff, t.tenantId, { provider: "nonesuch", api_key: KEY, taxpayer_id: TXP })).rejects.toThrow(/adapter is installed/);
-    await expect(staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: "nope", taxpayer_id: TXP })).rejects.toThrow(/pk_test_/);
-    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: TXP, allowance_docs: "2" });
+    await expect(staffConfigure(db, { userId: staff.userId, role: "auditor" }, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: own(t.tenantId) })).rejects.toThrow(/cannot configure/);
+    await expect(staffConfigure(db, staff, t.tenantId, { provider: "nonesuch", api_key: KEY, taxpayer_id: own(t.tenantId) })).rejects.toThrow(/adapter is installed/);
+    await expect(staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: "nope", taxpayer_id: own(t.tenantId) })).rejects.toThrow(/pk_test_/);
+    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: own(t.tenantId), allowance_docs: "2" });
     await expect(staffSetState(db, { userId: staff.userId, role: "support" }, t.tenantId, "active", "paid")).rejects.toThrow(/commercial administrator/);
     await expect(staffSetState(db, staff, t.tenantId, "active", " ")).rejects.toThrow(/payment reference/);
     await staffSetState(db, staff, t.tenantId, "active", "Invoice 2026-114 paid");
-    expect(await db.tenant(t.tenantId, (c) => getService(c))).toMatchObject({ state: "active", provider: "wafeq", environment: "sandbox", taxpayer_ref: TXP, allowance_docs: 2 });
+    expect(await db.tenant(t.tenantId, (c) => getService(c))).toMatchObject({ state: "active", provider: "wafeq", environment: "sandbox", taxpayer_ref: own(t.tenantId), allowance_docs: 2 });
     await expect(db.tenant(t.tenantId, (c) => requestActivation(c, t.ctx, "start"))).rejects.toThrow(/already set up/);
     await staffSetState(db, staff, t.tenantId, "suspended", "Client asked to pause");
     expect((await db.tenant(t.tenantId, (c) => getService(c))).state).toBe("suspended");
@@ -117,9 +119,9 @@ describe("e-invoicing as an add-on", () => {
   it("stores the provider key encrypted and never exposes it", async () => {
     const { t } = await readyWorkspace(), staff = await staffUser();
     await db.tenant(t.tenantId, (c) => requestActivation(c, t.ctx, "start"));
-    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: TXP });
+    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: own(t.tenantId) });
     const stored = (await db.query<any>(`SELECT credentials_enc FROM einvoice_credentials WHERE tenant_id=$1`, [t.tenantId])).rows[0].credentials_enc as string;
-    expect(stored).not.toContain(KEY); expect(stored).not.toContain(TXP);
+    expect(stored).not.toContain(KEY); expect(stored).not.toContain(own(t.tenantId));
     const readBack = await db.tenant(t.tenantId, (c) => c.query<any>(`SELECT credentials_enc FROM einvoice_credentials`));
     expect(readBack.rows[0].credentials_enc).toBe(stored);                                 // the workspace sees only ciphertext
     await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", allowance_docs: "10" });   // blank key keeps the stored one
@@ -129,12 +131,12 @@ describe("e-invoicing as an add-on", () => {
   it("sends through the client's own provider account in Sandbox while onboarding, refuses Live until activated, and does not send twice", async () => {
     const { t, inv } = await readyWorkspace(), staff = await staffUser();
     await db.tenant(t.tenantId, (c) => requestActivation(c, t.ctx, "start"));
-    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: "pk_live_abc123", taxpayer_id: TXP });
+    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: "pk_live_abc123", taxpayer_id: own(t.tenantId) });
     const doc = await generate(t, inv.id);
     expect(doc.submittable).toBe(true);                                                    // a managed provider holds the supplier's network identity, so those blockers do not apply
     expect(doc.payload_json).toMatchObject({ number: inv.no, currency: "AED", buyer: { trn: "100987654321003" } });
     await expect(send(t, doc.id, ok())).rejects.toThrow(/once support has activated/);     // Live key, not yet active
-    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: TXP });
+    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: own(t.tenantId) });
     let calls = 0;
     const sent = await send(t, doc.id, async (u, i) => { calls++; return ok()(); });
     expect(sent).toMatchObject({ status: "submitted", provider: "wafeq", provider_ref: "inv_AAA" }); expect(sent.provider_response.sandbox).toBe(true);
@@ -147,7 +149,7 @@ describe("e-invoicing as an add-on", () => {
   it("counts Live documents against the allowance and stops when it is used up", async () => {
     const { t, inv } = await readyWorkspace(), staff = await staffUser();
     await db.tenant(t.tenantId, (c) => requestActivation(c, t.ctx, "start"));
-    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: "pk_live_abc123", taxpayer_id: TXP, allowance_docs: "0" });
+    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: "pk_live_abc123", taxpayer_id: own(t.tenantId), allowance_docs: "0" });
     await staffSetState(db, staff, t.tenantId, "active", "paid");
     const doc = await generate(t, inv.id);
     await expect(send(t, doc.id, ok())).rejects.toThrow(/used its e-invoicing allowance/);
@@ -161,7 +163,7 @@ describe("e-invoicing as an add-on", () => {
   it("keeps a document through an outage and retries it automatically; gives up on refused credentials", async () => {
     const { t, inv } = await readyWorkspace(), staff = await staffUser();
     await db.tenant(t.tenantId, (c) => requestActivation(c, t.ctx, "start"));
-    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: TXP });
+    await staffConfigure(db, staff, t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: own(t.tenantId) });
     const doc = await generate(t, inv.id);
     const down = await send(t, doc.id, async () => reply(503, {}));
     expect(down).toMatchObject({ status: "generated", attempts: 1 }); expect(down.next_retry_at).toBeTruthy(); expect(down.last_error).toMatch(/503/);
@@ -173,7 +175,7 @@ describe("e-invoicing as an add-on", () => {
     // refused credentials are not retried
     const w2 = await readyWorkspace();
     await db.tenant(w2.t.tenantId, (c) => requestActivation(c, w2.t.ctx, "start"));
-    await staffConfigure(db, staff, w2.t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: TXP });
+    await staffConfigure(db, staff, w2.t.tenantId, { provider: "wafeq", api_key: KEY, taxpayer_id: own(w2.t.tenantId) });
     const d2 = await generate(w2.t, w2.inv.id);
     const refused = await send(w2.t, d2.id, async () => reply(403, {}));
     expect(refused).toMatchObject({ status: "error", next_retry_at: null }); expect(refused.last_error).toMatch(/refused the credentials/);

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { formatDay } from "../lib/util.js";
 import { PACKAGES, getService, requestActivation } from "../ops/einvoice-service.js";
-import { archivedXml, handleWafeqWebhook, inboundXml, listInbound } from "../ops/einvoice-sync.js";
+import { archivedXml, handleAigentrixWebhook, handleWafeqWebhook, inboundXml, listInbound } from "../ops/einvoice-sync.js";
 import { config } from "../config.js";
 import { FORMAT_LABEL, generateEInvoice, getEInvoice, getSettings, listEInvoices, previewReadiness, refreshEInvoice, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../ops/einvoice.js";
 import { act, appPage, can, need, PageHead, withT } from "./appkit.js";
@@ -15,6 +15,11 @@ export const einvoiceHooks = new Hono<Env>();
 einvoiceHooks.post("/webhooks/einvoice/wafeq", async (c) => {
   const raw = await c.req.text();
   const r = await handleWafeqWebhook(c.get("db"), { raw, header: (n) => c.req.header(n) }, config.einvoiceWebhookSecrets);
+  return c.json(r.body as any, r.status as any);
+});
+einvoiceHooks.post("/webhooks/einvoice/aigentrix", async (c) => {
+  const raw = await c.req.text();
+  const r = await handleAigentrixWebhook(c.get("db"), { raw, header: (n) => c.req.header(n) });
   return c.json(r.body as any, r.status as any);
 });
 const STATE_LABEL: Record<string, string> = { not_activated: "Not activated", onboarding: "Onboarding", active: "Active", suspended: "Suspended" };
