@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { Conn, Db } from "../db/client.js";
 import { config } from "../config.js";
 import { audit } from "../lib/audit.js";
@@ -5,7 +6,7 @@ import { actorOf, require, type Ctx, type Perm } from "../lib/perms.js";
 import { getJson, postJson, validateWebhookUrl, type PostOptions, type PostResult } from "../lib/safe-http.js";
 import { parseCsv } from "./importer.js";
 import { seal, unseal } from "../lib/seal.js";
-import { badRequest } from "../lib/util.js";
+import { badRequest, randomToken, sha256 } from "../lib/util.js";
 import { assertWritable } from "../platform/entitlements.js";
 import { must, recordId, reqStr } from "./common.js";
 import { importBankStatement } from "./delivery-finance.js";
@@ -41,9 +42,10 @@ export async function createFeedConnection(c: Conn, ctx: Ctx, f: Record<string, 
   if (!["bank", "fuel", "salik"].includes(kind)) throw badRequest("Choose bank or card settlement, fuel card or Salik.");
   try { allowedHost(String(f.url ?? "")); } catch (e: any) { throw badRequest(e.message); }
   const scheme = String(f.auth_scheme ?? "bearer");
-  if (!["bearer", "header", "oauth2_client"].includes(scheme)) throw badRequest("Authentication is a bearer token, a named header or OAuth2 client credentials.");
-  let tokenUrl: string | null = null;
-  if (scheme === "oauth2_client") {
+  if (!["bearer", "header", "oauth2_client", "oauth2_authcode"].includes(scheme)) throw badRequest("Authentication is a bearer token, a named header, OAuth2 client credentials or account-holder consent.");
+  let tokenUrl: string | null = null, authorizeUrl: string | null = null;
+  if (scheme === "oauth2_authcode") { try { authorizeUrl = allowedHost(String(f.authorize_url ?? "")).toString(); } catch (e: any) { throw badRequest(`Consent address: ${e.message}`); } }
+  if (scheme === "oauth2_client" || scheme === "oauth2_authcode") {
     try { tokenUrl = allowedHost(String(f.token_url ?? "")).toString(); } catch (e: any) { throw badRequest(`Token address: ${e.message}`); }
     if (!/^[^:\s]{1,200}:.{1,400}$/.test(String(f.secret ?? ""))) throw badRequest("For OAuth2 the credential is entered as client_id:client_secret.");
   }
@@ -65,9 +67,9 @@ export async function createFeedConnection(c: Conn, ctx: Ctx, f: Record<string, 
   const since = String(f.since_param ?? "since").trim() || "since";
   if (!/^[A-Za-z0-9_.-]{1,40}$/.test(since)) throw badRequest("The date parameter name is not valid.");
   const row = (await c.query<any>(
-    `INSERT INTO feed_connections(tenant_id,kind,label,url,auth_scheme,auth_header,secret_sealed,items_path,since_param,field_map,created_by,token_url,token_scope,response_format,page_mode,page_param,next_path,max_pages) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+    `INSERT INTO feed_connections(tenant_id,kind,label,url,auth_scheme,auth_header,secret_sealed,items_path,since_param,field_map,created_by,token_url,token_scope,response_format,page_mode,page_param,next_path,max_pages,authorize_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
     [ctx.tenantId, kind, reqStr(f.label, "Name", 80), String(f.url).trim(), scheme, header, seal(secret), String(f.items_path ?? "").trim().slice(0, 80), since, JSON.stringify(map), ctx.userId,
-      tokenUrl, String(f.token_scope ?? "").trim().slice(0, 200) || null, format, pageMode, pageParam || null, nextPath || null, maxPages]).catch((e) => {
+      tokenUrl, String(f.token_scope ?? "").trim().slice(0, 200) || null, format, pageMode, pageParam || null, nextPath || null, maxPages, authorizeUrl]).catch((e) => {
       if (/unique/i.test(String(e.message))) throw badRequest("A feed with that name already exists."); throw e;
     })).rows[0];
   await audit(c, ctx.tenantId, actorOf(ctx), "feed.created", "feed_connection", row.id, { kind });
@@ -78,7 +80,7 @@ export async function setFeedActive(c: Conn, ctx: Ctx, id: string, active: boole
   await must(c.query(`UPDATE feed_connections SET active=$2 WHERE id=$1 RETURNING id`, [recordId(id, "Feed"), active]), "Feed");
   await audit(c, ctx.tenantId, actorOf(ctx), "feed.active", "feed_connection", id, { active });
 }
-export const listFeeds = (c: Conn) => c.query<any>(`SELECT id,kind,label,url,active,cursor,last_pull_at,last_status,last_error,last_added,field_map FROM feed_connections ORDER BY created_at DESC`).then((r) => r.rows);
+export const listFeeds = (c: Conn) => c.query<any>(`SELECT id,kind,label,url,active,cursor,last_pull_at,last_status,last_error,last_added,field_map,auth_scheme,(token_sealed IS NOT NULL) AS consented,consent_expires_at FROM feed_connections ORDER BY created_at DESC`).then((r) => r.rows);
 
 /** Turn provider JSON into the CSV the existing importer takes. Items without an id/date/amount are reported, not guessed at. */
 export function toCsv(kind: FeedKind, items: unknown[], map: FeedMap): { csv: string; ids: string[]; latest: string | null; skipped: string[] } {
@@ -114,8 +116,9 @@ async function serviceCtx(db: Db, tenantId: string): Promise<Ctx> {
 }
 
 /** Header(s) that authenticate a pull. OAuth2 client credentials exchange the sealed id:secret for a short-lived token on every pull; nothing is cached. */
-async function authHeaders(f: any, deps: PullDeps): Promise<Record<string, string>> {
+async function authHeaders(f: any, deps: PullDeps, db?: Db): Promise<Record<string, string>> {
   const secret = unseal(f.secret_sealed);
+  if (f.auth_scheme === "oauth2_authcode") return { authorization: `Bearer ${await consentToken(db!, f, secret, deps)}` };
   if (f.auth_scheme === "bearer") return { authorization: `Bearer ${secret}` };
   if (f.auth_scheme === "header") return { [f.auth_header]: secret };
   allowedHost(f.token_url);
@@ -157,7 +160,7 @@ export async function pullFeed(db: Db, tenantId: string, id: string, deps: PullD
     const u0 = new URL(f.url);
     if (f.cursor) { const from = new Date(f.cursor); from.setUTCDate(from.getUTCDate() - 3); u0.searchParams.set(f.since_param, from.toISOString().slice(0, 10)); }   // a small overlap; remembered ids make it harmless
     const get = deps.get ?? getJson;
-    const headers = await authHeaders(f, deps);
+    const headers = await authHeaders(f, deps, db);
     let next: URL | null = u0, page = 1;
     for (let n = 0; next && n < f.max_pages; n++) {
       allowedHost(next.toString());                                                              // a paged "next" address is checked like the first
@@ -197,4 +200,72 @@ export async function pullDueFeeds(db: Db, deps: PullDeps = {}) {
   let failed = 0;
   for (const d of due) { const r = await pullFeed(db, d.tenant_id, d.id, deps); if (r.error) failed++; }
   return { pulled: due.length, failed };
+}
+
+
+// ───────── account-holder consent (OAuth2 authorization code with PKCE)
+export const consentRedirectUri = () => `${config.baseUrl.replace(/\/$/, "")}/app/settings/feeds/callback`;
+const b64url = (b: Buffer) => b.toString("base64url");
+const CONSENT_DAYS = 90, STATE_MINUTES = 15;
+
+/** Begins consent: returns the provider address to send the account holder to. One consent attempt at a time per feed; the state and PKCE verifier are single-use. */
+export async function startConsent(c: Conn, ctx: Ctx, id: string): Promise<string> {
+  require(ctx, "settings.manage");
+  await assertWritable(c, ctx.tenantId);
+  const f = await must(c.query<any>(`SELECT * FROM feed_connections WHERE id=$1 AND auth_scheme='oauth2_authcode' FOR UPDATE`, [recordId(id, "Feed")]), "Feed that uses account-holder consent");
+  allowedHost(f.authorize_url);
+  const state = randomToken(24), verifier = randomToken(48), challenge = b64url(crypto.createHash("sha256").update(verifier).digest());
+  await c.query(`UPDATE feed_connections SET consent_state_hash=$2, consent_verifier_sealed=$3, consent_started_at=now() WHERE id=$1`, [f.id, sha256(state), seal(verifier)]);
+  const u = new URL(f.authorize_url);
+  const clientId = unseal(f.secret_sealed).split(":")[0];
+  for (const [k, v] of Object.entries({ response_type: "code", client_id: clientId, redirect_uri: consentRedirectUri(), state, code_challenge: challenge, code_challenge_method: "S256", ...(f.token_scope ? { scope: f.token_scope } : {}) })) u.searchParams.set(k, v);
+  await audit(c, ctx.tenantId, actorOf(ctx), "feed.consent_started", "feed_connection", f.id);
+  return u.toString();
+}
+const tokenRequest = async (f: any, form: Record<string, string>, deps: PullDeps) => {
+  allowedHost(f.token_url);
+  const res = await (deps.post ?? postJson)(f.token_url, new URLSearchParams(form).toString(), { accept: "application/json" }, { ...deps.postOptions, contentType: "application/x-www-form-urlencoded", maxBodyBytes: 20_000 });
+  let body: any = {}; try { body = JSON.parse(res.body); } catch { /* handled by caller */ }
+  return { status: res.status, body };
+};
+/** Finishes consent from the provider's redirect. The state must match a recent attempt of this workspace; the code is exchanged once. */
+export async function completeConsent(c: Conn, ctx: Ctx, q: { code?: string; state?: string; error?: string }, deps: PullDeps = {}): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+  require(ctx, "settings.manage");
+  const state = String(q.state ?? "");
+  const f = (await c.query<any>(`SELECT * FROM feed_connections WHERE consent_state_hash=$1 AND consent_started_at > now() - ($2 || ' minutes')::interval FOR UPDATE`, [sha256(state), String(STATE_MINUTES)])).rows[0];
+  if (!state || !f) throw badRequest("This consent link has expired or was not started here. Start again from the feed.");
+  const clear = () => c.query(`UPDATE feed_connections SET consent_state_hash=NULL, consent_verifier_sealed=NULL, consent_started_at=NULL WHERE id=$1`, [f.id]);
+  if (q.error || !q.code) { await clear(); await c.query(`UPDATE feed_connections SET last_status='error', last_error=$2 WHERE id=$1`, [f.id, "The account holder did not give consent."]); return { ok: false, message: "Consent was not given at the provider." }; }
+  const [clientId, ...rest] = unseal(f.secret_sealed).split(":");
+  let r: Awaited<ReturnType<typeof tokenRequest>>;
+  try { r = await tokenRequest(f, { grant_type: "authorization_code", code: String(q.code), redirect_uri: consentRedirectUri(), client_id: clientId, client_secret: rest.join(":"), code_verifier: unseal(f.consent_verifier_sealed) }, deps); }
+  catch { await clear(); return { ok: false, message: "The provider could not be reached to complete consent. Start again." }; }
+  await clear();                                                    // the state and verifier are single-use whatever the outcome
+  if (r.status < 200 || r.status >= 300 || !r.body?.access_token) return { ok: false, message: "The provider did not accept the consent. Start again." };
+  const days = Number(r.body.refresh_token_expires_in) > 0 ? Number(r.body.refresh_token_expires_in) / 86400 : CONSENT_DAYS;
+  const tokens = { access_token: String(r.body.access_token), refresh_token: r.body.refresh_token ? String(r.body.refresh_token) : null, expires_at: Date.now() + (Number(r.body.expires_in) || 300) * 1000 };
+  await c.query(`UPDATE feed_connections SET token_sealed=$2, consented_at=now(), consent_expires_at=now() + ($3 || ' days')::interval, last_status='ok', last_error=NULL WHERE id=$1`, [f.id, seal(JSON.stringify(tokens)), String(Math.min(days, 365))]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "feed.consent_given", "feed_connection", f.id);
+  return { ok: true, id: f.id as string };
+}
+export async function withdrawConsent(c: Conn, ctx: Ctx, id: string) {
+  require(ctx, "settings.manage");
+  await must(c.query(`UPDATE feed_connections SET token_sealed=NULL, consented_at=NULL, consent_expires_at=NULL, consent_state_hash=NULL, consent_verifier_sealed=NULL, active=false WHERE id=$1 AND auth_scheme='oauth2_authcode' RETURNING id`, [recordId(id, "Feed")]), "Feed that uses account-holder consent");
+  await audit(c, ctx.tenantId, actorOf(ctx), "feed.consent_withdrawn", "feed_connection", id);
+}
+/** A usable access token: the stored one while it is fresh, otherwise a refreshed one (stored back). Expired or withdrawn consent is a clear, non-retried failure. */
+async function consentToken(db: Db, f: any, secret: string, deps: PullDeps): Promise<string> {
+  const gone = (why: string) => Object.assign(new Error(why), { permanentMessage: `${why} Connect the account again.` });
+  if (!f.token_sealed) throw gone("Consent has not been given, or has been withdrawn.");
+  if (f.consent_expires_at && new Date(f.consent_expires_at).getTime() < Date.now()) throw gone("The account holder's consent has expired.");
+  const t = JSON.parse(unseal(f.token_sealed));
+  if (t.expires_at - 60_000 > Date.now()) return t.access_token;
+  if (!t.refresh_token) throw gone("The access token expired and the provider issued no refresh token.");
+  const [clientId, ...rest] = secret.split(":");
+  const r = await tokenRequest(f, { grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: clientId, client_secret: rest.join(":") }, deps);
+  if (r.status === 400 || r.status === 401) { await db.tenant(f.tenant_id, (c) => c.query(`UPDATE feed_connections SET token_sealed=NULL WHERE id=$1`, [f.id])); throw gone("The provider no longer accepts this consent."); }
+  if (r.status < 200 || r.status >= 300 || !r.body?.access_token) throw new Error(`token refresh answered HTTP ${r.status}`);
+  const next = { access_token: String(r.body.access_token), refresh_token: r.body.refresh_token ? String(r.body.refresh_token) : t.refresh_token, expires_at: Date.now() + (Number(r.body.expires_in) || 300) * 1000 };
+  await db.tenant(f.tenant_id, (c) => c.query(`UPDATE feed_connections SET token_sealed=$2 WHERE id=$1`, [f.id, seal(JSON.stringify(next))]));
+  return next.access_token;
 }
