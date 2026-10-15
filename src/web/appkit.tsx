@@ -68,6 +68,7 @@ export function navFor(c: C): NavItem[] {
   if (fwd) n.push({ href: "/app/rates", label: "Supplier rates", section: "Sell" },
     { href: "/app/jobs", label: "Jobs", section: "Operate" });
   if (fwd && ctx.perms.has('quote.write')) n.push({href:'/app/freight/weight',label:'Chargeable weight',section:'Sell'});
+  if (fwd && ctx.perms.has('doc.write')) n.push({href:'/app/freight/air-waybills',label:'Air waybills',section:'Operate'});
   if (fwd) n.push({ href: "/app/freight/opportunities", label: "Opportunities & tenders", section: "Sell" }, { href: "/app/freight/contracts", label: "Supplier contracts", section: "Sell" }, { href: "/app/freight/masters", label: "Master shipments", section: "Operate" });
   n.push({ href: "/app/documents", label: "Documents", section: "Operate" });
   if (ctx.perms.has("doc.write")) n.push({ href: "/app/extractions", label: "Document extraction", section: "Operate" });
