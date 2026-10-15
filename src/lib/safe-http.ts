@@ -35,11 +35,17 @@ export function validateWebhookUrl(raw: string): URL {
   return u;
 }
 
-export interface PostResult { status: number; body: string }
+export interface PostResult { status: number; body: string; headers?: Record<string, string | string[] | undefined> }
 export interface PostOptions {
   timeoutMs?: number; maxBodyBytes?: number;
   /** test seams — never reachable from configuration */
   lookup?: typeof dns.lookup; allowPrivate?: boolean; allowHttp?: boolean;
+  /** request body media type for postJson (default application/json); the OAuth token call is form-encoded */
+  contentType?: string;
+  /** include the response headers (needed for Link-header paging); off by default so results stay {status, body} */
+  returnHeaders?: boolean;
+  /** mutual TLS: the client certificate and key presented to the server, and an optional pinned CA bundle for the server's certificate */
+  tls?: { cert: string; key: string; ca?: string };
 }
 
 /**
@@ -67,10 +73,10 @@ function safeRequest(method: "GET" | "POST", url: string, body: string | null, h
       });
     }) as any;
     const mod = u.protocol === "http:" ? http : https;
-    const req = mod.request(u, { method, lookup, timeout: o.timeoutMs ?? 10_000, headers: body === null ? { accept: "application/json", ...headers } : { ...headers, "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) } }, (res) => {
+    const req = mod.request(u, { method, lookup, timeout: o.timeoutMs ?? 10_000, ...(o.tls && u.protocol === "https:" ? { cert: o.tls.cert, key: o.tls.key, ...(o.tls.ca ? { ca: o.tls.ca } : {}) } : {}), headers: body === null ? { accept: "application/json, text/csv;q=0.9", ...headers } : { ...headers, "content-type": o.contentType ?? "application/json", "content-length": String(Buffer.byteLength(body)) } }, (res) => {
       const chunks: Buffer[] = []; let n = 0; const max = o.maxBodyBytes ?? 4096;
       res.on("data", (d: Buffer) => { n += d.length; if (n <= max) chunks.push(d); });
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8"), ...(o.returnHeaders ? { headers: res.headers as any } : {}) }));
       res.on("error", reject);
     });
     req.on("timeout", () => req.destroy(new Error("the endpoint did not answer in time")));

@@ -18,7 +18,9 @@ try {
   // home: glass header, cinematic hero film, offer bar, wordmark, contact points
   await page.goto(base); await page.waitForSelector('.hero-film .film-scene.is-active', { timeout: 20000 });
   assert.equal(await page.locator('.hero-film .film-scene').count(), 3, 'three hero scenes');
-  await page.locator('.film-tab').nth(1).click(); await page.waitForSelector('.hero-film .film-scene[data-scene="1"].is-active', { timeout: 5000 });
+  // the film advances by itself every 8 s; stop it so a slow runner cannot move to another scene before the next step
+  await page.locator('[data-film-toggle]').click();
+  await page.locator('.film-tab').nth(1).click(); await page.waitForSelector('.hero-film .film-scene[data-scene="1"].is-active', { timeout: 15000 });
   assert.equal(await page.locator('.load-record').getAttribute('data-stage'), '4', 'load record follows the scene');
   await page.waitForTimeout(1200); await page.screenshot({ path: `${out}/home-desktop.png` }); await noOverflow('home');
   assert.ok(await page.locator('.site-head .bar').isVisible());

@@ -6,6 +6,8 @@ import type { Db } from "../db/client.js";
 import { config } from "../config.js";
 import { HttpError, badRequest } from "../lib/util.js";
 import { registerCompany } from "../platform/tenants.js";
+import { verifyEmail } from "../platform/kyc.js";
+import { rateLimit } from "../lib/ratelimit.js";
 import { withLiveAvailability } from "../platform/catalog.js";
 import { releasedSectors } from "../platform/readiness.js";
 import { completeMfa, endSession, login, newSession } from "../platform/auth.js";
@@ -55,6 +57,17 @@ auth.get("/start", async (c) => {
             <div class="field"><label for="email">Work email</label><input id="email" name="email" type="email" required autocomplete="email" /></div>
             <div class="field"><label for="pw">Password</label><input id="pw" name="password" type="password" required minlength={10} autocomplete="new-password" /><div class="hint">At least 10 characters.</div></div>
           </div>
+          <fieldset class="kyc-fields"><legend>Verify your company</legend>
+            <p class="hint">One free workspace per business. We confirm your email and mobile number and review your trade licence before the workspace can be used.</p>
+            <div class="row">
+              <div class="field"><label for="phone">Mobile number</label><input id="phone" name="phone" type="tel" required={config.kyc.required} autocomplete="tel" placeholder="+971 50 123 4567" /></div>
+              <div class="field"><label for="licence">Trade licence number</label><input id="licence" name="licence" type="text" required={config.kyc.required} maxlength={40} /></div>
+            </div>
+            <div class="row">
+              <div class="field"><label for="authority">Licence issued by</label><input id="authority" name="authority" type="text" required={config.kyc.required} maxlength={80} placeholder="Dubai DET, ADDED, a free zone…" /></div>
+              <div class="field"><label for="trn">Tax registration number (optional)</label><input id="trn" name="trn" type="text" inputmode="numeric" maxlength={15} /></div>
+            </div>
+          </fieldset>
           <div class="row">
             <div class="field"><label for="country">Country</label><select id="country" name="country"><option value="AE">United Arab Emirates</option></select></div>
             <div class="field"><label for="emirate">Emirate</label><select id="emirate" name="emirate">{EMIRATES.map((e) => <option>{e}</option>)}</select></div>
@@ -79,18 +92,28 @@ auth.post("/start", async (c) => {
   const b = await formBody(c);
   const db = c.get("db");
   try {
+    const ip = clientIp(c);
+    if (ip) await rateLimit(`signup-ip:${ip}`, config.kyc.signupsPerIpPerDay, 86400, "Too many registrations from this network today. Try again tomorrow or contact support.");
+    await rateLimit(`signup-email:${str(b.email).toLowerCase().split("@")[1] ?? "x"}`, 10, 86400, "Too many registrations for this email domain today. Contact support.");
     const r = await registerCompany(db, {
+      kyc: { phone: str(b.phone), licenceNo: str(b.licence), licenceAuthority: str(b.authority), trn: str(b.trn), ip },
       company: str(b.company), contactName: str(b.contact), email: str(b.email), password: str(b.password),
       country: str(b.country), emirate: str(b.emirate), sectors: arr(b.sector), goal: str(b.goal) + (str(b.offer).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24) ? ` [offer ${str(b.offer).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}]` : ""),
     });
     const s = await newSession(db, r.userId, r.tenantId);
     setSessionCookie(c, s.token);
     const plan = str(b.plan);
+    if (config.kyc.required) return c.redirect("/app/verify?ok=" + encodeURIComponent("Workspace created. Confirm your email and mobile number and upload your trade licence to activate it."));
     return c.redirect(plan && plan !== "free" ? `/app/billing?plan=${encodeURIComponent(plan)}` : "/app?ok=" + encodeURIComponent("Workspace created. Start with the checklist below."));
   } catch (e) {
     if (e instanceof HttpError && e.status < 500) return c.redirect("/start?err=" + encodeURIComponent(e.message));
     throw e;
   }
+});
+
+auth.get("/verify-email", async (c) => {
+  try { const r = await verifyEmail(c.get("db"), c.req.query("token") ?? ""); return c.redirect(r.tenantId ? "/app/verify?ok=" + encodeURIComponent("Email address confirmed.") : "/login?ok=" + encodeURIComponent("Email address confirmed.")); }
+  catch (e) { if (e instanceof HttpError && e.status < 500) return c.redirect("/login?err=" + encodeURIComponent(e.message)); throw e; }
 });
 
 auth.get("/login", (c) => {

@@ -30,6 +30,7 @@ import { Icon, SECTION_BLURB, SECTION_ICON, slugOf } from "./experience.js";
 import { tenantAlerts } from "../ops/alerts.js";
 import { act, appPage, back, can, ctxOf, navFor, need, PageHead, PostBtn, Confirm, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table, sectorName } from "./ui.js";
+import { gateMessage } from "../platform/kyc-messages.js";
 import { handlePaymentWebhook } from "./auth.js";
 
 export const core = new Hono<Env>();
@@ -41,14 +42,19 @@ core.use("/app/*", async (c, next) => {
   const ctx = ctxOf(c);
   const db = c.get("db");
   const t = (await db.query<any>(
-    `SELECT t.name, t.slug, p.name AS plan, p.plan_code, s.status AS sub_status,
+    `SELECT t.name, t.slug, t.verification_status, p.name AS plan, p.plan_code, s.status AS sub_status,
        coalesce((SELECT array_agg(sector) FROM tenant_sectors ts WHERE ts.tenant_id=t.id), '{}') AS sectors
      FROM tenants t JOIN subscriptions s ON s.tenant_id=t.id JOIN plan_versions p ON p.id=s.plan_version_id WHERE t.id=$1`, [ctx.tenantId])).rows[0];
-  c.set("tenant", { name: t.name, slug: t.slug, sectors: t.sectors, plan: t.plan, planCode: t.plan_code, subStatus: t.sub_status });
+  c.set("tenant", { name: t.name, slug: t.slug, sectors: t.sectors, plan: t.plan, planCode: t.plan_code, subStatus: t.sub_status, verification: t.verification_status });
   c.set("memberships", (await membershipsFor(db, ctx.userId)).map((m) => ({ tenant_id: m.tenant_id, name: m.name })));
   const portalOnly = ctx.roles.length === 1 && ctx.roles[0] === "portal";
   const driverOnly = ctx.roles.length === 1 && ctx.roles[0] === "driver";
   const p = c.req.path;
+  // An unverified company is read-only: it can look around and complete its verification, nothing else.
+  if (t.verification_status !== "verified" && !p.startsWith("/app/verify") && p !== "/app/switch") {
+    if (c.req.method !== "GET") return c.redirect("/app/verify?err=" + encodeURIComponent(gateMessage(t.verification_status)));
+    if (p === "/app") return c.redirect("/app/verify");
+  }
   if (portalOnly && !p.startsWith("/app/portal") && !p.startsWith("/app/documents/") && !p.startsWith("/app/invoices/") && p !== "/app/switch") return c.redirect("/app/portal");
   const driverDocument=c.req.method==='GET'&&/^\/app\/documents\/[0-9a-f-]{36}\/download$/i.test(p);
   if (driverOnly && !p.startsWith("/app/driver") && !driverDocument && p !== "/app/switch") return c.redirect("/app/driver");
