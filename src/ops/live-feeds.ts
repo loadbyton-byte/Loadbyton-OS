@@ -24,10 +24,10 @@ type Field = (typeof FIELDS)[number];
 export interface FeedMap { amount_unit?: "major" | "minor"; debit_values?: string[]; [k: string]: unknown }
 const DEFAULT_PATH: Record<Field, string> = { id: "id", date: "date", amount: "amount", reference: "reference", description: "description", plate: "plate", litres: "litres", direction: "direction" };
 
-const pick = (obj: any, path: string): unknown => (path ? path.split(".") : []).reduce((o, k) => (o == null ? undefined : o[k]), obj);
+export const pick = (obj: any, path: string): unknown => (path ? path.split(".") : []).reduce((o, k) => (o == null ? undefined : o[k]), obj);
 const csvCell = (v: unknown) => { const s = String(v ?? "").replace(/[\r\n]+/g, " "); return /[",]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
-function allowedHost(url: string) {
+export function allowedHost(url: string) {
   const u = validateWebhookUrl(url);
   if (!config.liveFeeds.allowedHosts.length) throw badRequest("Live feeds are not enabled on this installation: the administrator must list the permitted provider hosts (FEED_ALLOWED_HOSTS).");
   const h = u.hostname.toLowerCase();
@@ -116,7 +116,7 @@ async function serviceCtx(db: Db, tenantId: string): Promise<Ctx> {
 }
 
 /** Header(s) that authenticate a pull. OAuth2 client credentials exchange the sealed id:secret for a short-lived token on every pull; nothing is cached. */
-async function authHeaders(f: any, deps: PullDeps, db?: Db): Promise<Record<string, string>> {
+export async function authHeaders(f: any, deps: PullDeps, db?: Db): Promise<Record<string, string>> {
   const secret = unseal(f.secret_sealed);
   if (f.auth_scheme === "oauth2_authcode") return { authorization: `Bearer ${await consentToken(db!, f, secret, deps)}` };
   if (f.auth_scheme === "bearer") return { authorization: `Bearer ${secret}` };
@@ -133,7 +133,7 @@ async function authHeaders(f: any, deps: PullDeps, db?: Db): Promise<Record<stri
   return { authorization: `Bearer ${token}` };
 }
 /** One page of an answer: its rows, and where the next page is (a cursor in the body, or a rel="next" Link header). */
-function parsePage(f: any, res: PostResult): { items: unknown[]; cursor?: string; link?: string } {
+export function parsePage(f: any, res: PostResult): { items: unknown[]; cursor?: string; link?: string } {
   if (f.response_format === "csv") {
     const rows = parseCsv(res.body).filter((r) => r.some((x) => x.trim()));
     if (rows.length < 2) return { items: [] };

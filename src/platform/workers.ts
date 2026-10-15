@@ -13,6 +13,7 @@ import {postAllLedgers} from '../ops/ledger.js';
 import {pullDueFeeds} from '../ops/live-feeds.js';
 import {processDataMinimisation} from '../ops/privacy-retention.js';
 import {acquireLease,releaseLease} from './worker-lease.js';
+import {pullDueOrders} from '../ops/order-pull.js';
 import {pollSubmittedDocuments,processEInvoiceRetries} from '../ops/einvoice-sync.js';
 
 export function startWorkers(db:Db,metrics:RuntimeMetrics) {
@@ -24,6 +25,7 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   ['subscriptions',60000,()=>applyDueSubscriptionChanges(db)],
   ['ledger',300000,async()=>{const r=await postAllLedgers(db);if(r.failed)throw new Error('Ledger posting review needed');}],
   ['feeds',300000,async()=>{const r=await pullDueFeeds(db);if(r.failed)throw new Error('Statement feed review needed');}],
+  ['orders',300000,async()=>{const r=await pullDueOrders(db);if(r.failed)throw new Error('Order pull review needed');}],
   ['einvoice',60000,async()=>{const r=await processEInvoiceRetries(db);if(r.failed)throw new Error('E-invoice retry review needed');await pollSubmittedDocuments(db);}],
   ['privacy',3600000,async()=>{const r=await processDataMinimisation(db);if(r.failed)throw new Error('Data minimisation review needed');}],
  ] as const) {
@@ -34,5 +36,5 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   };
   timers.push(setInterval(run,interval));
  }
- return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','ledger','feeds','einvoice','privacy'].map((n)=>releaseLease(db,n)));};
+ return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','ledger','feeds','orders','einvoice','privacy'].map((n)=>releaseLease(db,n)));};
 }
