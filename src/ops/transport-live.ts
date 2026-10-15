@@ -2,6 +2,7 @@ import type { Conn } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
 import { HttpError, badRequest, forbidden, sha256 } from "../lib/util.js";
+import { roadMatrix, roadRoutingEnabled, type MatrixFetcher } from "./road-matrix.js";
 import { assertWritable } from "../platform/entitlements.js";
 import { must, recordId, reqStr } from "./common.js";
 import { parseCsv } from "./importer.js";
@@ -68,23 +69,27 @@ export const haversineKm = (a1: number, o1: number, a2: number, o2: number) => {
 };
 export interface Stop { id: string; lat: number; lng: number; order: string; kind: "pickup" | "delivery" }
 const valid = (seq: Stop[]) => { const seen = new Set<string>(); for (const s of seq) { if (s.kind === "delivery" && !seen.has(s.order) && seq.some((x) => x.order === s.order && x.kind === "pickup")) return false; if (s.kind === "pickup") seen.add(s.order); } return true; };
-export const routeKm = (start: { lat: number; lng: number } | null, seq: Stop[]) => {
+export type Point = { lat: number; lng: number };
+/** What a leg costs: straight-line km by default; the road planner passes durations or road km from a routing service. */
+export type Cost = (a: Point, b: Point) => number;
+export const straightLine: Cost = (a, b) => haversineKm(a.lat, a.lng, b.lat, b.lng);
+export const routeKm = (start: Point | null, seq: Stop[], cost: Cost = straightLine) => {
   let km = 0, prev = start;
-  for (const s of seq) { if (prev) km += haversineKm(prev.lat, prev.lng, s.lat, s.lng); prev = s; }
+  for (const s of seq) { if (prev) km += cost(prev, s); prev = s; }
   return km;
 };
 /**
  * Nearest-neighbour start (respecting pickup-before-delivery of each order) improved by 2-opt / relocation passes that keep the
  * precedence valid. Straight-line distances: a planning aid, not turn-by-turn routing with traffic.
  */
-export function optimiseRoute(stops: Stop[], start: { lat: number; lng: number } | null) {
+export function optimiseRoute(stops: Stop[], start: { lat: number; lng: number } | null, cost: Cost = straightLine) {
   const left = [...stops], seq: Stop[] = [];
   let cur = start ?? (left[0] ? { lat: left[0].lat, lng: left[0].lng } : null);
   while (left.length) {
     const ok = left.filter((s) => valid([...seq, s]));
     const cand = ok.length ? ok : left;
     let best = cand[0], bd = Infinity;
-    for (const s of cand) { const d = cur ? haversineKm(cur.lat, cur.lng, s.lat, s.lng) : 0; if (d < bd) { bd = d; best = s; } }
+    for (const s of cand) { const d = cur ? cost(cur, s) : 0; if (d < bd) { bd = d; best = s; } }
     seq.push(best); left.splice(left.indexOf(best), 1); cur = best;
   }
   let improved = true, guard = 0;
@@ -92,10 +97,10 @@ export function optimiseRoute(stops: Stop[], start: { lat: number; lng: number }
     improved = false;
     for (let i = 0; i < seq.length - 1; i++) for (let j = i + 1; j < seq.length; j++) {
       const cand = [...seq.slice(0, i), ...seq.slice(i, j + 1).reverse(), ...seq.slice(j + 1)];
-      if (valid(cand) && routeKm(start, cand) + 1e-9 < routeKm(start, seq)) { seq.splice(0, seq.length, ...cand); improved = true; }
+      if (valid(cand) && routeKm(start, cand, cost) + 1e-9 < routeKm(start, seq, cost)) { seq.splice(0, seq.length, ...cand); improved = true; }
     }
   }
-  return { sequence: seq, km: routeKm(start, seq) };
+  return { sequence: seq, km: routeKm(start, seq, cost) };
 }
 export async function setLegCoordinates(c: Conn, ctx: Ctx, legId: string, lat: unknown, lng: unknown) {
   require(ctx, "transport.write");
@@ -105,7 +110,7 @@ export async function setLegCoordinates(c: Conn, ctx: Ctx, legId: string, lat: u
   await audit(c, ctx.tenantId, actorOf(ctx), "trip_leg.coordinates_set", "trip_leg", legId);
 }
 /** Propose (or apply) a better order for the trip's pending stops. Done stops are never moved; every pending stop needs coordinates. */
-export async function optimiseTrip(c: Conn, ctx: Ctx, tripId: string, apply = false, start?: { lat: number; lng: number } | null) {
+export async function optimiseTrip(c: Conn, ctx: Ctx, tripId: string, apply = false, start?: { lat: number; lng: number } | null, fetcher?: MatrixFetcher) {
   require(ctx, "transport.write");
   const trip = await must(c.query<any>(`SELECT * FROM trips WHERE id=$1 FOR UPDATE`, [recordId(tripId)]), "Trip");
   if (["completed", "cancelled"].includes(trip.status)) throw badRequest(`Trip is ${trip.status}.`);
@@ -117,14 +122,28 @@ export async function optimiseTrip(c: Conn, ctx: Ctx, tripId: string, apply = fa
   const stops: Stop[] = pending.map((l) => ({ id: l.id, lat: Number(l.lat), lng: Number(l.lng), order: l.order_id, kind: l.kind }));
   // a delivery whose pickup already happened is free; only pending pickups constrain pending deliveries
   const from = start ?? (() => { const done = legs.filter((l) => l.status !== "pending" && l.lat !== null).pop(); return done ? { lat: Number(done.lat), lng: Number(done.lng) } : null; })();
-  const before = routeKm(from, stops), best = optimiseRoute(stops, from);
-  const result = { before_km: Math.round(before * 10) / 10, after_km: Math.round(best.km * 10) / 10, sequence: best.sequence.map((s) => s.id), saved_km: Math.round((before - best.km) * 10) / 10 };
+  let result: { before_km: number; after_km: number; sequence: string[]; saved_km: number; basis: "straight-line" | "road"; before_min?: number; after_min?: number };
+  if (roadRoutingEnabled()) {
+    // road network: optimise for travel time, report road kilometres and minutes
+    const pts: Point[] = [...(from ? [from] : []), ...stops];
+    const m = await roadMatrix(pts, fetcher);
+    const idx = (p: Point) => pts.findIndex((q) => q.lat === p.lat && q.lng === p.lng);
+    const time: Cost = (a, b) => m.duration[idx(a)][idx(b)], dist: Cost = (a, b) => m.distance[idx(a)][idx(b)] / 1000;
+    const best = optimiseRoute(stops, from, time);
+    const secs = (seq: Stop[]) => routeKm(from, seq, time);
+    result = { before_km: Math.round(routeKm(from, stops, dist) * 10) / 10, after_km: Math.round(routeKm(from, best.sequence, dist) * 10) / 10, sequence: best.sequence.map((s) => s.id), saved_km: 0, basis: "road",
+      before_min: Math.round(secs(stops) / 60), after_min: Math.round(secs(best.sequence) / 60) };
+    result.saved_km = Math.round((result.before_km - result.after_km) * 10) / 10;
+  } else {
+    const before = routeKm(from, stops), best = optimiseRoute(stops, from);
+    result = { before_km: Math.round(before * 10) / 10, after_km: Math.round(best.km * 10) / 10, sequence: best.sequence.map((s) => s.id), saved_km: Math.round((before - best.km) * 10) / 10, basis: "straight-line" };
+  }
   if (apply) {
     await assertWritable(c, ctx.tenantId);
     const base = Math.min(...pending.map((l) => l.seq));
     const seqs = pending.map((l) => l.seq).sort((a, b) => a - b);
-    for (const [i, id] of best.sequence.map((s) => s.id).entries()) await c.query(`UPDATE trip_legs SET seq=$2 WHERE id=$1`, [id, seqs[i] ?? base + i]);
-    await audit(c, ctx.tenantId, actorOf(ctx), "trip.route_optimised", "trip", trip.id, { before_km: result.before_km, after_km: result.after_km });
+    for (const [i, id] of result.sequence.entries()) await c.query(`UPDATE trip_legs SET seq=$2 WHERE id=$1`, [id, seqs[i] ?? base + i]);
+    await audit(c, ctx.tenantId, actorOf(ctx), "trip.route_optimised", "trip", trip.id, { before_km: result.before_km, after_km: result.after_km, basis: result.basis });
   }
   return result;
 }

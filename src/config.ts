@@ -92,6 +92,9 @@ export const config = {
   // ── address geocoding for transport stops: any service answering the Nominatim /search JSON shape (self-hosted Nominatim, Photon-compatible gateways, commercial proxies). Empty URL = off.
   geocoder: { url: text("GEOCODER_URL"), apiKey: text("GEOCODER_API_KEY"), countryCodes: (text("GEOCODER_COUNTRY_CODES") || "ae").toLowerCase(), userAgent: text("GEOCODER_USER_AGENT") || "LOADBYTON-OS/1.0" },
 
+  // ── road-network routing for trip planning: any OSRM-compatible /table/v1 service (self-hosted OSRM, or a gateway speaking the same API). Empty = straight-line planning. Durations are the service's own (free-flow unless it models traffic).
+  routing: { url: text("ROUTING_URL").replace(/\/$/, ""), apiKey: text("ROUTING_API_KEY"), profile: text("ROUTING_PROFILE") || "driving", maxPoints: Number(env.ROUTING_MAX_POINTS ?? 60) },
+
   // ── OCR for scanned documents: "none" (default) or "google-vision". Document content is sent to the provider, so its processing must be reviewed first.
   ocr: { provider: (text("OCR_PROVIDER").toLowerCase() || "none"), apiKey: text("OCR_API_KEY"), apiBase: (env.OCR_API_BASE ?? "https://vision.googleapis.com").replace(/\/$/, ""), maxPages: Number(env.OCR_MAX_PAGES ?? 5), reviewed: flag("OCR_DATA_PROCESSING_REVIEWED") },
 
@@ -188,6 +191,7 @@ export function validateConfig(c = config, production = isProd) {
     if (!/^[a-z]{2}(_[A-Z]{2})?$/.test(c.whatsapp.templateLanguage)) problems.push("WHATSAPP_TEMPLATE_LANGUAGE must be a language code such as en or ar");
   }
   if (c.liveFeeds.allowedHosts.some((h) => !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(h))) problems.push("FEED_ALLOWED_HOSTS must be a comma list of public host names (no schemes, ports or paths)");
+  if (c.routing.url && !/^https:\/\/[^\s]+$/.test(c.routing.url)) problems.push("ROUTING_URL must be an https address");
   if (c.geocoder.url && !/^https:\/\/[^\s]+$/.test(c.geocoder.url)) problems.push("GEOCODER_URL must be an https address");
   if (!Number.isInteger(c.liveFeeds.intervalMinutes) || c.liveFeeds.intervalMinutes < 15 || c.liveFeeds.intervalMinutes > 1440) problems.push("FEED_PULL_INTERVAL_MINUTES must be a whole number between 15 and 1440");
   if (!["none", "google-vision"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none" or "google-vision" (got "${c.ocr.provider}")`);
