@@ -1,3 +1,4 @@
+import { prepareKyc, recordKyc, type KycInput } from "./kyc.js";
 import type { Db, Conn } from "../db/client.js";
 import { config } from "../config.js";
 import { audit } from "../lib/audit.js";
@@ -10,6 +11,8 @@ import { currentPlans, ensureCatalog, sectorBySlug } from "./catalog.js";
 export interface RegisterInput {
   company: string; contactName: string; email: string; password: string; country?: string;
   emirate?: string; sectors?: string[]; goal?: string;
+  /** identity checks; required when config.kyc.required, otherwise the workspace is verified on creation */
+  kyc?: Partial<KycInput>;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,6 +38,8 @@ export async function registerCompany(db: Db, input: RegisterInput) {
   if (!input.contactName.trim()) throw badRequest("Contact name is required.");
   if (!EMAIL_RE.test(email)) throw badRequest("Enter a valid email address.");
   checkPasswordStrength(input.password);
+  const wantsKyc = config.kyc.required || !!(input.kyc?.licenceNo || input.kyc?.phone);
+  if (config.kyc.required && !(input.kyc?.phone && input.kyc?.licenceNo && input.kyc?.licenceAuthority)) throw badRequest("Company verification needs your mobile number, trade licence number and the authority that issued it.");
   const pwHash = await hashPassword(input.password);
 
   return db.system(async (c) => {
@@ -43,6 +48,7 @@ export async function registerCompany(db: Db, input: RegisterInput) {
     if (exists.rows.length) throw new HttpError(409, "An account with this email already exists. Sign in instead.", "conflict");
 
     const free = (await currentPlans(c)).find((p) => p.plan_code === "free")!;
+    const kyc = wantsKyc ? await prepareKyc(c, input.company.trim(), email, input.kyc as KycInput) : null;
     const user = (await c.query<{ id: string }>(
       `INSERT INTO users(email,name,password_hash) VALUES ($1,$2,$3) RETURNING id`, [email, input.contactName.trim(), pwHash])).rows[0];
     const slug = await reserveSlug(c, input.company);
@@ -67,7 +73,8 @@ export async function registerCompany(db: Db, input: RegisterInput) {
       await c.query(`INSERT INTO platform_leads(name,company,email,sectors,source,message) VALUES ($1,$2,$3,$4,'registration-interest','Sectors beyond Free allowance')`,
         [input.contactName, input.company, email, wanted.slice(allowed)]);
     }
-    await audit(c, t, { kind: "user", userId: user.id }, "tenant.registered", "tenant", t, { slug, sectors: wanted });
+    if (kyc) await recordKyc(c, t, user.id, input.company.trim(), email, kyc);
+    await audit(c, t, { kind: "user", userId: user.id }, "tenant.registered", "tenant", t, { slug, sectors: wanted, verification: kyc ? "required" : "not_required" });
     return { userId: user.id, tenantId: t, slug };
   });
 }

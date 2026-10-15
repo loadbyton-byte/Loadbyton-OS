@@ -12,12 +12,13 @@ import {applyDueSubscriptionChanges} from './billing.js';
 import {postAllLedgers} from '../ops/ledger.js';
 import {pullDueFeeds} from '../ops/live-feeds.js';
 import {processDataMinimisation} from '../ops/privacy-retention.js';
+import {kycSmsHandlers} from '../adapters/kyc-sms.js';
 import {acquireLease,releaseLease} from './worker-lease.js';
 import {pullDueOrders} from '../ops/order-pull.js';
 import {pollSubmittedDocuments,processEInvoiceRetries} from '../ops/einvoice-sync.js';
 
 export function startWorkers(db:Db,metrics:RuntimeMetrics) {
- const handlers={...defaultHandlers,...accountingHandlers(db),...mailHandlers(db),...inboxHandlers(db),...deliveryNotifyHandlers(db)};
+ const handlers={...defaultHandlers,...accountingHandlers(db),...mailHandlers(db),...inboxHandlers(db),...deliveryNotifyHandlers(db),...kycSmsHandlers()};
  const timers:NodeJS.Timeout[]=[],running=new Set<Promise<void>>(),active=new Set<string>();
  for(const [name,interval,work] of [
   ['provisioning',5000,()=>processProvisioningQueue(db)],['outbox',5000,()=>drainOutbox(db,handlers)],

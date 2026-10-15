@@ -42,6 +42,7 @@ import { storefrontHooks, storefrontUi } from "./web/storefront.js";
 import { carrierHooks, carrierUi } from "./web/carrier-feeds.js";
 import { printApi, printUi } from "./web/printing.js";
 import { orderPulls } from "./web/order-pulls.js";
+import { adminKyc, verify } from "./web/verify.js";
 import { PublicShell } from "./web/ui.js";
 import { security } from "./web/security.js";
 import { connections } from "./web/connections.js";
@@ -135,6 +136,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", printApi);
   app.route("/", adminConsole);
   app.route("/", adminReadiness);
+  app.route("/", adminKyc);
   app.route("/", adminEInvoice);
   app.route("/", einvoiceHooks);
   app.route("/", core);
@@ -151,6 +153,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", carrierUi);
   app.route("/", printUi);
   app.route("/", orderPulls);
+  app.route("/", verify);
   app.route("/", connections);
   app.route("/", privacy);
   app.route("/", service);

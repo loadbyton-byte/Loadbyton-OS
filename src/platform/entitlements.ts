@@ -1,5 +1,6 @@
 import type { Conn } from "../db/client.js";
 import { quotaExceeded, HttpError } from "../lib/util.js";
+import { gateMessage } from "./kyc-messages.js";
 import type { PlanVersion } from "./catalog.js";
 
 /** Per-month billing units, one per sector. Each is consumed transactionally (see consumeQuota). */
@@ -44,7 +45,11 @@ export async function subscriptionStatus(c: Conn, tenantId: string) {
 }
 
 /** Restricted/cancelled subscriptions keep read + export access but cannot create new billable records. */
-export async function assertWritable(c: Conn, tenantId: string) {
+export async function assertWritable(c: Conn, tenantId: string, opts: { skipVerification?: boolean } = {}) {
+  if (!opts.skipVerification) {
+    const v = (await c.query<{ verification_status: string }>(`SELECT verification_status FROM tenants WHERE id=$1`, [tenantId])).rows[0]?.verification_status;
+    if (v && v !== "verified") throw new HttpError(403, gateMessage(v), "unverified");
+  }
   const s = await subscriptionStatus(c, tenantId);
   if (s === "restricted" || s === "cancelled") {
     throw new HttpError(402, "This workspace is read-only until the subscription is restored. You can still read and export all data.", "restricted");
