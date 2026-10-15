@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import type { Conn, Db } from "../db/client.js";
+import { mapAigentrixStatus } from "../adapters/einvoice-aigentrix.js";
 import { mapWafeqResult } from "../adapters/einvoice-wafeq.js";
+import type { EInvoiceResult } from "../adapters/einvoice.js";
 import { audit } from "../lib/audit.js";
 import { decryptSecret } from "../lib/encryption.js";
 import { HttpError, badRequest, forbidden } from "../lib/util.js";
@@ -47,6 +49,36 @@ export function verifyStandardWebhook(secrets: string[], h: { id?: string; times
 
 const text = (v: unknown, max = 200) => (v == null || v === "" ? null : String(v).slice(0, max));
 
+const SYSTEM = { kind: "system" as const };
+
+/** Applies a provider's verdict to a document we sent. A decision is made once (only from 'submitted'); the FTA reporting state may keep advancing. */
+async function applyProviderState(c: Conn, tenantId: string, d: any, r: EInvoiceResult, via: string) {
+  if (d.status === "submitted" && (r.status === "accepted" || r.status === "rejected")) {
+    await c.query(`UPDATE einvoice_documents SET status=$2, provider_response=$3, decided_at=now() WHERE id=$1`, [d.id, r.status, JSON.stringify({ reasons: r.reasons, sandbox: d.provider_response?.sandbox === true, via })]);
+    await audit(c, tenantId, SYSTEM, "einvoice.provider_decision", d.kind, d.invoice_id ?? d.credit_note_id, { status: r.status, via });
+  }
+  if (r.reporting && r.reporting !== d.tdd_status) {
+    await c.query(`UPDATE einvoice_documents SET tdd_status=$2 WHERE id=$1`, [d.id, r.reporting]);
+    await audit(c, tenantId, SYSTEM, "einvoice.reporting_state", d.kind, d.invoice_id ?? d.credit_note_id, { reporting: r.reporting });
+  }
+}
+
+/** The document an event is about. Events can outrun our own save of the send response: ask for a brief retry, then let it go (it may be someone else's document). */
+async function documentFor(c: Conn, tenantId: string, provider: string, ref: string, occurredAt: unknown) {
+  const d = (await c.query<any>(`SELECT * FROM einvoice_documents WHERE tenant_id=$1 AND provider=$2 AND provider_ref=$3 FOR UPDATE`, [tenantId, provider, ref])).rows[0];
+  if (d) return d;
+  const age = Date.now() - Date.parse(String(occurredAt ?? ""));
+  if (Number.isFinite(age) && age < 10 * 60_000) throw new HttpError(503, "document not recorded yet");
+  return null;
+}
+
+async function recordInbound(c: Conn, tenantId: string, provider: string, ref: string, basic: { number?: string | null; sender?: string | null; currency?: string | null }, fetchImpl?: typeof fetch) {
+  await c.query(`INSERT INTO einvoice_inbound(tenant_id,provider,provider_doc_id,number,sender_name,currency) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (tenant_id,provider,provider_doc_id) DO NOTHING`,
+    [tenantId, provider, ref, text(basic.number, 64), text(basic.sender, 200), text(basic.currency, 3)]);
+  await enrichInbound(c, tenantId, ref, fetchImpl);
+  await audit(c, tenantId, SYSTEM, "einvoice.inbound_received", "einvoice_inbound", undefined, { provider });
+}
+
 /** Applies one signed Wafeq event. Delivery is at least once and unordered, so each event is recorded once and applied idempotently. */
 export async function handleWafeqWebhook(db: Db, req: { raw: string; header(n: string): string | undefined }, secrets: string[], fetchImpl?: typeof fetch): Promise<{ status: number; body: unknown }> {
   if (!secrets.length) return { status: 503, body: { error: "webhooks are not configured" } };
@@ -61,34 +93,16 @@ export async function handleWafeqWebhook(db: Db, req: { raw: string; header(n: s
       const data = ev.data ?? {}, taxpayer = text(data.taxpayer_id) ?? text(ev.taxpayer_id);
       const svc = taxpayer ? (await c.query<any>(`SELECT tenant_id, state FROM einvoice_service WHERE provider='wafeq' AND taxpayer_ref=$1`, [taxpayer])).rows[0] : null;
       if (!svc) return { status: 200, body: { ignored: "taxpayer is not one of ours" } };
-      const tenantId: string = svc.tenant_id, system = { kind: "system" as const };
+      const tenantId: string = svc.tenant_id, system = SYSTEM;
 
       if (type === "document.sent" || type === "document.status" || type === "document.reported") {
         const ref = text(data.document_id) ?? text(data.id);
-        const d = ref ? (await c.query<any>(`SELECT * FROM einvoice_documents WHERE tenant_id=$1 AND provider='wafeq' AND provider_ref=$2 FOR UPDATE`, [tenantId, ref])).rows[0] : null;
-        if (!d) {                                                                                // the event can outrun our own save of the send response: ask for a retry, but only briefly
-          const age = Date.now() - Date.parse(String(ev.created_at ?? ""));
-          if (Number.isFinite(age) && age < 10 * 60_000) throw new HttpError(503, "document not recorded yet");
-          return { status: 200, body: { ignored: "unknown document" } };
-        }
-        const r = mapWafeqResult(data, ref!);
-        if (d.status === "submitted" && (r.status === "accepted" || r.status === "rejected")) {
-          await c.query(`UPDATE einvoice_documents SET status=$2, provider_response=$3, decided_at=now() WHERE id=$1`, [d.id, r.status, JSON.stringify({ reasons: r.reasons, sandbox: d.provider_response?.sandbox === true, via: "webhook" })]);
-          await audit(c, tenantId, system, "einvoice.provider_decision", d.kind, d.invoice_id ?? d.credit_note_id, { status: r.status, event: type });
-        }
-        if (r.reporting && r.reporting !== d.tdd_status) {
-          await c.query(`UPDATE einvoice_documents SET tdd_status=$2 WHERE id=$1`, [d.id, r.reporting]);
-          await audit(c, tenantId, system, "einvoice.reporting_state", d.kind, d.invoice_id ?? d.credit_note_id, { reporting: r.reporting });
-        }
+        const d = ref ? await documentFor(c, tenantId, "wafeq", ref, ev.created_at) : null;
+        if (!d) return { status: 200, body: { ignored: "unknown document" } };
+        await applyProviderState(c, tenantId, d, mapWafeqResult(data, ref!), "webhook");
       } else if (type === "document.received") {
         const ref = text(data.document_id) ?? text(data.id);
-        if (ref) {
-          await c.query(
-            `INSERT INTO einvoice_inbound(tenant_id,provider,provider_doc_id,number,sender_name,currency) VALUES ($1,'wafeq',$2,$3,$4,$5) ON CONFLICT (tenant_id,provider,provider_doc_id) DO NOTHING`,
-            [tenantId, ref, text(data.invoice_number, 64), text(data.seller_name, 200), text(data.currency, 3)]);
-          await enrichInbound(c, tenantId, ref, fetchImpl);
-          await audit(c, tenantId, system, "einvoice.inbound_received", "einvoice_inbound", undefined, { provider: "wafeq" });
-        }
+        if (ref) await recordInbound(c, tenantId, "wafeq", ref, { number: data.invoice_number, sender: data.seller_name, currency: data.currency }, fetchImpl);
       } else if (type === "taxpayer.deleted" && (svc.state === "active" || svc.state === "onboarding")) {
         // the client revoked access (or we disconnected): stop acting for them until someone reconnects and reactivates
         await c.query(`UPDATE einvoice_service SET state='suspended', updated_at=now() WHERE tenant_id=$1`, [tenantId]);
@@ -126,7 +140,7 @@ export async function inboundXml(c: Conn, id: string): Promise<{ number: string;
   const row = await must(c.query<any>(`SELECT * FROM einvoice_inbound WHERE id=$1`, [recordId(id, "Received invoice")]), "Received invoice");
   const route = await routeFor(c, undefined, true);
   if (!route?.adapter.downloadXml) throw badRequest("The provider does not offer a download for this document.");
-  return { number: row.number ?? row.provider_doc_id, xml: await route.adapter.downloadXml(row.provider_doc_id) };
+  return { number: row.number ?? row.provider_doc_id, xml: await route.adapter.downloadXml(row.provider_doc_id, { inbound: true }) };
 }
 
 /** The provider's own archived copy of a document we sent (the version it reported), when it offers one. */
@@ -135,4 +149,83 @@ export async function archivedXml(c: Conn, d: any): Promise<string> {
   const adapter = await adapterForDocument(c, d);
   if (!adapter?.downloadXml) throw forbidden("The provider does not offer a download for this document.");
   return adapter.downloadXml(d.provider_ref);
+}
+
+// ───────── Aigentrix webhooks: `X-Aigentrix-Signature: t=<epoch>,v1=<hex hmacSHA256(secret, t + "." + body)>`, one signing secret per subscription (held with the client's credentials)
+export function verifyAigentrixSignature(secret: string, header: string | undefined, raw: string, nowMs = Date.now(), toleranceSec = 300): boolean {
+  const t = header?.match(/t=([^,]+)/)?.[1], v1 = header?.match(/v1=([^,]+)/)?.[1];
+  if (!secret || !t || !v1 || !Number.isFinite(Number(t)) || Math.abs(nowMs / 1000 - Number(t)) > toleranceSec) return false;
+  const want = crypto.createHmac("sha256", secret).update(`${t}.${raw}`).digest("hex");
+  return v1.length === want.length && crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(want));
+}
+
+/**
+ * Applies one Aigentrix event. The company is read from the (still unverified) body only to find which secret to verify with; nothing is acted on until the signature checks.
+ * A failure to identify the sender looks the same as a bad signature. Events carry the real environment: if it differs from what staff configured, sending is stopped,
+ * because documents would otherwise be going to the live network labelled as tests (or the reverse).
+ */
+export async function handleAigentrixWebhook(db: Db, req: { raw: string; header(n: string): string | undefined }, fetchImpl?: typeof fetch): Promise<{ status: number; body: unknown }> {
+  const deny = { status: 401, body: { error: "invalid signature" } };
+  let ev: any; try { ev = JSON.parse(req.raw); } catch { return deny; }
+  const companyId = text(ev?.companyId, 20);
+  if (!companyId) return deny;
+  const found = await db.system(async (c) => {
+    const svc = (await c.query<any>(`SELECT tenant_id, state, environment FROM einvoice_service WHERE provider='aigentrix' AND taxpayer_ref=$1`, [companyId])).rows[0];
+    const cred = svc && (await c.query<any>(`SELECT credentials_enc FROM einvoice_credentials WHERE tenant_id=$1`, [svc.tenant_id])).rows[0];
+    let secret: string | undefined; try { secret = cred && JSON.parse(decryptSecret(cred.credentials_enc)).webhookSecret; } catch { /* unreadable */ }
+    return svc && secret ? { svc, secret } : null;
+  });
+  if (!found || !verifyAigentrixSignature(found.secret, req.header("x-aigentrix-signature"), req.raw)) return deny;
+  const type = text(ev.eventType, 80), eventId = text(ev.eventId, 200) ?? req.header("x-aigentrix-event-id");
+  if (type === "webhook.verification") {                                                  // the subscription handshake: echo the challenge and sign it
+    const challenge = String(ev?.data?.challenge ?? "");
+    return { status: 200, body: { challenge, signature: crypto.createHmac("sha256", found.secret).update(challenge).digest("hex") } };
+  }
+  if (!type || !eventId) return { status: 400, body: { error: "missing event id or type" } };
+  if (type === "webhook.test") return { status: 200, body: { test: true } };
+  try {
+    return await db.system(async (c) => {
+      if (!(await c.query(`INSERT INTO einvoice_webhook_events(provider,event_id) VALUES ('aigentrix',$1) ON CONFLICT DO NOTHING RETURNING event_id`, [eventId])).rows.length) return { status: 200, body: { duplicate: true } };
+      const tenantId: string = found.svc.tenant_id, seen = String(ev.environment ?? "").toLowerCase();
+      if (seen && seen !== found.svc.environment) {
+        if (found.svc.state === "active" || found.svc.state === "onboarding") await c.query(`UPDATE einvoice_service SET state='suspended', updated_at=now() WHERE tenant_id=$1`, [tenantId]);
+        await audit(c, tenantId, SYSTEM, "einvoice.environment_mismatch", "tenant", tenantId, { configured: found.svc.environment, reported: seen });
+        return { status: 200, body: { ignored: "environment mismatch; service suspended" } };
+      }
+      const ref = text(ev.entryId, 40);
+      if (type === "invoice.received" && ref) await recordInbound(c, tenantId, "aigentrix", ref, { number: ev.invoiceNumber }, fetchImpl);
+      else if (type === "invoice.status_updated" && ref && ev.type !== "INBOUND") {
+        const d = await documentFor(c, tenantId, "aigentrix", ref, ev.occurredAt);
+        if (!d) return { status: 200, body: { ignored: "unknown document" } };
+        const reasons = ev.rejectionReason ? [String(ev.rejectionReason).slice(0, 300)] : [];
+        await applyProviderState(c, tenantId, d, ev.changedField === "taxStatus" ? { providerRef: ref, status: "submitted", reasons: [], reporting: String(ev.newValue) } : mapAigentrixStatus(ev.newValue, ref, undefined, reasons), "webhook");
+      }
+      return { status: 200, body: { ok: true } };
+    });
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 503) return { status: 503, body: { error: e.message } };
+    throw e;
+  }
+}
+
+// ───────── polling: a fallback for lost webhooks
+/** Asks the provider about documents still waiting for a decision. Webhooks are the normal path; this catches the ones that never arrived. */
+export async function pollSubmittedDocuments(db: Db, fetchImpl?: typeof fetch) {
+  const rows = (await db.query<any>(`SELECT id, tenant_id FROM einvoice_documents WHERE status='submitted' AND provider_ref IS NOT NULL AND provider <> 'sandbox'
+      AND submitted_at < now() - interval '2 minutes' AND submitted_at > now() - interval '7 days' AND (polled_at IS NULL OR polled_at < now() - interval '10 minutes') ORDER BY polled_at NULLS FIRST LIMIT 20`)).rows;
+  let checked = 0, failed = 0;
+  for (const row of rows) {
+    try {
+      await db.tenant(row.tenant_id, async (c) => {
+        const d = (await c.query<any>(`SELECT * FROM einvoice_documents WHERE id=$1 FOR UPDATE`, [row.id])).rows[0];
+        if (!d || d.status !== "submitted") return;
+        await c.query(`UPDATE einvoice_documents SET polled_at=now() WHERE id=$1`, [d.id]);
+        const adapter = await adapterForDocument(c, d, fetchImpl);
+        if (!adapter) return;
+        await applyProviderState(c, row.tenant_id, d, await adapter.status(d.provider_ref), "poll");
+        checked++;
+      });
+    } catch { failed++; await db.system((c) => c.query(`UPDATE einvoice_documents SET polled_at=now() WHERE id=$1`, [row.id])); }
+  }
+  return { due: rows.length, checked, failed };
 }

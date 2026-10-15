@@ -6,11 +6,14 @@
  */
 /** Provider-neutral document data (major currency units). Providers that take JSON build their request from this; providers that take UBL use `xml`. */
 export interface StructuredParty { name: string; legalName: string; trn: string | null; peppolId?: string | null; street: string | null; city: string | null; emirate: string | null; country: string }
-export interface StructuredLine { description: string; quantity: number; unitPrice: number; taxCategory: string; taxPercent: number; exemptionReason?: string }
+/** `netAmount`/`taxAmount` are the issuing system's own figures for the line (major units), so a provider can match our totals exactly. */
+export interface StructuredLine { description: string; quantity: number; unitPrice: number; taxCategory: string; taxPercent: number; exemptionReason?: string; netAmount?: number; taxAmount?: number }
 export interface StructuredDoc {
   number: string; issueDate: string; dueDate?: string; currency: string; notes?: string; supplier: StructuredParty; buyer: StructuredParty; lines: StructuredLine[];
   /** Credit notes: the original invoice number and, when this provider issued it, the provider's own id for it. */
-  precedingNumber?: string; precedingProviderRef?: string; reasonCode?: string;
+  precedingNumber?: string; precedingIssueDate?: string; precedingProviderRef?: string; reasonCode?: string;
+  /** The issuing system's own document totals (major units). */
+  totals?: { net: number; tax: number; total: number };
 }
 /** A provider failure that is not about the document. `retryable` says whether trying again later can help (outage, throttling) or not (refused credentials, no subscription). */
 export class ProviderError extends Error { constructor(message: string, public retryable = true) { super(message); } }
@@ -22,7 +25,7 @@ export interface EInvoiceAdapter {
   submit(s: EInvoiceSubmission): Promise<EInvoiceResult>;
   status(providerRef: string): Promise<EInvoiceResult>;
   /** The provider's archived UBL for a document, when it offers one. */
-  downloadXml?(providerRef: string): Promise<string>;
+  downloadXml?(providerRef: string, opts?: { inbound?: boolean }): Promise<string>;
   /** Header facts about a document the provider holds (used for supplier invoices it received for the workspace). */
   describeDocument?(providerRef: string): Promise<InboundDocument>;
 }

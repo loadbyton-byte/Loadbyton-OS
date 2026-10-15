@@ -1,4 +1,5 @@
 import type { Conn, Db } from "../db/client.js";
+import { aigentrixAdapter, validateAigentrixCredentials } from "../adapters/einvoice-aigentrix.js";
 import { validateWafeqCredentials, wafeqAdapter, wafeqEnvironment } from "../adapters/einvoice-wafeq.js";
 import type { EInvoiceAdapter } from "../adapters/einvoice.js";
 import { audit } from "../lib/audit.js";
@@ -21,7 +22,7 @@ export const PACKAGES: { key: string; label: string; docs: number }[] = [
   { key: "scale", label: "Scale — up to 5,000 documents a year", docs: 5000 },
 ];
 
-/** Providers whose adapter is installed. Others (Aigentrix, Marmin) are added here once their adapter exists and the partner terms are agreed. */
+/** Providers whose adapter is installed. Others (Marmin) are added here once their adapter exists and the partner terms are agreed. */
 export const SERVICE_PROVIDERS: Record<string, { label: string; validate(c: Record<string, any>): Record<string, any>; environment(c: Record<string, any>): "sandbox" | "live"; taxpayerRef(c: Record<string, any>): string; build(c: Record<string, any>, f?: typeof fetch): EInvoiceAdapter }> = {
   wafeq: {
     label: "Wafeq",
@@ -29,6 +30,13 @@ export const SERVICE_PROVIDERS: Record<string, { label: string; validate(c: Reco
     environment: (c) => wafeqEnvironment(String(c.apiKey)),
     taxpayerRef: (c) => String(c.taxpayerId),
     build: (c, f) => wafeqAdapter(validateWafeqCredentials(c), f),
+  },
+  aigentrix: {
+    label: "Aigentrix",
+    validate: (c) => validateAigentrixCredentials(c),
+    environment: (c) => (c.environment === "live" ? "live" : "sandbox"),
+    taxpayerRef: (c) => String(c.companyId),
+    build: (c, f) => aigentrixAdapter(validateAigentrixCredentials(c), f),
   },
 };
 
@@ -71,26 +79,28 @@ export async function staffConfigure(db: Db, s: Staff, tenantId: string, f: Reco
   return db.system(async (c) => {
     if (!(await c.query(`SELECT 1 FROM tenants WHERE id=$1`, [tenantId])).rows.length) throw new HttpError(404, "Unknown workspace");
     const existing = (await c.query<any>(`SELECT * FROM einvoice_credentials WHERE tenant_id=$1`, [tenantId])).rows[0];
-    const newCreds = text(f.api_key) || text(f.taxpayer_id);
-    let environment: "sandbox" | "live" = "sandbox", taxpayerRef: string | null = null;
-    if (newCreds || !existing) {
-      let creds: Record<string, any>;
-      try { creds = def.validate({ apiKey: f.api_key, taxpayerId: f.taxpayer_id, baseUrl: f.base_url }); } catch (e: any) { throw badRequest(e.message); }
-      environment = def.environment(creds); taxpayerRef = def.taxpayerRef(creds);
+    // Anything left blank keeps what is stored, so a secret or the environment can be changed without re-entering the API key.
+    let prev: Record<string, any> = {};
+    if (existing && existing.provider === provider) { try { prev = JSON.parse(decryptSecret(existing.credentials_enc)); } catch { prev = {}; } }
+    let creds: Record<string, any>;
+    try {
+      creds = def.validate({ apiKey: text(f.api_key) ?? prev.apiKey, taxpayerId: text(f.taxpayer_id) ?? prev.taxpayerId ?? prev.companyId, baseUrl: text(f.base_url) ?? prev.baseUrl,
+        environment: text(f.environment) ?? prev.environment, webhookSecret: text(f.webhook_secret, 300) ?? prev.webhookSecret });
+    } catch (e: any) { throw badRequest(e.message); }
+    const environment = def.environment(creds), taxpayerRef = def.taxpayerRef(creds), changed = JSON.stringify(creds) !== JSON.stringify(prev);
+    if (changed) {
+      const claimed = (await c.query<any>(`SELECT tenant_id FROM einvoice_service WHERE provider=$1 AND taxpayer_ref=$2 AND tenant_id<>$3`, [provider, taxpayerRef, tenantId])).rows[0];
+      if (claimed) throw badRequest("That provider account is already attached to another workspace.");
       await c.query(
         `INSERT INTO einvoice_credentials(tenant_id,provider,credentials_enc,updated_by) VALUES ($1,$2,$3,$4)
          ON CONFLICT (tenant_id) DO UPDATE SET provider=$2, credentials_enc=$3, updated_by=$4, updated_at=now()`, [tenantId, provider, encryptSecret(JSON.stringify(creds)), s.userId]);
-    } else {
-      if (existing.provider !== provider) throw badRequest("Changing the provider needs that provider's credentials.");
-      const keep = (await c.query<any>(`SELECT environment, taxpayer_ref FROM einvoice_service WHERE tenant_id=$1`, [tenantId])).rows[0];
-      environment = keep?.environment ?? "sandbox"; taxpayerRef = keep?.taxpayer_ref ?? null;
     }
     await c.query(
       `INSERT INTO einvoice_service(tenant_id,state,provider,environment,taxpayer_ref,allowance_docs,period_ends,payment_note) VALUES ($1,'onboarding',$2,$3,$4,$5,$6,$7)
        ON CONFLICT (tenant_id) DO UPDATE SET provider=$2, environment=$3, taxpayer_ref=$4, allowance_docs=$5, period_ends=$6, payment_note=coalesce($7,einvoice_service.payment_note),
          state=CASE WHEN einvoice_service.state='not_activated' THEN 'onboarding' ELSE einvoice_service.state END, updated_at=now()`,
       [tenantId, provider, environment, taxpayerRef, allowance, periodEnds, text(f.payment_note, 300)]);
-    await audit(c, tenantId, { kind: "platform_staff", userId: s.userId }, "einvoice.service_configured", "tenant", tenantId, { provider, environment, credentialsReplaced: !!newCreds || !existing });
+    await audit(c, tenantId, { kind: "platform_staff", userId: s.userId }, "einvoice.service_configured", "tenant", tenantId, { provider, environment, credentialsChanged: changed });
   });
 }
 

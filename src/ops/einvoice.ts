@@ -74,7 +74,7 @@ ${trn ? `      <cac:PartyTaxScheme><cbc:CompanyID>${esc(trn.replace(/\s/g, ""))}
   </cac:${tag}>`;
 }
 
-export interface DocSource { taxCurrency?: { code: string; taxMinor: number }; kind: "invoice" | "credit_note"; number: string; issuedAt: unknown; dueAt?: unknown; currency: string; subtotal: number; tax: number; total: number; reason?: string; invoiceRef?: string;
+export interface DocSource { taxCurrency?: { code: string; taxMinor: number }; kind: "invoice" | "credit_note"; number: string; issuedAt: unknown; dueAt?: unknown; currency: string; subtotal: number; tax: number; total: number; reason?: string; invoiceRef?: string; invoiceRefDate?: unknown;
   lines: { description: string; qty: number | string; unit_minor: number | string; net_minor: number | string; tax_minor: number | string; tax_code: string }[] }
 
 export function buildUbl(src: DocSource, supplier: any, buyer: any, settings: { customization_id?: string | null; profile_id?: string | null }): string {
@@ -122,14 +122,29 @@ ${src.lines.map((l, i) => { const cat = TAX_CATEGORY[l.tax_code]; return `  <cac
 }
 
 /** The same document as plain data in major currency units, for providers that take JSON and build the UBL themselves. Frozen with the XML at generation. */
+/** FTA credit-note reason codes (BTAE-03). An explicit code in the reason wins; otherwise common wording is read; otherwise none, and the provider step says so. */
+export function creditReasonCode(reason: unknown): string | undefined {
+  const t = String(reason ?? "");
+  const explicit = t.match(/\bDL8\.61\.1\.[A-E]\b|\bVD\b/i)?.[0];
+  if (explicit) return explicit.toUpperCase();
+  if (/return|sent back|damag/i.test(t)) return "DL8.61.1.D";
+  if (/cancel/i.test(t)) return "DL8.61.1.A";
+  if (/error|mistake|wrong|incorrect/i.test(t)) return "DL8.61.1.E";
+  if (/price|discount|amount|short|rebate|consideration/i.test(t)) return "DL8.61.1.C";
+  return undefined;
+}
+
+/** The same document as plain data in major currency units, for providers that take JSON and build the UBL themselves. Frozen with the XML at generation. */
 export function buildStructured(src: DocSource, supplier: any, buyer: any): StructuredDoc {
   const party = (p: any): StructuredParty => ({ name: p.name, legalName: p.legal_name ?? p.name, trn: p.tax_id ? String(p.tax_id).replace(/\s/g, "") : null,
     peppolId: p.einvoice_scheme && p.einvoice_endpoint ? `${p.einvoice_scheme}:${p.einvoice_endpoint}` : null, street: p.address_line ?? null, city: p.city ?? null, emirate: p.emirate ?? null, country: p.country ?? "AE" });
+  const reasonCode = src.kind === "credit_note" ? creditReasonCode(src.reason) : undefined;
   return {
     number: src.number, issueDate: day(src.issuedAt), ...(src.dueAt ? { dueDate: day(src.dueAt) } : {}), currency: src.currency, ...(src.reason ? { notes: src.reason } : {}),
     supplier: party(supplier), buyer: party(buyer),
-    lines: src.lines.map((l) => { const cat = TAX_CATEGORY[l.tax_code]; return { description: l.description, quantity: Number(l.qty), unitPrice: Number(l.unit_minor) / 100, taxCategory: cat?.id ?? "S", taxPercent: cat?.percent ?? 0, ...(cat?.reason ? { exemptionReason: cat.reason } : {}) }; }),
-    ...(src.invoiceRef ? { precedingNumber: src.invoiceRef } : {}),
+    lines: src.lines.map((l) => { const cat = TAX_CATEGORY[l.tax_code]; return { description: l.description, quantity: Number(l.qty), unitPrice: Number(l.unit_minor) / 100, taxCategory: cat?.id ?? "S", taxPercent: cat?.percent ?? 0, netAmount: Number(l.net_minor) / 100, taxAmount: Number(l.tax_minor) / 100, ...(cat?.reason ? { exemptionReason: cat.reason } : {}) }; }),
+    totals: { net: Number(src.subtotal) / 100, tax: Number(src.tax) / 100, total: Number(src.total) / 100 },
+    ...(src.invoiceRef ? { precedingNumber: src.invoiceRef } : {}), ...(src.invoiceRefDate ? { precedingIssueDate: day(src.invoiceRefDate) } : {}), ...(reasonCode ? { reasonCode } : {}),
   };
 }
 
@@ -184,16 +199,16 @@ async function sourceFor(c: Conn, kind: "invoice" | "credit_note", id: string) {
     }
     return { inv, lines, src: { kind, number: inv.no, issuedAt: inv.issued_at, dueAt: inv.due_at, currency: inv.currency, subtotal: Number(inv.subtotal_minor), tax: Number(inv.tax_minor), total: Number(inv.total_minor), lines } as DocSource, entityId: inv.entity_id, partyId: inv.party_id };
   }
-  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no, i.billing_currency, i.fx_rate::float8 AS fx_rate FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
+  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no, i.issued_at AS invoice_issued_at, i.billing_currency, i.fx_rate::float8 AS fx_rate FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
   if (n.status !== "issued") throw badRequest("Only an issued credit note can be sent.");
   const lines = (await c.query<any>(`SELECT * FROM credit_note_lines WHERE credit_note_id=$1 ORDER BY id`, [n.id])).rows;
   if (n.billing_currency) {                    // a credit note against a foreign-currency invoice is presented at that invoice's own rate
     const r = Number(n.fx_rate), conv = (m: unknown) => Math.round(Number(m) / r);
     const bl = lines.map((l: any) => ({ ...l, unit_minor: conv(l.unit_minor), net_minor: conv(l.net_minor), tax_minor: conv(l.tax_minor) }));
     const sub = bl.reduce((a: number, l: any) => a + l.net_minor, 0), tax = bl.reduce((a: number, l: any) => a + l.tax_minor, 0);
-    return { inv: { ...n, subtotal_minor: sub, tax_minor: tax, total_minor: sub + tax }, lines: bl, src: { kind, number: n.no, issuedAt: n.issued_at, currency: n.billing_currency, subtotal: sub, tax, total: sub + tax, taxCurrency: { code: n.currency, taxMinor: Number(n.tax_minor) }, reason: n.reason, invoiceRef: n.invoice_no, lines: bl } as DocSource, entityId: n.entity_id, partyId: n.party_id };
+    return { inv: { ...n, subtotal_minor: sub, tax_minor: tax, total_minor: sub + tax }, lines: bl, src: { kind, number: n.no, issuedAt: n.issued_at, currency: n.billing_currency, subtotal: sub, tax, total: sub + tax, taxCurrency: { code: n.currency, taxMinor: Number(n.tax_minor) }, reason: n.reason, invoiceRef: n.invoice_no, invoiceRefDate: n.invoice_issued_at, lines: bl } as DocSource, entityId: n.entity_id, partyId: n.party_id };
   }
-  return { inv: n, lines, src: { kind, number: n.no, issuedAt: n.issued_at, currency: n.currency, subtotal: Number(n.subtotal_minor), tax: Number(n.tax_minor), total: Number(n.total_minor), reason: n.reason, invoiceRef: n.invoice_no, lines } as DocSource, entityId: n.entity_id, partyId: n.party_id };
+  return { inv: n, lines, src: { kind, number: n.no, issuedAt: n.issued_at, currency: n.currency, subtotal: Number(n.subtotal_minor), tax: Number(n.tax_minor), total: Number(n.total_minor), reason: n.reason, invoiceRef: n.invoice_no, invoiceRefDate: n.invoice_issued_at, lines } as DocSource, entityId: n.entity_id, partyId: n.party_id };
 }
 
 export async function previewReadiness(c: Conn, kind: "invoice" | "credit_note", id: string) {
