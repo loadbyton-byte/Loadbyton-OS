@@ -15,12 +15,12 @@ import { rateOn } from "./finance-bridge.js";
  *
  * This is a bookkeeping ledger, not a statutory financial statement: chart-of-accounts design, period close, tax filing and the audit remain the controller's.
  */
-export type Role = "bank" | "ar" | "input_vat" | "ap" | "output_vat" | "revenue" | "cost" | "fx";
+export type Role = "bank" | "ar" | "input_vat" | "ap" | "output_vat" | "revenue" | "cost" | "fx" | "cod_shortage";
 export const DEFAULT_CHART: { code: string; name: string; kind: "asset" | "liability" | "equity" | "income" | "expense"; role?: Role }[] = [
   { code: "1000", name: "Bank and cash", kind: "asset", role: "bank" }, { code: "1100", name: "Accounts receivable", kind: "asset", role: "ar" }, { code: "1200", name: "Input VAT recoverable", kind: "asset", role: "input_vat" },
   { code: "2000", name: "Accounts payable", kind: "liability", role: "ap" }, { code: "2100", name: "Output VAT payable", kind: "liability", role: "output_vat" },
   { code: "3000", name: "Owner's equity", kind: "equity" }, { code: "4000", name: "Service revenue", kind: "income", role: "revenue" },
-  { code: "5000", name: "Cost of services", kind: "expense", role: "cost" }, { code: "5900", name: "Foreign exchange gain / loss", kind: "expense", role: "fx" },
+  { code: "5000", name: "Cost of services", kind: "expense", role: "cost" }, { code: "5900", name: "Foreign exchange gain / loss", kind: "expense", role: "fx" }, { code: "5910", name: "COD cash shortage written off", kind: "expense", role: "cod_shortage" },
 ];
 interface Line { role?: Role; account_id?: string; debit?: number; credit?: number; memo?: string }
 const money = (m: unknown) => Number(m) || 0;
@@ -99,6 +99,9 @@ export async function postPending(c: Conn, tenantId: string, userId: string | nu
     const gain = money(p.base_bill_minor) - money(p.base_paid_minor);          // paying less than the booked liability is a gain
     await post({ posted_on: day(p.d), source_type: "vendor_payment", source_id: p.id, memo: `Payment of ${p.no}`, lines: [{ role: "ap", debit: money(p.base_bill_minor) }, { role: "bank", credit: money(p.base_paid_minor) }, gain > 0 ? { role: "fx", credit: gain } : { role: "fx", debit: -gain }] });
   }
+  // approved COD cash-shortage write-offs
+  if (left() > 0 && roles.has("cod_shortage")) for (const w of (await c.query<any>(`SELECT w.id, w.no, w.amount_minor, w.decided_at::date AS d FROM dlv_writeoffs w WHERE w.status='approved' AND w.decided_at::date >= $1 AND NOT ${has("dlv_writeoff", "w.id")} ORDER BY w.decided_at LIMIT $2`, [start, left()])).rows)
+    await post({ posted_on: day(w.d), source_type: "dlv_writeoff", source_id: w.id, memo: `Cash shortage written off ${w.no}`, lines: [{ role: "cod_shortage", debit: money(w.amount_minor) }, { role: "bank", credit: money(w.amount_minor) }] });
   // period-end revaluation of foreign-currency receivables, and its automatic reversal the day after
   if (left() > 0) for (const v of (await c.query<any>(`SELECT id, as_of, net_minor FROM fx_revaluations WHERE as_of >= $1 AND net_minor <> 0 AND NOT ${has("fx_reval", "fx_revaluations.id")} ORDER BY as_of LIMIT $2`, [start, left()])).rows)
     await post({ posted_on: day(v.as_of), source_type: "fx_reval", source_id: v.id, memo: `Revaluation of foreign-currency receivables at ${day(v.as_of)}`, lines: [{ role: "ar", debit: Math.max(0, money(v.net_minor)), credit: Math.max(0, -money(v.net_minor)) }, ...fxLine(money(v.net_minor))] });

@@ -7,6 +7,7 @@ import { createDriver } from "../src/ops/transport.js";
 import { invite, acceptInvite } from "../src/ops/team.js";
 import { applyRiderEvent, closeRun, createRemittance, createRun, createShipment, decideSettlement, payRemittance, settleRider, startRun, type RiderEvent } from "../src/ops/delivery.js";
 import { autoMatchBankLines, bankReconciliation, decideWriteOff, getCashPolicy, ignoreBankLine, importBankStatement, liabilityReport, matchBankLine, proposeWriteOff, setCashPolicy, unmatchBankLine, writeOffsCsv } from "../src/ops/delivery-finance.js";
+import { enableLedger, ledgerReconciliation, postLedgerNow, trialBalance } from "../src/ops/ledger.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 let db: Db;
 beforeAll(async () => { db = await freshDb(); });
@@ -153,3 +154,28 @@ describe("approved shortage write-offs", () => {
     await noViolations();
   });
 });
+
+describe("write-offs posted to the ledger", () => {
+  it("journals each approved write-off once (debit shortage expense, credit bank) and ignores proposed or rejected ones", async () => {
+    const s = await site();
+    const finance = await staff(s.t.tenantId, "finance"), coord = await staff(s.t.tenantId, "coordinator"), coord2 = await staff(s.t.tenantId, "coordinator");
+    const past = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    await run(s, (c) => enableLedger(c, s.t.ctx, past));
+    await run(s, (c) => setCashPolicy(c, s.t.ctx, { max_unsettled: "5000", max_unsettled_hours: 48, max_offline_hours: 24, writeoff_owner_above: "500" }));
+    await delivered(s, "100");
+    const h = await run(s, (c) => settleRider(c, finance, s.rider, { counted: "70", note: "Customer short-paid" }));
+    await run(s, (c) => decideSettlement(c, coord, h.id, true));
+    const w1 = await run(s, (c) => proposeWriteOff(c, finance, { settlement_id: h.id, amount: "10", reason: "Unrecoverable" }));
+    await run(s, (c) => proposeWriteOff(c, finance, { settlement_id: h.id, amount: "5", reason: "Still being recovered" }));
+    expect(await run(s, (c) => postLedgerNow(c, s.t.ctx))).toBe(0);                          // nothing approved yet
+    await run(s, (c) => decideWriteOff(c, coord2, w1.id, true, "Approved"));
+    expect(await run(s, (c) => postLedgerNow(c, s.t.ctx))).toBe(1);
+    expect(await run(s, (c) => postLedgerNow(c, s.t.ctx))).toBe(0);                          // idempotent
+    const tb = await run(s, (c) => trialBalance(c));
+    const bal = (code: string) => tb.rows.find((r: any) => r.code === code).balance;
+    expect(tb.balanced).toBe(true); expect(bal("5910")).toBe(1000); expect(bal("1000")).toBe(-1000);
+    expect((await run(s, (c) => ledgerReconciliation(c)))!.ok).toBe(true);
+    await noViolations();
+  });
+});
+
