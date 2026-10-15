@@ -200,6 +200,14 @@ field extraction and validation as any other document; the result is labelled as
 No configuration. The owner enables the general ledger under *Money → General ledger* (start date fixed once enabled; earlier balances enter as an opening-balance manual entry). A customer is billed in a foreign currency by setting
 its *billing currency* on the customer details page; invoices then need a current approved exchange rate (no older than seven days) and are issued in both currencies with VAT also stated in AED. The books and receipts stay in AED.
 
+## 9f. Optional services added later
+
+- **Address geocoding** — `GEOCODER_URL` (any Nominatim-shaped `/search`), `GEOCODER_API_KEY`, `GEOCODER_COUNTRY_CODES`. The public OpenStreetMap server forbids bulk use: run your own or use a commercial gateway.
+- **Road routing** — `ROUTING_URL` (OSRM-compatible `/table/v1`), `ROUTING_API_KEY`, `ROUTING_PROFILE`, `ROUTING_MAX_POINTS`. Times are the service's own; the planner states whether it used road or straight-line distances.
+- **Self-hosted OCR** — `OCR_PROVIDER=self-hosted`, `OCR_API_BASE=http://ocr:8080`, and start the sidecar with `docker compose -f docker-compose.prod.yml --profile ocr up -d`. Untested against real scans in this repository: run a sample of your own documents through it and have a person check the text.
+- **Store and carrier connectors** — set up under *Fulfilment → Store connectors* (Shopify, WooCommerce) and *Carrier tracking*; each gives a secret webhook address once.
+- **Account-holder consent for bank feeds** — add the bank's consent and token hosts to `FEED_ALLOWED_HOSTS`, register `PUBLIC_BASE_URL/app/settings/feeds/callback` as the redirect address in the bank's developer portal, then *Connect account* on the feed.
+
 ## 10. Monitoring
 
 See [`MONITORING.md`](MONITORING.md): `/healthz` (liveness), `/readyz` (database + background workers), `/metrics` (Prometheus text, bearer `METRICS_TOKEN`), recommended alerts.
