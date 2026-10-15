@@ -2,7 +2,7 @@
 
 | # | Decision | Where the code is waiting |
 |---|---|---|
-| 1 | Approve first sector and end-to-end scope (recommended: Forwarding Starter) | Built; pilot with ≥5 design partners (§29 gate) |
+| 1 | Approve first sector and end-to-end scope (recommended: Forwarding Starter) | Built; pilot with ≥5 design partners (§29 gate). **Owner decision: the official release requires all 18 sectors ready; Forwarding Starter is the pilot order, not a reduced launch scope** |
 | 2 | Contracting entity and **payment merchant** | **Decided: an India-based GST-registered freelancer selling to UAE customers; Stripe (cards, Google Pay) and Razorpay (UPI/Google Pay/cards).** Adapters built (`PAYMENT_PROVIDERS`); identity/GST/PAN/tax text are env vars. Still to confirm with the providers: AED presentment/settlement for your accounts; with your accountant: tax treatment of the supply |
 | 3 | Hosting, region and recovery budget | **Decided: Oracle Cloud VM + Cloudflare (tunnel) + Neon or Supabase (PostgreSQL) + Upstash (rate limits).** See `docs/DEPLOYMENT.md`. Region, recovery budget (RPO/RTO) and the subprocessor page still to be set |
 | 4 | Pilot plan limits | `PLAN_SEEDS` in `src/platform/catalog.ts` (hypotheses, immutable once published) |

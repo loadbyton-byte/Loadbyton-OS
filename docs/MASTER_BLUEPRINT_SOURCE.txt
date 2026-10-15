@@ -822,8 +822,9 @@ cancellation/export policy and acceptance criteria. Sales promises must match th
 
 
 Durations are rough sequential planning ranges, not commitments; specialist availability, existing code quality and
-connector approvals can materially change them. Do not sell all 18 sector packs at launch. Sell the first complete
-workflow and maintain a public status distinction between available, pilot and planned.
+connector approvals can materially change them. The official release requires all 18 sector packs to be complete and
+passing their own evidence-based gates; no sector is exempt. Supervised pilots may run sector by sector beforehand, and
+the public status distinction between available, pilot and planned is maintained until every gate is accepted.
 
 
 
@@ -881,7 +882,7 @@ badge without a validated flow does not pass. A native finance module without re
 
 
 31 — Main risks and controls
-Scope overload: release one complete sector before adding more. Low-price support losses: limit setup and
+Scope overload: build and prove one complete sector at a time, but do not declare the official release until all 18 are ready. Low-price support losses: limit setup and
 standardize imports. Free-tier abuse: verification, quotas and fair scheduling. Incorrect accounting: specialist-reviewed
 posting and reconciliation. Integration dependency: explicit status, outage handling and manual handover. Security
 failure: tenant isolation and privileged-access controls. Regulatory overstatement: publish precise capabilities and
