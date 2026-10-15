@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import type { Db } from "../src/db/client.js";
 import { freshDb, newTenant } from "./helpers.js";
 import { RfSession, rfLogin, setRfPin } from "../src/ops/rf-terminal.js";
-import { startRfServer, stripTelnet } from "../src/rf-server.js";
+import { startRfServer, stripTelnet, vt100Screen } from "../src/rf-server.js";
 
 let db: Db;
 beforeAll(async () => { db = await freshDb(); });
@@ -55,5 +55,24 @@ describe("RF terminal", () => {
     sock.write(`${email}\r\n`); await until(/PIN/); sock.write("274619\r\n"); await until(/Signed in/);
     sock.write("0\r\n"); await until(/Bye/); sock.destroy(); server.close();
     expect(stripTelnet(Buffer.from([255, 251, 1, 65, 66]))).toBe("AB");
+  });
+});
+
+describe("RF terminal, full-screen (VT100) mode", () => {
+  it("redraws the screen for each answer and switches the client's echo off while the PIN is typed", async () => {
+    const { t, slug, email } = await co();
+    await db.tenant(t.tenantId, (c) => setRfPin(c, t.ctx, t.ctx.userId, "274619"));
+    const server = startRfServer(db, 0, "127.0.0.1", 20, "vt100", 6); await new Promise((r) => server.once("listening", r));
+    const sock = net.connect((server.address() as net.AddressInfo).port, "127.0.0.1"); const chunks: Buffer[] = [];
+    sock.on("data", (d) => chunks.push(Buffer.from(d)));
+    const all = () => Buffer.concat(chunks);
+    const until = async (pred: (b: Buffer) => boolean) => { for (let i = 0; i < 200 && !pred(all()); i++) await new Promise((r) => setTimeout(r, 25)); expect(pred(all())).toBe(true); };
+    await until((b) => b.includes("\x1b[2J\x1b[H"));
+    sock.write(`${slug}\r\n`); sock.write(`${email}\r\n`);
+    await until((b) => b.includes(Buffer.from([255, 251, 1])));          // IAC WILL ECHO before the PIN prompt
+    sock.write("274619\r\n");
+    await until((b) => b.includes(Buffer.from([255, 252, 1])) && b.toString("latin1").includes("Signed in"));
+    sock.write("0\r\n"); await until((b) => b.toString("latin1").includes("Bye")); sock.destroy(); server.close();
+    expect(vt100Screen(["a", "b", "c", "d"], 2)).toBe("\x1b[2J\x1b[Hc\r\nd");
   });
 });
