@@ -4,6 +4,8 @@ import { actorOf, require, type Ctx } from "../lib/perms.js";
 import { badRequest } from "../lib/util.js";
 import { assertWritable } from "../platform/entitlements.js";
 import { must, recordId, reqStr, today } from "./common.js";
+import { FX_RATE_MAX_AGE_DAYS } from "./finance.js";
+import { rateOn } from "./finance-bridge.js";
 
 /**
  * Native general ledger. Operational events (an invoice issued, cash received, a credit note, a supplier bill approved or paid, and their reversals) are projected
@@ -72,6 +74,8 @@ export async function postJournal(c: Conn, tenantId: string, userId: string | nu
   return id as string;
 }
 
+/** A realised exchange difference: positive = gain (credit to the FX account), negative = loss. */
+const fxLine = (gain: number): Line[] => (gain > 0 ? [{ role: "fx", credit: gain }] : gain < 0 ? [{ role: "fx", debit: -gain }] : []);
 const has = (type: string, idExpr: string) => `EXISTS (SELECT 1 FROM gl_journals g WHERE g.source_type='${type}' AND g.source_id=${idExpr}::text)`;
 /** The idempotent posting pass. Returns how many journals were written. */
 export async function postPending(c: Conn, tenantId: string, userId: string | null, limit = 500): Promise<number> {
@@ -84,8 +88,8 @@ export async function postPending(c: Conn, tenantId: string, userId: string | nu
   // sales
   for (const i of (await c.query<any>(`SELECT id, no, issued_at::date AS d, subtotal_minor, tax_minor, total_minor FROM invoices WHERE issued_at::date >= $1 AND NOT ${has("invoice", "invoices.id")} ORDER BY issued_at, no LIMIT $2`, [start, left()])).rows)
     await post({ posted_on: day(i.d), source_type: "invoice", source_id: i.id, memo: `Invoice ${i.no}`, lines: [{ role: "ar", debit: money(i.total_minor) }, { role: "revenue", credit: money(i.subtotal_minor) }, { role: "output_vat", credit: money(i.tax_minor) }] });
-  if (left() > 0) for (const r of (await c.query<any>(`SELECT r.id, r.received_at AS d, r.amount_minor, i.no FROM receipts r JOIN invoices i ON i.id=r.invoice_id WHERE r.received_at >= $1 AND ${has("invoice", "i.id")} AND NOT ${has("receipt", "r.id")} ORDER BY r.received_at LIMIT $2`, [start, left()])).rows)
-    await post({ posted_on: day(r.d), source_type: "receipt", source_id: r.id, memo: `Receipt against ${r.no}`, lines: [{ role: "bank", debit: money(r.amount_minor) }, { role: "ar", credit: money(r.amount_minor) }] });
+  if (left() > 0) for (const r of (await c.query<any>(`SELECT r.id, r.received_at AS d, r.amount_minor, coalesce(r.cash_minor, r.amount_minor) AS cash_minor, i.no FROM receipts r JOIN invoices i ON i.id=r.invoice_id WHERE r.received_at >= $1 AND ${has("invoice", "i.id")} AND NOT ${has("receipt", "r.id")} ORDER BY r.received_at LIMIT $2`, [start, left()])).rows)
+    await post({ posted_on: day(r.d), source_type: "receipt", source_id: r.id, memo: `Receipt against ${r.no}`, lines: [{ role: "bank", debit: money(r.cash_minor) }, { role: "ar", credit: money(r.amount_minor) }, ...fxLine(money(r.cash_minor) - money(r.amount_minor))] });
   if (left() > 0) for (const k of (await c.query<any>(`SELECT n.id, n.no, n.issued_at::date AS d, n.subtotal_minor, n.tax_minor, n.total_minor FROM credit_notes n WHERE n.status='issued' AND n.issued_at::date >= $1 AND ${has("invoice", "n.invoice_id")} AND NOT ${has("credit_note", "n.id")} ORDER BY n.issued_at LIMIT $2`, [start, left()])).rows)
     await post({ posted_on: day(k.d), source_type: "credit_note", source_id: k.id, memo: `Credit note ${k.no}`, lines: [{ role: "revenue", debit: money(k.subtotal_minor) }, { role: "output_vat", debit: money(k.tax_minor) }, { role: "ar", credit: money(k.total_minor) }] });
   // purchases
@@ -95,11 +99,16 @@ export async function postPending(c: Conn, tenantId: string, userId: string | nu
     const gain = money(p.base_bill_minor) - money(p.base_paid_minor);          // paying less than the booked liability is a gain
     await post({ posted_on: day(p.d), source_type: "vendor_payment", source_id: p.id, memo: `Payment of ${p.no}`, lines: [{ role: "ap", debit: money(p.base_bill_minor) }, { role: "bank", credit: money(p.base_paid_minor) }, gain > 0 ? { role: "fx", credit: gain } : { role: "fx", debit: -gain }] });
   }
+  // period-end revaluation of foreign-currency receivables, and its automatic reversal the day after
+  if (left() > 0) for (const v of (await c.query<any>(`SELECT id, as_of, net_minor FROM fx_revaluations WHERE as_of >= $1 AND net_minor <> 0 AND NOT ${has("fx_reval", "fx_revaluations.id")} ORDER BY as_of LIMIT $2`, [start, left()])).rows)
+    await post({ posted_on: day(v.as_of), source_type: "fx_reval", source_id: v.id, memo: `Revaluation of foreign-currency receivables at ${day(v.as_of)}`, lines: [{ role: "ar", debit: Math.max(0, money(v.net_minor)), credit: Math.max(0, -money(v.net_minor)) }, ...fxLine(money(v.net_minor))] });
+  if (left() > 0) for (const v of (await c.query<any>(`SELECT id, as_of, net_minor FROM fx_revaluations WHERE as_of < current_date AND net_minor <> 0 AND ${has("fx_reval", "fx_revaluations.id")} AND NOT ${has("fx_reval_reversal", "fx_revaluations.id")} ORDER BY as_of LIMIT $1`, [left()])).rows)
+    await post({ posted_on: day(new Date(Date.parse(day(v.as_of)) + 86400000)), source_type: "fx_reval_reversal", source_id: v.id, memo: `Reversal of revaluation at ${day(v.as_of)}`, lines: [{ role: "ar", debit: Math.max(0, -money(v.net_minor)), credit: Math.max(0, money(v.net_minor)) }, ...fxLine(-money(v.net_minor))] });
   // reversals, only of what was journalled
   if (left() > 0) for (const i of (await c.query<any>(`SELECT id, no, subtotal_minor, tax_minor, total_minor FROM invoices WHERE status='void' AND ${has("invoice", "invoices.id")} AND NOT ${has("invoice_void", "invoices.id")} LIMIT $1`, [left()])).rows)
     await post({ posted_on: today(), source_type: "invoice_void", source_id: i.id, memo: `Reversal of voided invoice ${i.no}`, lines: [{ role: "revenue", debit: money(i.subtotal_minor) }, { role: "output_vat", debit: money(i.tax_minor) }, { role: "ar", credit: money(i.total_minor) }] });
-  if (left() > 0) for (const r of (await c.query<any>(`SELECT r.id, v.at::date AS d, r.amount_minor, i.no FROM receipt_reversals v JOIN receipts r ON r.id=v.receipt_id JOIN invoices i ON i.id=r.invoice_id WHERE ${has("receipt", "r.id")} AND NOT ${has("receipt_reversal", "r.id")} ORDER BY v.at LIMIT $1`, [left()])).rows)
-    await post({ posted_on: day(r.d), source_type: "receipt_reversal", source_id: r.id, memo: `Reversal of receipt against ${r.no}`, lines: [{ role: "ar", debit: money(r.amount_minor) }, { role: "bank", credit: money(r.amount_minor) }] });
+  if (left() > 0) for (const r of (await c.query<any>(`SELECT r.id, v.at::date AS d, r.amount_minor, coalesce(r.cash_minor, r.amount_minor) AS cash_minor, i.no FROM receipt_reversals v JOIN receipts r ON r.id=v.receipt_id JOIN invoices i ON i.id=r.invoice_id WHERE ${has("receipt", "r.id")} AND NOT ${has("receipt_reversal", "r.id")} ORDER BY v.at LIMIT $1`, [left()])).rows)
+    await post({ posted_on: day(r.d), source_type: "receipt_reversal", source_id: r.id, memo: `Reversal of receipt against ${r.no}`, lines: [{ role: "ar", debit: money(r.amount_minor) }, { role: "bank", credit: money(r.cash_minor) }, ...fxLine(money(r.amount_minor) - money(r.cash_minor))] });
   if (left() > 0) for (const b of (await c.query<any>(`SELECT id, no, base_total_minor, base_tax_minor FROM vendor_bills WHERE status='void' AND approved_by IS NOT NULL AND ${has("vendor_bill", "vendor_bills.id")} AND NOT ${has("vendor_bill_void", "vendor_bills.id")} LIMIT $1`, [left()])).rows)
     await post({ posted_on: today(), source_type: "vendor_bill_void", source_id: b.id, memo: `Reversal of voided bill ${b.no}`, lines: [{ role: "ap", debit: money(b.base_total_minor) }, { role: "cost", credit: money(b.base_total_minor) - money(b.base_tax_minor) }, { role: "input_vat", credit: money(b.base_tax_minor) }] });
   if (n) await audit(c, tenantId, { kind: "system" }, "ledger.posted", "tenant", tenantId, { journals: n, requested_by: userId });
@@ -191,7 +200,7 @@ export async function ledgerReconciliation(c: Conn) {
   const st = await ledgerSettings(c); if (!st) return null;
   const start = day(st.start_date);
   const bal = async (role: string, side: "debit" | "credit") => Number((await c.query<any>(
-    `SELECT coalesce(sum(${side === "debit" ? "l.debit_minor - l.credit_minor" : "l.credit_minor - l.debit_minor"}),0)::bigint AS b FROM gl_lines l JOIN gl_accounts a ON a.id=l.account_id JOIN gl_journals j ON j.id=l.journal_id WHERE a.role=$1 AND j.source_type <> 'manual'`, [role])).rows[0].b);
+    `SELECT coalesce(sum(${side === "debit" ? "l.debit_minor - l.credit_minor" : "l.credit_minor - l.debit_minor"}),0)::bigint AS b FROM gl_lines l JOIN gl_accounts a ON a.id=l.account_id JOIN gl_journals j ON j.id=l.journal_id WHERE a.role=$1 AND j.source_type NOT IN ('manual','fx_reval','fx_reval_reversal')`, [role])).rows[0].b);
   const one = async (sql: string, p: unknown[] = [start]) => Number((await c.query<any>(sql, p)).rows[0].v);
   const arSub = await one(`SELECT coalesce(sum(i.total_minor),0) - coalesce((SELECT sum(r.amount_minor) FROM receipts r JOIN invoices i2 ON i2.id=r.invoice_id WHERE i2.status<>'void' AND i2.issued_at::date >= $1 AND r.received_at >= $1 AND NOT EXISTS (SELECT 1 FROM receipt_reversals v WHERE v.receipt_id=r.id)),0) - coalesce((SELECT sum(n.total_minor) FROM credit_notes n JOIN invoices i3 ON i3.id=n.invoice_id WHERE n.status='issued' AND i3.status<>'void' AND i3.issued_at::date >= $1 AND n.issued_at::date >= $1),0) AS v FROM invoices i WHERE i.status<>'void' AND i.issued_at::date >= $1`);
   const apSub = await one(`SELECT coalesce(sum(b.base_total_minor),0) - coalesce((SELECT sum(p.base_bill_minor) FROM vendor_payments p JOIN vendor_bills b2 ON b2.id=p.bill_id WHERE b2.status<>'void' AND b2.approved_at::date >= $1 AND p.paid_on >= $1),0) AS v FROM vendor_bills b WHERE b.approved_by IS NOT NULL AND b.status<>'void' AND b.approved_at::date >= $1`);
@@ -200,4 +209,51 @@ export async function ledgerReconciliation(c: Conn) {
     { name: "Accounts receivable", ledger: await bal("ar", "debit"), subledger: arSub }, { name: "Accounts payable", ledger: await bal("ap", "credit"), subledger: apSub },
   ].map((x) => ({ ...x, difference: x.ledger - x.subledger }));
   return { pending, items, ok: pending === 0 && items.every((x) => x.difference === 0) };
+}
+
+// ───────── foreign-currency receivables: revaluation and realised exchange differences
+/**
+ * Revalues every open foreign-currency invoice at today's approved rate (run it on the period-end day). The run is immutable, one per day. Its journal debits or credits
+ * receivables against the exchange gain/loss account and is reversed automatically the next day, so only the period-end balance carries the revaluation.
+ */
+export async function revalueReceivables(c: Conn, ctx: Ctx) {
+  require(ctx, "finance.write");
+  await assertWritable(c, ctx.tenantId);
+  const asOf = today();
+  if ((await c.query(`SELECT 1 FROM fx_revaluations WHERE as_of=$1`, [asOf])).rows.length) throw badRequest("Receivables have already been revalued today.");
+  const open = (await c.query<any>(`SELECT id, no, billing_currency, fx_rate, balance_minor FROM invoices WHERE billing_currency IS NOT NULL AND status IN ('issued','part_paid') AND balance_minor > 0 ORDER BY no`)).rows;
+  if (!open.length) throw badRequest("There are no open foreign-currency invoices to revalue.");
+  const lines = [] as any[];
+  const missing = new Set<string>();
+  for (const i of open) {
+    const r = await rateOn(c, i.billing_currency, asOf);
+    if (!r) { missing.add(i.billing_currency); continue; }
+    if ((Date.parse(asOf) - Date.parse(r.as_of)) / 86400000 > FX_RATE_MAX_AGE_DAYS) { missing.add(i.billing_currency); continue; }
+    const billingOpen = Math.round(Number(i.balance_minor) / Number(i.fx_rate)), carrying = Number(i.balance_minor), revalued = Math.round(billingOpen * r.rate);
+    lines.push({ invoice_id: i.id, currency: i.billing_currency, billingOpen, carrying, rate: r.rate, rateId: r.id, revalued, diff: revalued - carrying });
+  }
+  if (missing.size) throw badRequest(`Approve a current ${[...missing].join(", ")} exchange rate (not older than ${FX_RATE_MAX_AGE_DAYS} days) before revaluing.`);
+  const net = lines.reduce((a, l) => a + l.diff, 0);
+  const id = (await c.query<any>(`INSERT INTO fx_revaluations(tenant_id,as_of,net_minor,created_by) VALUES ($1,$2,$3,$4) RETURNING id`, [ctx.tenantId, asOf, net, ctx.userId])).rows[0].id as string;
+  for (const l of lines) await c.query(`INSERT INTO fx_revaluation_lines(tenant_id,revaluation_id,invoice_id,currency,billing_open_minor,carrying_minor,rate,rate_id,revalued_minor,diff_minor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [ctx.tenantId, id, l.invoice_id, l.currency, l.billingOpen, l.carrying, l.rate, l.rateId, l.revalued, l.diff]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "fx.receivables_revalued", "fx_revaluation", id, { invoices: lines.length, net });
+  return { id, as_of: asOf, net_minor: net, lines: lines.length };
+}
+export async function listRevaluations(c: Conn) {
+  return (await c.query<any>(`SELECT v.*, (SELECT count(*) FROM fx_revaluation_lines l WHERE l.revaluation_id=v.id)::int AS lines FROM fx_revaluations v ORDER BY as_of DESC LIMIT 60`)).rows;
+}
+export async function revaluationDetail(c: Conn, id: string) {
+  const v = await must(c.query<any>(`SELECT * FROM fx_revaluations WHERE id=$1`, [recordId(id, "Revaluation")]), "Revaluation");
+  return { run: v, lines: (await c.query<any>(`SELECT l.*, i.no FROM fx_revaluation_lines l JOIN invoices i ON i.id=l.invoice_id WHERE l.revaluation_id=$1 ORDER BY i.no`, [v.id])).rows };
+}
+/** Realised exchange differences on foreign-currency receipts in a period, by currency and in total (positive = gain). Reversed receipts are excluded. */
+export async function realisedReceiptFx(c: Conn, from: string, to: string) {
+  const rows = (await c.query<any>(
+    `SELECT r.id, r.received_at, i.no, i.billing_currency AS currency, r.billing_amount_minor, r.settlement_rate, r.amount_minor AS carrying_minor, r.cash_minor, (r.cash_minor - r.amount_minor) AS gain_minor
+       FROM receipts r JOIN invoices i ON i.id=r.invoice_id WHERE r.cash_minor IS NOT NULL AND r.received_at BETWEEN $1 AND $2
+        AND NOT EXISTS (SELECT 1 FROM receipt_reversals v WHERE v.receipt_id=r.id) ORDER BY r.received_at, i.no`, [from, to])).rows.map((x: any) => ({ ...x, gain_minor: Number(x.gain_minor) }));
+  const by = new Map<string, number>();
+  for (const x of rows) by.set(x.currency, (by.get(x.currency) ?? 0) + x.gain_minor);
+  return { from, to, rows, by_currency: [...by].map(([currency, gain_minor]) => ({ currency, gain_minor })), total_minor: rows.reduce((a: number, x: any) => a + x.gain_minor, 0) };
 }
