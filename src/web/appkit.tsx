@@ -105,7 +105,7 @@ export function appPage(c: C, title: string, body: Child, extra: Partial<Page> =
   ) : null;
   return c.html(
     <AppShell p={p} nav={navFor(c)} tenantName={t.name} roles={ctx.roles}
-      banner={ctx.readOnly ? "Support access: read-only, time-limited, audited under your identity." : t.subStatus === "grace" ? "Payment overdue — your workspace enters read-only mode when the grace period ends." : t.subStatus === "restricted" ? "Workspace is read-only until the subscription is restored. You can still read and export everything." : undefined}
+      banner={t.verification && t.verification !== "verified" ? "Company not verified yet: this workspace is read-only. Open Company verification to finish." : ctx.readOnly ? "Support access: read-only, time-limited, audited under your identity." : t.subStatus === "grace" ? "Payment overdue — your workspace enters read-only mode when the grace period ends." : t.subStatus === "restricted" ? "Workspace is read-only until the subscription is restored. You can still read and export everything." : undefined}
       switcher={switcher}>
       {body}
     </AppShell>,

@@ -12,7 +12,7 @@ import type { ApiPrincipal } from "../ops/delivery-notify.js";
 export type Env = {
   Variables: {
     db: Db; session: Session | null; ctx: Ctx | null; csrf: string; hostSlug: string | null;
-    tenant: { name: string; slug: string; sectors: string[]; plan: string; planCode: string; subStatus: string } | null;
+    tenant: { name: string; slug: string; sectors: string[]; plan: string; planCode: string; subStatus: string; verification?: string } | null;
     memberships: { tenant_id: string; name: string }[];
     apiKey?: ApiPrincipal;
     apiAuth?: Awaited<ReturnType<typeof import('../platform/api.js').apiContext>>;

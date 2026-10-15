@@ -210,6 +210,11 @@ its *billing currency* on the customer details page; invoices then need a curren
 - **Label printing** — *Warehouse → Label printing*: create an agent, add each printer's LAN address, then run `PRINT_SERVER=https://your-host PRINT_TOKEN=lbtp_… node scripts/print-agent.mjs` on a PC on the warehouse network (it only makes outbound HTTPS calls). Jobs are retried three times, then marked failed for a person. Tested against a local socket, not a physical printer.
 - **Account-holder consent for bank feeds** — add the bank's consent and token hosts to `FEED_ALLOWED_HOSTS`, register `PUBLIC_BASE_URL/app/settings/feeds/callback` as the redirect address in the bank's developer portal, then *Connect account* on the feed.
 
+## 9g. Company verification (anti-abuse)
+
+On by default in production (`KYC_REQUIRED`). Registration asks for the owner's mobile number, the trade licence number and issuing authority, and optionally the TRN. Disposable mailboxes are refused; personal mailboxes (gmail, outlook…) are refused unless `KYC_ALLOW_FREE_MAIL=true`. One workspace per licence, TRN, mobile number and mailbox — email aliases (`+tag`, Gmail dots) count as the same mailbox — and a rejected identity stays reserved. A new workspace is **read-only** until the owner confirms the email link and an SMS code and uploads the licence, and platform staff approve it at `/admin/kyc` (look-alike company names, reused email domains and repeated network addresses are shown as risk signals). The SMS needs `SMS_PROVIDER=twilio`; with the default `log` provider no code is delivered, so use Twilio before enabling this in production. Sign-ups are also rate-limited per network address (`KYC_SIGNUPS_PER_IP_PER_DAY`; set `TRUST_PROXY` so the real address is seen). Existing workspaces were marked verified by the migration.
+**Still yours:** checking each licence against the issuing authority's register — software cannot do it; staff review does. This reduces fake and duplicate free accounts; it does not make them impossible (a determined person with a real licence, mobile and mailbox can still register once).
+
 ## 10. Monitoring
 
 See [`MONITORING.md`](MONITORING.md): `/healthz` (liveness), `/readyz` (database + background workers), `/metrics` (Prometheus text, bearer `METRICS_TOKEN`), recommended alerts.
