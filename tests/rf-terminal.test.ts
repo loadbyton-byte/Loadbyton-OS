@@ -8,7 +8,7 @@ import { startRfServer, stripTelnet, vt100Screen } from "../src/rf-server.js";
 let db: Db;
 beforeAll(async () => { db = await freshDb(); });
 async function co() {
-  const t = await newTenant(db, undefined, ["contract-warehouse"]);
+  const t = await newTenant(db, undefined, ["contract-warehouse-3pl"]);
   const slug = (await db.system((c) => c.query<any>(`SELECT slug FROM tenants WHERE id=$1`, [t.tenantId]))).rows[0].slug as string;
   const email = (await db.system((c) => c.query<any>(`SELECT email FROM users WHERE id=$1`, [t.ctx.userId]))).rows[0].email as string;
   return { t, slug, email };

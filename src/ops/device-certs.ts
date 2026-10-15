@@ -48,5 +48,5 @@ export async function certificateCovers(c: Conn, deviceId: string, at: Date): Pr
   return (await c.query(`SELECT 1 FROM device_certificates WHERE device_id=$1 AND status='approved' AND issued_on <= $2::date AND valid_until >= $2::date LIMIT 1`, [deviceId, day])).rows.length > 0;
 }
 export const listCertificates = (c: Conn) => c.query<any>(
-  `SELECT x.*, d.label, d.serial, d.require_certificate, ru.name AS recorded_name, au.name AS approved_name FROM device_certificates x JOIN specialist_devices d ON d.id=x.device_id JOIN users ru ON ru.id=x.recorded_by LEFT JOIN users au ON au.id=x.approved_by ORDER BY x.valid_until DESC LIMIT 300`).then((r) => r.rows);
+  `SELECT x.*, d.label, d.serial, d.require_certificate, ru.name AS recorded_name, au.name AS approved_name FROM device_certificates x JOIN specialist_devices d ON d.id=x.device_id LEFT JOIN team_members ru ON ru.user_id=x.recorded_by LEFT JOIN team_members au ON au.user_id=x.approved_by ORDER BY x.valid_until DESC LIMIT 300`).then((r) => r.rows);
 export const devicesForCertificates = (c: Conn) => c.query<any>(`SELECT id, label, serial, sector, require_certificate FROM specialist_devices WHERE status='active' ORDER BY label`).then((r) => r.rows);
