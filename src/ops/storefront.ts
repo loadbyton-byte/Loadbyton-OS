@@ -1,3 +1,4 @@
+import { mapPulledOrder, parseFieldMap } from "./order-pull.js";
 import crypto from "node:crypto";
 import type { Conn, Db } from "../db/client.js";
 import { rateLimit } from "../adapters/rate-limit.js";
@@ -17,9 +18,10 @@ import { channelUrl } from "./inbound.js";
  * reason (an unknown SKU) is answered so that the platform redelivers it; one refused for a permanent reason is kept and answered normally.
  * Stock levels are not pushed back to the store: that needs the store's own app credentials and is a separate acceptance step.
  */
-export type Platform = "shopify" | "woocommerce";
+export type Platform = "shopify" | "woocommerce" | "noon";
 export const PLATFORMS: Record<Platform, { name: string; signature: string; hint: string }> = {
   shopify: { name: "Shopify", signature: "x-shopify-hmac-sha256", hint: "Settings → Notifications → Webhooks: events Order creation, Order payment and Order cancellation, format JSON; paste the signing secret Shopify shows." },
+  noon: { name: "noon (Fulfilled by Partner, own integrator)", signature: "", hint: "Noon Partner Portal → Fulfilled by Partner warehouse → Configure → Act as your own integrator: enter the webhook address shown here and the API key you chose. Turn on capture, let Noon send a test or real order, then build the field map from the captured sample. Noon's payload is not published where this was written, so no field names are assumed." },
   woocommerce: { name: "WooCommerce", signature: "x-wc-webhook-signature", hint: "WooCommerce → Settings → Advanced → Webhooks: topics Order created and Order updated, status Active; enter your own secret." },
 };
 export const storefrontUrl = (token: string) => channelUrl(token).replace("/webhooks/inbound/", "/webhooks/storefront/");
@@ -33,18 +35,42 @@ async function gate(c: Conn, ctx: Ctx) {
 
 export async function registerStorefront(c: Conn, ctx: Ctx, f: Record<string, any>) {
   await gate(c, ctx);
-  if (!isPlatform(f.platform)) throw badRequest("Choose Shopify or WooCommerce.");
+  if (!isPlatform(f.platform)) throw badRequest("Choose Shopify, WooCommerce or noon.");
   const secret = reqStr(f.secret, "Signing secret", 200);
   if (secret.length < 8) throw badRequest("The signing secret must be at least 8 characters.");
   await must(c.query(`SELECT id FROM parties WHERE id=$1 AND kind='customer'`, [recordId(f.party_id, "Merchant")]), "Merchant");
   const token = randomToken(24);
-  const row = (await c.query<any>(`INSERT INTO storefront_connections(tenant_id,party_id,platform,label,token_hash,secret_enc,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [ctx.tenantId, f.party_id, f.platform, reqStr(f.label, "Name", 80), sha256(token), encryptSecret(secret), ctx.userId]).catch((e) => {
+  let fieldMap: Record<string, any> | null = null, keyHeader: string | null = null, orderPath: string | null = null;
+  const capture = f.platform === "noon" && (f.capture === true || f.capture === "1" || f.capture === "on");
+  if (f.platform === "noon") {
+    keyHeader = String(f.key_header ?? "").trim() || "x-api-key";
+    if (!/^[A-Za-z0-9-]{1,60}$/.test(keyHeader)) throw badRequest("The key header may contain letters, digits and hyphens.");
+    if (secret.length < 16) throw badRequest("The API key must be at least 16 characters.");
+    orderPath = String(f.order_path ?? "").trim() || null;
+    if (orderPath && !/^[A-Za-z0-9_.-]{1,80}$/.test(orderPath)) throw badRequest("The order path is not valid.");
+    // capture-only connections may be saved before the map is known; they ingest nothing until a map is set
+    fieldMap = capture && !f.map_ref ? { capture_only: true } : parseFieldMap(f);
+  }
+  const row = (await c.query<any>(`INSERT INTO storefront_connections(tenant_id,party_id,platform,label,token_hash,secret_enc,created_by,field_map,order_path,key_header,capture) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    [ctx.tenantId, f.party_id, f.platform, reqStr(f.label, "Name", 80), sha256(token), encryptSecret(secret), ctx.userId, fieldMap && JSON.stringify(fieldMap), orderPath, keyHeader, capture]).catch((e) => {
     if (/unique/i.test(String(e.message))) throw badRequest("A connection with that name already exists."); throw e;
   })).rows[0];
   await audit(c, ctx.tenantId, actorOf(ctx), "storefront.registered", "storefront_connection", row.id, { platform: f.platform });
   return { id: row.id as string, url: storefrontUrl(token) };       // shown once
 }
+/** Turn sample capture on or off, and set the field map once the sample has been read. */
+export async function configureNoon(c: Conn, ctx: Ctx, id: string, f: Record<string, any>) {
+  await gate(c, ctx);
+  const cur = await must(c.query<any>(`SELECT platform, status FROM storefront_connections WHERE id=$1 FOR UPDATE`, [recordId(id, "Connection")]), "Connection");
+  if (cur.platform !== "noon" || cur.status === "retired") throw badRequest("Only an active noon connection has a field map.");
+  const capture = f.capture === true || f.capture === "1" || f.capture === "on";
+  const orderPath = String(f.order_path ?? "").trim() || null;
+  if (orderPath && !/^[A-Za-z0-9_.-]{1,80}$/.test(orderPath)) throw badRequest("The order path is not valid.");
+  const map = f.map_ref ? parseFieldMap(f) : null;
+  await c.query(`UPDATE storefront_connections SET capture=$2, order_path=COALESCE($3, order_path), field_map=COALESCE($4::jsonb, field_map) WHERE id=$1`, [id, capture, orderPath, map && JSON.stringify(map)]);
+  await audit(c, ctx.tenantId, actorOf(ctx), "storefront.configured", "storefront_connection", id);
+}
+export const recentSamples = (c: Conn, id: string) => c.query<any>(`SELECT body, received_at FROM storefront_samples WHERE connection_id=$1 ORDER BY id DESC LIMIT 5`, [recordId(id, "Connection")]).then((r) => r.rows);
 export async function setStorefrontStatus(c: Conn, ctx: Ctx, id: string, status: "active" | "paused" | "retired") {
   await gate(c, ctx);
   const cur = await must(c.query<any>(`SELECT status FROM storefront_connections WHERE id=$1 FOR UPDATE`, [recordId(id, "Connection")]), "Connection");
@@ -110,6 +136,17 @@ export function mapWoo(topic: string, p: any): Mapped {
     ship_to_address: [s.address_1, s.address_2, s.state].map((x) => text(x, 150)).filter(Boolean).join(", ").slice(0, 400), ship_to_city: text(s.city, 80), ship_to_country: text(s.country, 2) || "AE", lines } };
 }
 
+/** noon payloads are mapped with the operator's own field map (the same kind the order pulls use). Nothing about noon's field names is assumed. */
+export function mapNoon(payload: any, conn: { field_map: Record<string, any>; order_path: string | null }): Mapped {
+  if (conn.field_map?.capture_only) return { kind: "ignore", why: "Capture only: set the field map to start receiving orders." };
+  const o = conn.order_path ? conn.order_path.split(".").reduce((x: any, k) => (x == null ? undefined : x[k]), payload) : payload;
+  if (!o || typeof o !== "object") return { kind: "invalid", ref: "", reason: "The order was not found at the configured path." };
+  const m = mapPulledOrder(o, conn.field_map);
+  if (m.kind === "skip") return { kind: "ignore", why: "The order status is not one that ships." };
+  if (m.kind === "order") return { kind: "order", ref: m.ref, order: { ...m.order, channel: "noon" } };
+  return m;
+}
+
 // ───────── delivery handling
 const feedCtx = (tenantId: string, userId: string): Ctx => ({ userId, tenantId, roles: ["warehouse"], perms: new Set<Perm>(["read", "wh.write"]), partyId: null, driverId: null, readOnly: false, supportStaffId: null });
 async function serviceUser(db: Db, tenantId: string): Promise<string> {
@@ -125,15 +162,29 @@ export async function handleStorefront(db: Db, token: string, req: HookRequest):
   if (!conn || conn.status === "retired") return { status: 404, body: { error: "not found" } };
   await rateLimit(`storefront:${conn.id}`, 300, 60);
   if (req.raw.length > 1_000_000) return { status: 400, body: { error: "payload too large" } };
-  const given = req.header(PLATFORMS[conn.platform as Platform].signature) ?? "";
-  if (!given || !safeEqual(given, sign(decryptSecret(conn.secret_enc), req.raw))) return { status: 401, body: { error: "invalid signature" } };
+  if (conn.platform === "noon") {
+    const key = decryptSecret(conn.secret_enc), bearer = (req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const given = req.header(conn.key_header) ?? "";
+    if (!((given && safeEqual(given, key)) || (bearer && safeEqual(bearer, key)))) return { status: 401, body: { error: "invalid key" } };
+  } else {
+    const given = req.header(PLATFORMS[conn.platform as Platform].signature) ?? "";
+    if (!given || !safeEqual(given, sign(decryptSecret(conn.secret_enc), req.raw))) return { status: 401, body: { error: "invalid signature" } };
+  }
   // WooCommerce sends a form-encoded ping when a webhook is saved; it is signed like any other delivery
   if (conn.platform === "woocommerce" && /^webhook_id=\d+/.test(req.raw)) return { status: 200, body: { ok: true, ping: true } };
-  const topic = text(conn.platform === "shopify" ? req.header("x-shopify-topic") : req.header("x-wc-webhook-topic"), 60);
+  const topic = conn.platform === "noon" ? "noon" : text(conn.platform === "shopify" ? req.header("x-shopify-topic") : req.header("x-wc-webhook-topic"), 60);
   let payload: any;
   try { payload = JSON.parse(req.raw); } catch { return { status: 400, body: { error: "send JSON" } }; }
   if (conn.status === "paused") return { status: 503, body: { error: "connection paused" } };      // the platform redelivers once resumed
-  const m = conn.platform === "shopify" ? mapShopify(topic, payload) : mapWoo(topic, payload);
+  if (conn.platform === "noon" && conn.capture) {
+    await db.tenant(conn.tenant_id, async (c) => {
+      await c.query(`INSERT INTO storefront_samples(tenant_id,connection_id,body) VALUES ($1,$2,$3)`, [conn.tenant_id, conn.id, req.raw.slice(0, 20000)]);
+      await c.query(`DELETE FROM storefront_samples WHERE connection_id=$1 AND id NOT IN (SELECT id FROM storefront_samples WHERE connection_id=$1 ORDER BY id DESC LIMIT 5)`, [conn.id]);
+      await c.query(`UPDATE storefront_connections SET last_seen=now() WHERE id=$1`, [conn.id]);
+    });
+    return { status: 200, body: { captured: true } };
+  }
+  const m = conn.platform === "shopify" ? mapShopify(topic, payload) : conn.platform === "noon" ? mapNoon(payload, conn) : mapWoo(topic, payload);
   if (m.kind === "ignore") return { status: 200, body: { ignored: m.why } };
   const svc = feedCtx(conn.tenant_id, await serviceUser(db, conn.tenant_id));
   const r = await db.tenant(conn.tenant_id, async (c) => {
