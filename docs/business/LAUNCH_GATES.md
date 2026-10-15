@@ -18,6 +18,7 @@ Do not take paying customers until each gate is ticked with an owner and a date.
 
 ## Commercial
 - [ ] Prices confirmed (current prices are planning hypotheses)
-- [ ] Sector claims on the public site match what is verified; sectors not independently reviewed stay labelled as such
+- [ ] **All 18 sector packs are release-ready.** Each `sector_<slug>` gate in `/admin/readiness` is accepted (qualified review, representative live cases, incident/hold disposition, fee/accounting reconciliation, support ownership). No sector is deferred past the official release; any sector still failing its gate blocks it
+- [ ] Sector claims on the public site match what is verified; until the official release, sectors not independently reviewed stay labelled as such
 - [ ] Support hours and response targets published and staffed
 - [ ] Refund and cancellation policy published

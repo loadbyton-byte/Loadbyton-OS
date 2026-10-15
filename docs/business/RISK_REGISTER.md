@@ -13,6 +13,6 @@ Likelihood and impact are the owner's judgement (L/M/H). Review quarterly.
 | 7 | Credential leak | M | H | sealed secrets, rotation tools, gitleaks | rotation calendar; MFA everywhere |
 | 8 | Regulatory change (e-invoicing, PDPL) | M | M | configurable adapters and retention | adviser check-ins |
 | 9 | Key person dependency | H | H | docs, runbooks, Terraform | second trained technical person; escrow of accounts and keys |
-| 10 | Over-claiming capability (18 sectors) | M | H | readiness gates, honest labels | keep site wording aligned with evidence |
+| 10 | Over-claiming capability (18 sectors) | M | H | readiness gates, honest labels | keep site wording aligned with evidence; official release is blocked until all 18 sector gates are accepted |
 | 11 | Cleartext RF terminal intercepted | L | M | private network only, PIN lockout | VPN; replace with HTTPS handheld web app where hardware allows |
 | 12 | Vendor price or terms change | M | M | portable stack (Postgres, S3 API) | vendor review yearly |

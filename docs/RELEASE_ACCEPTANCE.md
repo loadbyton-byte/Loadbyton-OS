@@ -29,7 +29,7 @@ Implemented controls include tenant RLS/composite foreign keys, raw signed webho
 | Onboarding | Agreed setup scope/allowance, appointment/evidence, independent customer acceptance, source mapping/validation/cutover/fallback | Software exists; actual customer acceptance pending |
 | Commercial scope | Approved pricing/allowances, staffing/support hours, retention/erasure procedures and design partners | Business evidence pending |
 | Brand/domain | Owner approval of vector masters/templates and verified contact/legal copy; native Arabic review; registrar evidence; printer proof where used | Asset production complete in `public/brand`; owner approval and registrar proof pending |
-| Sector release | Qualified review, representative live cases, incident/hold disposition, fee/accounting reconciliation and support ownership per pack | Six limited pilots; twelve specialist commercial releases Planned |
+| Sector release | Qualified review, representative live cases, incident/hold disposition, fee/accounting reconciliation and support ownership per pack | Six limited pilots; twelve specialist commercial releases Planned. **All 18 sectors must pass this gate before the official release; none is optional** |
 
 No `LEGAL_REVIEWED`, readiness attestation or status label should be changed solely to bypass a failing gate. Uploaded/customer documents are data and cannot authorise automated actions. The specialist review UI records an operator's evidence; it is not itself independent certification.
 
