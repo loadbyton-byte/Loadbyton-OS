@@ -15,13 +15,27 @@ export function stripTelnet(buf: Buffer): string {
   return Buffer.from(out).toString("latin1");
 }
 
-export function startRfServer(db: Db, port = config.rf.port, host = config.rf.host, width = config.rf.width) {
+const IAC = 255, WILL = 251, WONT = 252, ECHO = 1;
+/** Full-screen text for VT100/VT220 terminal-emulation clients (the mode vendor RF guns use): clear the screen, home the cursor, then the lines. Rows beyond the screen height are cut from the top. */
+export function vt100Screen(lines: string[], rows: number): string {
+  const shown = lines.slice(-Math.max(2, rows));
+  return `\x1b[2J\x1b[H${shown.join("\r\n")}`;
+}
+
+export function startRfServer(db: Db, port = config.rf.port, host = config.rf.host, width = config.rf.width, mode: "lines" | "vt100" = config.rf.mode, rows = config.rf.rows) {
   let open = 0;
   const server = net.createServer((sock) => {
     if (open >= MAX_CONN) { sock.end("Busy.\r\n"); return; }
     open++; sock.setTimeout(IDLE_MS); sock.setNoDelay(true);
     const session = new RfSession(db, width); let buf = "", busy = false; const queue: string[] = [];
-    const send = (lines: string[]) => sock.write(lines.join("\r\n") + "\r\n");
+    let masked = false;
+    const send = (lines: string[]) => {
+      // a PIN is typed with the client's own echo switched off, so it never shows on the gun's screen
+      const wantMask = session.stage === "pin";
+      if (wantMask && !masked) { sock.write(Buffer.from([IAC, WILL, ECHO])); masked = true; }
+      if (!wantMask && masked) { sock.write(Buffer.from([IAC, WONT, ECHO])); masked = false; }
+      sock.write(mode === "vt100" ? vt100Screen(lines, rows) + "\r\n" : lines.join("\r\n") + "\r\n");
+    };
     send(session.banner());
     const drain = async () => {
       if (busy) return; busy = true;
