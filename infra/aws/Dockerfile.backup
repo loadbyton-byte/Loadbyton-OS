@@ -1,0 +1,5 @@
+# The app image plus the PostgreSQL client tools that `npm run backup` needs (pg_dump) and tar.
+FROM loadbyton:local
+USER root
+RUN apk add --no-cache postgresql-client tar
+USER node

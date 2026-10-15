@@ -10,7 +10,7 @@ const U = "/app/warehouse/rf-pins";
 rfPins.get(U, async (c) => {
   need(c, "settings.manage");
   const csrf = c.get("csrf");
-  const rows = await withT(c, async (cn) => (await cn.query<any>(`SELECT u.id, u.email, u.name, p.set_at, p.locked_until > now() AS locked FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN rf_pins p ON p.user_id=u.id WHERE m.active ORDER BY u.email`)).rows);
+  const rows = await withT(c, async (cn) => (await cn.query<any>(`SELECT t.user_id AS id, t.email, t.name, p.set_at, p.locked_until > now() AS locked FROM team_members t LEFT JOIN rf_pins p ON p.user_id=t.user_id WHERE t.active ORDER BY t.email`)).rows);
   return appPage(c, "RF terminal PINs", <>
     <PageHead title="RF terminal PINs" sub="Handheld guns that use the text terminal sign in with the company code, e-mail and a numeric PIN." />
     <div class="alert warn">The text terminal sends everything unencrypted. Reach it only from your private network or through a VPN. {config.rf.port ? `It is listening on port ${config.rf.port}.` : "It is switched off on this installation (RF_PORT is not set)."}</div>

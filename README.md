@@ -26,12 +26,12 @@ This is a substantial implementation of the blueprint, **not a claim that the en
 ```bash
 npm ci
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
-npm test                    # 170+ tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
+npm test                    # 586 tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty
                             #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (e-commerce) · warehouse@… (3PL manager) · delivery@… (courier owner) · customs@… (customs broker) · rider1@… (rider phone view) — all demo-password-123
 npm run create-staff -- you@example.com "Your Name" '<12+ char password>' commercial_admin   # prints TOTP secret
 CHROME=/usr/bin/chromium npm run e2e   # freight browser walkthrough against port 3000
-npm run e2e:delivery         # Delivery/COD browser walkthrough; use CHROME as above
+# Delivery/COD browser walkthroughs (e2e:delivery, e2e:fulfilment-delivery) are NOT in this checkout: see docs/IMPLEMENTATION_BACKLOG.md
 npm run verify              # database-wide invariants (use after every restore test)
 ```
 

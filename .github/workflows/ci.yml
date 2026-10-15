@@ -1,11 +1,23 @@
 name: ci
 on: [push, pull_request]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  image:
+    # The production image is otherwise only built on the server at deploy time; build it here so a broken Dockerfile
+    # (or a base-image bump) fails review, not the release.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t loadbyton:ci .
+      - name: Image starts its runtime entrypoint
+        run: docker run --rm --entrypoint node loadbyton:ci --import tsx -e "console.log('tsx runtime ok')"
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run typecheck
@@ -28,7 +40,7 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm test -- --maxWorkers=1 --no-file-parallelism
@@ -38,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
@@ -57,7 +69,7 @@ jobs:
           npm run e2e
           npm run e2e:transport
           npm run e2e:experience
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-failure-evidence
