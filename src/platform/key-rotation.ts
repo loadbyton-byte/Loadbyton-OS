@@ -10,14 +10,15 @@ export async function rotateEncryptionKey(db:Db,current:string,previous:string,a
  if(current.length<32||previous.length<32||current===previous)throw new Error('Rotation requires distinct current and previous keys of at least 32 characters');
  return db.system(async c=>{
   // Prevent inserts/refresh/enrollment or claimed invitation payload changes during this maintenance snapshot.
-  await c.query(`LOCK TABLE user_mfa,accounting_connections,outbox,inbound_channels IN SHARE ROW EXCLUSIVE MODE`);
+  await c.query(`LOCK TABLE user_mfa,accounting_connections,outbox,inbound_channels,einvoice_credentials IN SHARE ROW EXCLUSIVE MODE`);
   const targets=[{table:'user_mfa',id:'user_id',value:'secret_encrypted',filter:'true',update:'secret_encrypted=$2'},
    {table:'accounting_connections',id:'tenant_id',value:"config->>'encrypted'",filter:"config ? 'encrypted'",update:"config=jsonb_set(config,'{encrypted}',to_jsonb($2::text))"},
    {table:'outbox',id:'id',value:"payload->>'tokenEncrypted'",filter:"payload ? 'tokenEncrypted'",update:"payload=jsonb_set(payload,'{tokenEncrypted}',to_jsonb($2::text))"},
    {table:'inbound_channels',id:'id',value:'secret_enc',filter:'true',update:'secret_enc=$2'},
-   {table:'inbound_channels',id:'id',value:'verify_token_enc',filter:'verify_token_enc IS NOT NULL',update:'verify_token_enc=$2'}] as const;
+   {table:'inbound_channels',id:'id',value:'verify_token_enc',filter:'verify_token_enc IS NOT NULL',update:'verify_token_enc=$2'},
+   {table:'einvoice_credentials',id:'tenant_id',value:'credentials_enc',filter:'true',update:'credentials_enc=$2'}] as const;
   const counts:Record<string,{examined:number;pending:number;rotated:number}>={};
-  const total=Number((await c.query<any>(`SELECT (SELECT count(*) FROM user_mfa)+(SELECT count(*) FROM accounting_connections WHERE config ? 'encrypted')+(SELECT count(*) FROM outbox WHERE payload ? 'tokenEncrypted')+(SELECT count(*) FROM inbound_channels)*2 n`)).rows[0].n);
+  const total=Number((await c.query<any>(`SELECT (SELECT count(*) FROM user_mfa)+(SELECT count(*) FROM accounting_connections WHERE config ? 'encrypted')+(SELECT count(*) FROM outbox WHERE payload ? 'tokenEncrypted')+(SELECT count(*) FROM inbound_channels)*2+(SELECT count(*) FROM einvoice_credentials) n`)).rows[0].n);
   if(total>10000)throw new Error('Rotation exceeds the bounded maintenance limit; use a reviewed larger-dataset migration');
   for(const target of targets){
    const key=target.table+(target.table==='inbound_channels'?':'+target.value:'');const count=counts[key]={examined:0,pending:0,rotated:0};let cursor:string|null=null;

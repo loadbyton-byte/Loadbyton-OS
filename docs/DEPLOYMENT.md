@@ -154,6 +154,29 @@ Set `EINVOICE_ASP_NAME` (a short label such as `acme-asp`), `EINVOICE_ASP_BASE_U
 key; the provider's answer decides the state, and any answer the mapping does not recognise is recorded as *submitted*, never *accepted*. Choose the provider under *E-invoicing readiness → Settings* (mode *live*).
 **Still yours:** accreditation with the provider, the provider's customization/profile identifiers, validation of the payloads against the official specification, and acceptance of real documents. Until the provider has accepted a document it is not a tax invoice issued through the national system. Mirsal (customs) has no adapter: it needs authorised access and an integration scope from the authority.
 
+## 9a-2. E-invoicing as a paid add-on (per-client provider accounts)
+
+A workspace asks for e-invoicing under *E-invoicing readiness* (package choice) and shows as **Onboarding** at `/admin/einvoice`. After the client has paid, platform staff attach the client's
+provider account there: provider (installed adapters: **Wafeq**, **Aigentrix**), the provider **organisation API key** (`pk_test_…` reaches the provider's Sandbox, `pk_live_…` Live), the client's **taxpayer ID**
+(Wafeq `txpay_…`, which exists only after the client has completed the provider's onboarding and granted your app consent), and the document allowance. Credentials are encrypted at rest with
+`ENCRYPTION_SECRET` (covered by `npm run rotate-encryption-key`), are write-only from the admin screen, and are never shown again. Sandbox testing works while Onboarding; **Live sending needs Active**,
+which records a payment reference. A Live document spends one unit of the allowance; Sandbox never does. Suspending stops sending without deleting anything.
+
+Provider outages never lose a document: it stays *generated*, is retried by the `einvoice` worker after 2, 10, 30, 120 and 360 minutes, then marked *error* for a person. Refused credentials, a missing
+subscription or a validation answer are not retried. Duplicate sending is prevented by the document lock, a stable idempotency key sent to the provider, and unique indexes on live documents and provider references.
+
+Wafeq webhooks: in the Wafeq portal (Developer → Webhooks) add `https://<your-host>/webhooks/einvoice/wafeq`, subscribe to `document.sent`, `document.status`, `document.reported`, `document.received`
+and the `taxpayer.*` events, and set the signing secret as `EINVOICE_WAFEQ_WEBHOOK_SECRET` (Standard Webhooks `whsec_…`; comma-separate two while rotating). Delivery state, FTA reporting state and supplier invoices
+received for a client arrive this way; losing a client's consent (`taxpayer.deleted`) suspends their service.
+**Aigentrix (TronStride).** One organisation API key (Settings → API Keys) serves every client; each client is a *company* in your Aigentrix organisation, and its numeric **company ID** goes in the taxpayer field.
+Sending is two calls (create the draft, then submit it); a retry after a lost response finds and adopts the entry already sent instead of creating another. Before attaching a client:
+1. Add the company in Aigentrix, switch on *Enable E-Invoice* and set its **default environment** to the one you will enter here. Aigentrix cannot be told the environment per request and does not report it, so the two must match. Events carry the real environment, and a mismatch suspends the service.
+2. Create a webhook subscription for the company (`POST /webhookSubscriptions`, url `https://<your-host>/webhooks/einvoice/aigentrix`, events `*`), save the **signing secret** it returns once, and enter it in the admin form. Then call the subscription's `/verify` (the handshake is answered automatically) and `/test`.
+Aigentrix secrets are per subscription, so they live encrypted with the client's credentials rather than in the environment. Credit notes need an FTA reason code: write one of `DL8.61.1.A–E` or `VD` in the credit note's reason, or use plain wording
+(returned, cancelled, error, price change); otherwise the document is rejected before anything is sent. Webhooks are the normal path; a poller asks about documents still waiting after two minutes as a fallback.
+**Still yours:** the commercial agreement with the provider (resale and branding terms), each client's provider onboarding (Wafeq also needs the client's OAuth consent), confirming each provider's status vocabulary in its Sandbox before Live, and the
+package prices (none are set in software). Adapters not written: Marmin. Each is one file implementing `EInvoiceAdapter` plus an entry in `SERVICE_PROVIDERS`.
+
 ## 9b. WhatsApp delivery notices (optional)
 
 `WHATSAPP_PROVIDER=cloud` with `WHATSAPP_ACCESS_TOKEN` (a permanent system-user token), `WHATSAPP_PHONE_NUMBER_ID`, and the names of two templates Meta has approved
