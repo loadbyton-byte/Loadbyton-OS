@@ -1,0 +1,7 @@
+# Extend the default rules. Test files use made-up keys and tokens as fixtures; real secrets never belong in them either, so keep fixtures obviously fake.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixtures in automated tests"
+paths = ['''^tests/''']
