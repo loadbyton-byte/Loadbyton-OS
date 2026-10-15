@@ -12,6 +12,7 @@ import {applyDueSubscriptionChanges} from './billing.js';
 import {postAllLedgers} from '../ops/ledger.js';
 import {pullDueFeeds} from '../ops/live-feeds.js';
 import {processDataMinimisation} from '../ops/privacy-retention.js';
+import {acquireLease,releaseLease} from './worker-lease.js';
 import {pollSubmittedDocuments,processEInvoiceRetries} from '../ops/einvoice-sync.js';
 
 export function startWorkers(db:Db,metrics:RuntimeMetrics) {
@@ -28,10 +29,10 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
  ] as const) {
   const run=()=>{
    if(active.has(name))return;active.add(name);
-   const p=(async()=>{try{await work();metrics.worker(name);markWorker(name,true);}catch{metrics.worker(name,true);markWorker(name,false);console.error(`[worker:${name}] failed`);}finally{active.delete(name);}})();
+   const p=(async()=>{try{if(await acquireLease(db,name,Math.max(30000,interval*3)))await work();   // another instance holds this job: idle is healthymetrics.worker(name);markWorker(name,true);}catch{metrics.worker(name,true);markWorker(name,false);console.error(`[worker:${name}] failed`);}finally{active.delete(name);}})();
    running.add(p);void p.finally(()=>running.delete(p));
   };
   timers.push(setInterval(run,interval));
  }
- return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);};
+ return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','ledger','feeds','einvoice','privacy'].map((n)=>releaseLease(db,n)));};
 }
