@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { config } from "../config.js";
 import { formatDate } from "../lib/util.js";
 import { listParties } from "../ops/crm.js";
+import { ORDER_PROFILES } from "../ops/order-profiles.js";
 import { createOrderPull, listOrderPulls, pullOrders, recentPullEvents, setOrderPullActive } from "../ops/order-pull.js";
 import { act, appPage, need, PageHead, withT } from "./appkit.js";
 import { Badge, Csrf, Table } from "./ui.js";
@@ -27,19 +28,21 @@ orderPulls.get(U, async (c) => {
           <form method="post" action={`${U}/${p.id}/active`}><Csrf t={csrf} /><input type="hidden" name="active" value={p.active ? "0" : "1"} /><button class="btn ghost sm">{p.active ? "Switch off" : "Switch on"}</button></form></div></td></tr>)}</Table>
     {enabled && d.merchants.length ? <form class="card" method="post" action={U}><Csrf t={csrf} /><h2>Add an order pull</h2>
       {field("label", "Name", { required: true })}
+      <div class="field"><label for="profile">Platform profile (fills the settings below; anything you type overrides it)</label><select id="profile" name="profile"><option value="">Generic REST (set every field yourself)</option>{Object.entries(ORDER_PROFILES).map(([k, v]) => <option value={k}>{v.label}</option>)}</select></div>
       <div class="field"><label for="party_id">Merchant</label><select id="party_id" name="party_id">{d.merchants.map((m: any) => <option value={m.id}>{m.name}</option>)}</select></div>
       {field("channel", "Channel name shown on orders", { value: "marketplace" })}{field("url", "Orders address (https)", { type: "url", required: true })}
-      <div class="field"><label for="auth_scheme">Authentication</label><select id="auth_scheme" name="auth_scheme"><option value="bearer">Bearer token</option><option value="header">Named header</option><option value="oauth2_client">OAuth2 client credentials (client_id:client_secret)</option></select></div>
+      <div class="field"><label for="auth_scheme">Authentication</label><select id="auth_scheme" name="auth_scheme"><option value="bearer">Bearer token</option><option value="header">Named header</option><option value="oauth2_client">OAuth2 client credentials (client_id:client_secret)</option><option value="oauth2_refresh">Refresh token (credential as JSON; used by Amazon)</option></select></div>
       {field("auth_header", "Header name (named header)")}{field("token_url", "Token address (OAuth2)", { type: "url" })}{field("secret", "Credential", { type: "password", required: true, autocomplete: "off" })}
       {field("items_path", "Where the list of orders is in the answer (blank = the answer itself)")}{field("since_param", "Date parameter name", { value: "since" })}
       <div class="field"><label for="page_mode">Paging</label><select id="page_mode" name="page_mode"><option value="none">One answer</option><option value="page">Page number</option><option value="cursor">Cursor in the answer</option><option value="link">Link header</option></select></div>
       {field("page_param", "Paging parameter name")}{field("next_path", "Next-cursor field (cursor paging)")}
       <details open><summary>Field names in each order (dots reach into nested fields; commas join several fields)</summary>
-        {field("map_ref", "Order reference", { required: true })}{field("map_name", "Recipient name (e.g. shipping.first_name,shipping.last_name)", { required: true })}{field("map_phone", "Phone")}
-        {field("map_address", "Address (e.g. shipping.line1,shipping.line2)", { required: true })}{field("map_city", "City")}{field("map_country", "Country (2 letters)")}
-        {field("map_lines_path", "Where the order's lines are", { required: true })}{field("map_sku", "SKU inside a line", { required: true })}{field("map_qty", "Quantity inside a line", { required: true })}
+        {field("map_ref", "Order reference")}{field("map_name", "Recipient name (e.g. shipping.first_name,shipping.last_name)")}{field("map_phone", "Phone")}
+        {field("map_address", "Address (e.g. shipping.line1,shipping.line2)")}{field("map_city", "City")}{field("map_country", "Country (2 letters)")}
+        {field("map_lines_path", "Where the order's lines are")}{field("map_sku", "SKU inside a line")}{field("map_qty", "Quantity inside a line")}
         {field("map_status", "Status field")}{field("accept_values", "Statuses that mean 'ship this' (comma list; blank = all)")}{field("cancel_values", "Statuses that mean cancelled (comma list)")}{field("map_time", "Updated-at field (limits later pulls)")}</details>
       <button class="btn">Save pull</button></form> : null}
+    <section class="card"><h2>About the platform profiles</h2>{Object.values(ORDER_PROFILES).map((p) => <p class="small"><strong>{p.label}.</strong> {p.note}</p>)}<p class="small"><strong>Noon.</strong> No profile: Noon's seller order interface is not publicly documented. Use the generic pull if your Noon integration gives you a REST order list, or import orders from CSV.</p></section>
     <section class="card"><h2>Recent results</h2><Table head={["Time", "Pull", "Order", "Result", "Detail"]} empty="Nothing yet.">
       {d.events.map((e: any) => <tr><td class="small">{formatDate(e.created_at)}</td><td>{e.label}</td><td>{e.order_ref}</td><td><Badge s={e.outcome === "rejected" ? "bad" : "ok"} label={e.outcome} /></td><td class="small">{e.reason ?? ""}</td></tr>)}</Table></section>
   </>);

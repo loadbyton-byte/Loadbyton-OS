@@ -111,3 +111,80 @@ describe("order pulls", () => {
     });
   });
 });
+
+describe("marketplace profiles", () => {
+  const magentoOrder = (ref: string, over: Record<string, any> = {}) => ({
+    increment_id: ref, status: "processing", updated_at: "2026-10-05 10:00:00",
+    items: [{ sku: "TEE", qty_ordered: 2, product_type: "configurable" }, { sku: "TEE", qty_ordered: 2, parent_item_id: 11 }],
+    extension_attributes: { shipping_assignments: [{ shipping: { address: { firstname: "Aisha", lastname: "Khan", street: ["Marina Walk 1", "Apt 4"], city: "Dubai", country_id: "AE", telephone: "0501112222" } } }] }, ...over,
+  });
+  it("Magento: sends Magento's searchCriteria, reads nested addresses, counts configurable products once and pages by page number", async () => {
+    await withHosts(async () => {
+      const s = await shop();
+      const id = await s.run((c) => createOrderPull(c, s.t.ctx, { label: "Magento", profile: "magento", party_id: s.merchant, url: "https://shop.example.test/rest/V1/orders", secret: "int-token" }));
+      const urls: string[] = [], auth: string[] = [];
+      const deps = { get: async (u: string, h: Record<string, string>) => { urls.push(u); auth.push(h.authorization); const page = new URL(u).searchParams.get("searchCriteria[currentPage]"); return reply(200, { items: page === "1" ? [magentoOrder("100000001"), magentoOrder("100000002", { status: "closed" }), magentoOrder("100000003", { status: "complete" })] : [], total_count: 3 }); } };
+      const r = await pullOrders(db, s.t.tenantId, id, deps);
+      expect(r).toMatchObject({ added: 1, rejected: 0 });
+      const q = new URL(urls[0]).searchParams;
+      expect(q.get("searchCriteria[filter_groups][0][filters][0][field]")).toBe("updated_at"); expect(q.get("searchCriteria[filter_groups][0][filters][0][condition_type]")).toBe("gt");
+      expect(q.get("searchCriteria[pageSize]")).toBe("100"); expect(q.get("searchCriteria[currentPage]")).toBe("1"); expect(urls).toHaveLength(2);
+      expect(q.get("searchCriteria[filter_groups][0][filters][0][value]")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);        // first pull: last 7 days, in Magento's format
+      expect(Date.now() - Date.parse(q.get("searchCriteria[filter_groups][0][filters][0][value]")!.replace(" ", "T") + "Z")).toBeGreaterThan(6.9 * 86400_000);
+      expect(auth[0]).toBe("Bearer int-token");
+      const o = (await db.query<any>(`SELECT o.external_ref, o.ship_to_name, o.ship_to_address, l.qty FROM fulfil_orders o JOIN fulfil_order_lines l ON l.order_id=o.id WHERE o.tenant_id=$1`, [s.t.tenantId])).rows;
+      expect(o).toEqual([{ external_ref: "100000001", ship_to_name: "Aisha Khan", ship_to_address: "Marina Walk 1, Apt 4", qty: 2 }]);       // the child line was skipped: quantity is 2, not 4
+      // the next pull resumes from the newest order
+      await pullOrders(db, s.t.tenantId, id, deps);
+      expect(new URL(urls[2]).searchParams.get("searchCriteria[filter_groups][0][filters][0][value]")).toBe("2026-10-04 10:00:00");
+    });
+  });
+
+  it("Amazon: signs in with a refresh token, exchanges for a restricted-data token, fetches lines per new order, follows NextToken alone", async () => {
+    await withHosts(async () => {
+      const s = await shop();
+      const prev = config.liveFeeds.allowedHosts; config.liveFeeds.allowedHosts = ["shop.example.test", "api.amazon.test"];
+      try {
+        const id = await s.run((c) => createOrderPull(c, s.t.ctx, { label: "Amazon", profile: "amazon", party_id: s.merchant, url: "https://api.amazon.test/orders/v0/orders", token_url: "https://api.amazon.test/auth/o2/token", exchange_url: "https://api.amazon.test/tokens/2021-03-01/restrictedDataToken", detail_url: "https://api.amazon.test/orders/v0/orders/{ref}/orderItems", secret: JSON.stringify({ client_id: "amzn1.app", client_secret: "cs", refresh_token: "Atzr|abc" }) }));
+        const posts: { url: string; body: string }[] = [], gets: { url: string; token: string }[] = [];
+        const listOrder = (ref: string, over: Record<string, any> = {}) => ({ AmazonOrderId: ref, OrderStatus: "Unshipped", LastUpdateDate: "2026-10-06T08:00:00Z", ShippingAddress: { Name: "Noura Ali", AddressLine1: "Al Wasl 5", City: "Dubai", CountryCode: "AE", Phone: "0509998888" }, ...over });
+        const deps = {
+          post: async (url: string, body: string, h: Record<string, string>) => { posts.push({ url, body }); return url.includes("auth/o2") ? reply(200, { access_token: "LWA-AT", expires_in: 3600 }) : (h["x-amz-access-token"] === "LWA-AT" ? reply(200, { restrictedDataToken: "RDT-1" }) : reply(403, {})); },
+          get: async (url: string, h: Record<string, string>) => {
+            gets.push({ url, token: h["x-amz-access-token"] });
+            if (url.includes("/orderItems")) return reply(200, { payload: { OrderItems: [{ SellerSKU: "TEE", QuantityOrdered: 3 }] } });
+            return new URL(url).searchParams.get("NextToken") ? reply(200, { payload: { Orders: [listOrder("AMZ-2")] } }) : reply(200, { payload: { Orders: [listOrder("AMZ-1"), listOrder("AMZ-9", { OrderStatus: "Shipped" })], NextToken: "NT-1" } });
+          },
+        };
+        const r = await pullOrders(db, s.t.tenantId, id, deps);
+        expect(r).toMatchObject({ added: 2, rejected: 0 });
+        expect(posts[0].body).toContain("grant_type=refresh_token"); expect(posts[0].body).toContain("refresh_token=Atzr%7Cabc");
+        expect(posts[1].url).toContain("restrictedDataToken"); expect(JSON.parse(posts[1].body).restrictedResources[0].dataElements).toContain("shippingAddress");
+        const lists = gets.filter((g) => !g.url.includes("/orderItems"));
+        expect(lists[0].token).toBe("RDT-1");                                                              // the restricted-data token replaces the access token
+        expect(new URL(lists[0].url).searchParams.get("MarketplaceIds")).toBe("A2VIGQ35RCS4UG"); expect(new URL(lists[0].url).searchParams.has("LastUpdatedAfter")).toBe(true);
+        expect([...new URL(lists[1].url).searchParams.keys()]).toEqual(["NextToken"]);                      // NextToken travels alone
+        expect(gets.filter((g) => g.url.includes("/orderItems"))).toHaveLength(2);                          // lines only for the two unshipped orders
+        const o = (await db.query<any>(`SELECT o.external_ref, o.channel, l.qty FROM fulfil_orders o JOIN fulfil_order_lines l ON l.order_id=o.id WHERE o.tenant_id=$1 ORDER BY 1`, [s.t.tenantId])).rows;
+        expect(o).toEqual([{ external_ref: "AMZ-1", channel: "amazon", qty: 3 }, { external_ref: "AMZ-2", channel: "amazon", qty: 3 }]);
+        // already-received orders cost no detail call on the next pull
+        gets.length = 0; await pullOrders(db, s.t.tenantId, id, deps);
+        expect(gets.filter((g) => g.url.includes("/orderItems"))).toHaveLength(0);
+        // a refused exchange (no PII role) is reported plainly
+        const bad = await pullOrders(db, s.t.tenantId, id, { ...deps, post: async (url: string) => (url.includes("auth/o2") ? reply(200, { access_token: "x" }) : reply(403, {})) });
+        expect(bad.error).toMatch(/restricted-data token/);
+        const ref = await pullOrders(db, s.t.tenantId, id, { ...deps, post: async () => reply(400, { error: "invalid_grant" }) });
+        expect(ref.error).toMatch(/refused the refresh token/);
+      } finally { config.liveFeeds.allowedHosts = prev; }
+    });
+  });
+
+  it("an unknown profile is refused and typed settings override a profile", async () => {
+    await withHosts(async () => {
+      const s = await shop();
+      await expect(s.run((c) => createOrderPull(c, s.t.ctx, { label: "x", profile: "noon", party_id: s.merchant, url: "https://shop.example.test/o", secret: "t" }))).rejects.toThrow(/Unknown marketplace profile/);
+      const id = await s.run((c) => createOrderPull(c, s.t.ctx, { label: "m", profile: "magento", party_id: s.merchant, url: "https://shop.example.test/rest/V1/orders", secret: "t", channel: "mystore", accept_values: "processing" }));
+      expect((await db.query<any>(`SELECT channel, profile, field_map FROM order_pulls WHERE id=$1`, [id])).rows[0]).toMatchObject({ channel: "mystore", profile: "magento", field_map: { accept_values: ["processing"] } });
+    });
+  });
+});
