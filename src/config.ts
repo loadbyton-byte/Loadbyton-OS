@@ -86,6 +86,9 @@ export const config = {
     templateLanguage: text("WHATSAPP_TEMPLATE_LANGUAGE") || "en", templateOutForDelivery: text("WHATSAPP_TEMPLATE_OUT_FOR_DELIVERY"), templateAttemptFailed: text("WHATSAPP_TEMPLATE_ATTEMPT_FAILED"),
   },
 
+  // ── RF terminal server for handheld guns (cleartext line protocol: private network or VPN only). Off unless RF_PORT is set.
+  rf: { port: Number(env.RF_PORT ?? 0), host: env.RF_HOST ?? "127.0.0.1", width: Number(env.RF_WIDTH ?? 24) },
+
   // ── live statement feeds (bank / card settlement / fuel card / Salik). A workspace may only point a feed at a host listed here; its credentials are its own.
   liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
 

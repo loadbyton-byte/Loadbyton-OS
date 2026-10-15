@@ -9,6 +9,7 @@ import { must, recordId, reqStr } from "./common.js";
 import { parseCsv } from "./importer.js";
 import { channelUrl, verifyInbound } from "./inbound.js";
 import { recordSpecialistEvent } from "./specialists.js";
+import { certificateCovers } from "./device-certs.js";
 
 /**
  * Temperature-logger feeds for cold-chain cases. Every reading that arrives — signed push or logger CSV — is kept as an immutable raw record with
@@ -129,8 +130,9 @@ export async function ingestReading(c: Conn, device: any, svc: Ctx, r: Reading, 
   if (yard) { if (typeof r.location !== "string" || !r.location.trim() || r.location.length > 100) return insert("rejected", "The yard location is missing or longer than 100 characters.", null, null); }
   else if (gen) { const v = checkGeneric(device.sector, r.data); if (!v.ok) return insert("rejected", v.reason, null, null); }
   else if (typeof r.celsius !== "number" || !Number.isFinite(r.celsius) || r.celsius < -100 || r.celsius > 100) return insert("rejected", "The temperature is missing or outside −100…100 °C.", null, null);
-  const live = (await c.query<any>(`SELECT case_id, bound_at, unbound_at, status FROM specialist_devices WHERE id=$1`, [device.id])).rows[0];
+  const live = (await c.query<any>(`SELECT case_id, bound_at, unbound_at, status, require_certificate FROM specialist_devices WHERE id=$1`, [device.id])).rows[0];
   if (live.status !== "active") return insert("rejected", "The logger is retired.", null, null);
+  if (live.require_certificate && !(await certificateCovers(c, device.id, at))) return insert("rejected", "No approved, in-date certificate covers this device at the time of the reading.", live.case_id, null, true);
   if (!live.case_id) return insert("rejected", "The logger is not bound to a case.", null, null, true);
   if (at.getTime() < new Date(live.bound_at).getTime() - 1000) return insert("rejected", "The reading predates the logger being bound to this case.", live.case_id, null, true);
   if (live.unbound_at && at.getTime() > new Date(live.unbound_at).getTime()) return insert("rejected", "The logger was unbound from the case before this reading.", live.case_id, null);
