@@ -195,6 +195,7 @@ export async function kycDetail(db: Db, tenantId: string) {
   return { t, related: same, events };
 }
 export async function decideKyc(db: Db, staff: { userId: string; role: string }, tenantId: string, decision: "approve" | "reject" | "reopen", note: string) {
+  if (!["commercial_admin", "auditor"].includes(staff.role)) throw new HttpError(403, "Only authorised reviewers can decide company verification.");
   const why = String(note ?? "").trim();
   if (why.length < 5 || why.length > 500) throw badRequest("Give a reason of 5–500 characters.");
   await db.system(async (c) => {
@@ -205,6 +206,14 @@ export async function decideKyc(db: Db, staff: { userId: string; role: string },
     if (decision === "approve" && from !== "in_review") throw badRequest("Only a workspace in review can be approved: email, mobile and licence must all be done first.");
     if (decision === "reject" && !["in_review", "unverified"].includes(from)) throw badRequest("Only a workspace that is not yet verified can be rejected.");
     if (decision === "reopen" && from !== "rejected") throw badRequest("Only a rejected workspace can be reopened.");
+    if (decision === "approve") {
+      const evidence = (await c.query<any>(`SELECT u.email_verified_at, k.phone_verified_at, d.id AS licence
+        FROM tenant_kyc k JOIN users u ON u.id=k.owner_user_id
+        LEFT JOIN documents d ON d.id=k.licence_document_id AND d.tenant_id=k.tenant_id AND NOT d.hold
+        WHERE k.tenant_id=$1`, [tenantId])).rows[0];
+      if (!evidence?.email_verified_at || !evidence.phone_verified_at || !evidence.licence)
+        throw badRequest("Email, mobile and an available trade licence must all be verified before approval.");
+    }
     await c.query(`UPDATE tenants SET verification_status=$2, verification_note=$3, verification_decided_by=$4, verification_decided_at=now() WHERE id=$1`, [tenantId, to, why, staff.userId]);
     await event(c, tenantId, `staff:${staff.userId}`, `decision_${decision}`, { from, to, note: why });
     await audit(c, tenantId, { kind: "platform_staff", userId: staff.userId }, `kyc.${decision}`, "tenant", tenantId, { from, to });

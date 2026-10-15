@@ -192,7 +192,7 @@ export async function pullOrders(db: Db, tenantId: string, id: string, deps: Pul
         // the list does not carry the lines: ask for them, once per new order, and never for orders already received
         const ref = m.ref;
         if ((await c.query(`SELECT 1 FROM fulfil_orders WHERE party_id=$1 AND external_ref=$2`, [f.party_id, ref])).rows.length) continue;
-        if (details >= 100) continue;                                                              // the rest on the next pull
+        if (details >= 100) { out.rejected++; continue; }                                                              // the rest on the next pull
         details++;
         try {
           allowedHost(f.detail_url.replace("{ref}", "x"));
@@ -224,7 +224,7 @@ export async function pullOrders(db: Db, tenantId: string, id: string, deps: Pul
       }
     }
     await c.query(`UPDATE order_pulls SET last_pull_at=now(), last_status=$2, last_error=$3, last_added=$4, cursor=CASE WHEN $5::timestamptz IS NULL THEN cursor ELSE greatest(coalesce(cursor,'epoch'::timestamptz), $5::timestamptz) END WHERE id=$1`,
-      [id, out.rejected ? "attention" : "ok", out.rejected ? `${out.rejected} order(s) need attention; see recent deliveries.` : null, out.added, latest === null ? null : new Date(latest).toISOString()]);
+      [id, out.rejected ? "attention" : "ok", out.rejected ? `${out.rejected} order(s) need attention; see recent deliveries.` : null, out.added, out.rejected || latest === null ? null : new Date(latest).toISOString()]);
   });
   return out;
 }

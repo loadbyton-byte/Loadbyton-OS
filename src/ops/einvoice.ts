@@ -32,8 +32,8 @@ const TAX_CATEGORY: Record<string, { id: string; percent: number; reason?: strin
 export interface Issue { level: "blocker" | "warning"; code: string; message: string }
 
 async function loadParties(c: Conn, invoice: any) {
-  const supplier = await must(c.query<any>(`SELECT * FROM entities WHERE id=$1`, [invoice.entity_id]), "Entity");
-  const buyer = await must(c.query<any>(`SELECT * FROM parties WHERE id=$1`, [invoice.party_id]), "Customer");
+  const supplier = invoice.seller_snapshot;
+  const buyer = invoice.buyer_snapshot;
   return { supplier, buyer };
 }
 
@@ -199,7 +199,7 @@ async function sourceFor(c: Conn, kind: "invoice" | "credit_note", id: string) {
     }
     return { inv, lines, src: { kind, number: inv.no, issuedAt: inv.issued_at, dueAt: inv.due_at, currency: inv.currency, subtotal: Number(inv.subtotal_minor), tax: Number(inv.tax_minor), total: Number(inv.total_minor), lines } as DocSource, entityId: inv.entity_id, partyId: inv.party_id };
   }
-  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no, i.issued_at AS invoice_issued_at, i.billing_currency, i.fx_rate::float8 AS fx_rate FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
+  const n = await must(c.query<any>(`SELECT n.*, i.no AS invoice_no, i.issued_at AS invoice_issued_at, i.billing_currency, i.seller_snapshot, i.buyer_snapshot, i.fx_rate::float8 AS fx_rate FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id WHERE n.id=$1`, [recordId(id, "Credit note")]), "Credit note");
   if (n.status !== "issued") throw badRequest("Only an issued credit note can be sent.");
   const lines = (await c.query<any>(`SELECT * FROM credit_note_lines WHERE credit_note_id=$1 ORDER BY id`, [n.id])).rows;
   if (n.billing_currency) {                    // a credit note against a foreign-currency invoice is presented at that invoice's own rate
@@ -212,14 +212,14 @@ async function sourceFor(c: Conn, kind: "invoice" | "credit_note", id: string) {
 }
 
 export async function previewReadiness(c: Conn, kind: "invoice" | "credit_note", id: string) {
-  const s = await sourceFor(c, kind, id), { supplier, buyer } = await loadParties(c, { entity_id: s.entityId, party_id: s.partyId }), settings = await getSettings(c);
+  const s = await sourceFor(c, kind, id), { supplier, buyer } = await loadParties(c, s.inv), settings = await getSettings(c);
   return { number: s.src.number, issues: checkReadiness(s.inv, supplier, buyer, s.lines, settings) };
 }
 
 export async function generateEInvoice(c: Conn, ctx: Ctx, kind: "invoice" | "credit_note", id: string) {
   require(ctx, "finance.write");
   await assertWritable(c, ctx.tenantId);
-  const s = await sourceFor(c, kind, id), { supplier, buyer } = await loadParties(c, { entity_id: s.entityId, party_id: s.partyId }), settings = await getSettings(c);
+  const s = await sourceFor(c, kind, id), { supplier, buyer } = await loadParties(c, s.inv), settings = await getSettings(c);
   const col = kind === "invoice" ? "invoice_id" : "credit_note_id";
   const existing = (await c.query<any>(`SELECT * FROM einvoice_documents WHERE ${col}=$1 AND status IN ('generated','submitted','accepted')`, [id])).rows[0];
   if (existing && existing.status !== "generated") return existing;
@@ -255,6 +255,7 @@ export const RETRY_MINUTES = [2, 10, 30, 120, 360];
  * the provider gets a stable idempotency reference, and unique indexes allow one live document per invoice and one document per provider reference.
  */
 export async function sendDocument(c: Conn, who: { userId: string; actor: Actor }, tenantId: string, d: any, adapterOverride?: EInvoiceAdapter, fetchImpl?: typeof fetch) {
+  await sourceFor(c, d.kind, d.invoice_id ?? d.credit_note_id);
   let adapter = adapterOverride, route: Route | null = null, sandbox = false;
   if (!adapter) route = await routeFor(c, fetchImpl);
   if (route) { adapter = route.adapter; sandbox = route.environment === "sandbox"; assertAllowance(route); }

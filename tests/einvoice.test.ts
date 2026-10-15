@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { Db } from "../src/db/client.js";
 import { freshDb, newTenant, ctxFor, convertedJob } from "./helpers.js";
-import { invoiceJob } from "../src/ops/finance.js";
+import { invoiceJob, voidInvoice } from "../src/ops/finance.js";
 import { draftCreditNote, issueCreditNote } from "../src/ops/finance-bridge.js";
 import { refreshEInvoice, buildUbl, FORMAT_LABEL, generateEInvoice, getSettings, previewReadiness, saveSettings, submitEInvoice, updateEntityDetails, updatePartyDetails } from "../src/ops/einvoice.js";
 import { PROVIDERS, sandboxAdapter } from "../src/adapters/einvoice.js";
@@ -21,7 +21,7 @@ describe("e-invoice groundwork", () => {
     const t = await newTenant(db);
     const fin = await member(t.tenantId, "finance");
     const j = await convertedJob(db, t, 100000, 60000);
-    const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
+    let inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
     const first = await db.tenant(t.tenantId, (c) => generateEInvoice(c, fin, "invoice", inv.id));
     expect(first.submittable).toBe(false);
     const codes = (first.issues as any[]).filter((i) => i.level === "blocker").map((i) => i.code);
@@ -35,6 +35,8 @@ describe("e-invoice groundwork", () => {
       await updatePartyDetails(c, t.ctx, j.customerId, { tax_id: "100987654321003", address_line: "Warehouse 4, <Jebel Ali>", city: "Dubai", emirate: "Dubai", country: "AE", name_ar: "العميل" });
       await saveSettings(c, t.ctx, { mode: "sandbox", customization_id: "CUSTOM-ID-FROM-PROVIDER", profile_id: "PROFILE-ID-FROM-PROVIDER" });
     });
+    await expect(db.tenant(t.tenantId, (c) => previewReadiness(c, "invoice", inv.id))).resolves.toMatchObject({issues: expect.arrayContaining([expect.objectContaining({code:"supplier_trn"})])});
+    inv = await db.tenant(t.tenantId, async c => { await voidInvoice(c, t.ctx, inv.id, "Correct incomplete identity before reissue"); return invoiceJob(c, t.ctx, j.jobId); });
     await expect(db.tenant(t.tenantId, (c) => updateEntityDetails(c, t.ctx, { tax_id: "123" }))).rejects.toThrow(/15 digits/);
     await expect(db.tenant(t.tenantId, (c) => saveSettings(c, t.ctx, { mode: "live", provider: "no-such-asp" }))).rejects.toThrow(/No adapter is installed/);
     const ready = await db.tenant(t.tenantId, (c) => previewReadiness(c, "invoice", inv.id));
@@ -43,7 +45,7 @@ describe("e-invoice groundwork", () => {
 
     const doc = await db.tenant(t.tenantId, (c) => generateEInvoice(c, fin, "invoice", inv.id));
     expect(doc.submittable).toBe(true); expect(doc.format_label).toBe(FORMAT_LABEL);
-    expect((await db.query<any>(`SELECT status FROM einvoice_documents WHERE id=$1`, [first.id])).rows[0].status).toBe("error");   // the stale payload is superseded
+    expect((await db.query<any>(`SELECT status FROM invoices WHERE id=(SELECT invoice_id FROM einvoice_documents WHERE id=$1)`, [first.id])).rows[0].status).toBe("void"); // corrected identity requires a new invoice
     const xml: string = doc.payload_xml;
     expect(xml).toContain("<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\"");
     expect(xml).toContain(`<cbc:ID>${inv.no}</cbc:ID>`);
@@ -78,13 +80,14 @@ describe("e-invoice groundwork", () => {
   it("live mode needs an installed adapter; the sandbox is refused there and a rejecting provider is recorded", async () => {
     const t = await newTenant(db);
     const j = await convertedJob(db, t, 50000, 30000);
-    const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
+    let inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
     await db.tenant(t.tenantId, async (c) => {
       await c.query(`UPDATE entities SET legal_name='Second Logistics LLC'`);
       await updateEntityDetails(c, t.ctx, { tax_id: "100111222333004", address_line: "x", city: "Dubai", emirate: "Dubai", einvoice_scheme: "S", einvoice_endpoint: "E" });
       await updatePartyDetails(c, t.ctx, j.customerId, { address_line: "y", city: "Dubai", country: "AE" });
       await saveSettings(c, t.ctx, { mode: "sandbox", customization_id: "C", profile_id: "P" });
     });
+    inv = await db.tenant(t.tenantId, async c => { await voidInvoice(c, t.ctx, inv.id, "Correct fixture identity before reissue"); return invoiceJob(c, t.ctx, j.jobId); });
     const doc = await db.tenant(t.tenantId, (c) => generateEInvoice(c, t.ctx, "invoice", inv.id));
     expect(doc.submittable).toBe(true);
     // a provider adapter that rejects
@@ -112,12 +115,13 @@ describe("e-invoice groundwork", () => {
   it("a submitted document is decided later through a status refresh, and a refresh never moves it backwards", async () => {
     const t = await newTenant(db);
     const j = await convertedJob(db, t, 50000, 30000);
-    const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
+    let inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
     await db.tenant(t.tenantId, async (c) => {
       await c.query(`UPDATE entities SET legal_name='Third Logistics LLC'`);
       await updateEntityDetails(c, t.ctx, { tax_id: "100111222333004", address_line: "x", city: "Dubai", emirate: "Dubai", einvoice_scheme: "S", einvoice_endpoint: "E" });
       await updatePartyDetails(c, t.ctx, j.customerId, { address_line: "y", city: "Dubai", country: "AE" });
     });
+    inv = await db.tenant(t.tenantId, async c => { await voidInvoice(c, t.ctx, inv.id, "Correct fixture identity before reissue"); return invoiceJob(c, t.ctx, j.jobId); });
     let answer: "submitted" | "accepted" = "submitted";
     PROVIDERS["slow-asp"] = () => ({ name: "slow-asp", submit: async () => ({ providerRef: "S1", status: "submitted", reasons: [] }), status: async (r) => ({ providerRef: r, status: answer, reasons: [] }) });
     await db.tenant(t.tenantId, (c) => saveSettings(c, t.ctx, { mode: "live", provider: "slow-asp", customization_id: "C", profile_id: "P" }));

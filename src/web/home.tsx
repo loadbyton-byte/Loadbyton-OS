@@ -48,7 +48,7 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
       <div class="film-stage" aria-hidden="true">
         {FILM.map((f, i) => (
           <figure class={`film-scene${i === 0 ? " is-active" : ""}`} data-scene={String(i)}>
-            <img src={f.img} alt="" width="1672" height="941" decoding="async" fetchpriority={i === 0 ? "high" : "low"} loading={i === 0 ? "eager" : "lazy"} style={`object-position:${f.focus}`} />
+            <img src={f.img} srcset={`${f.img.replace(".webp", "-800.webp")} 800w, ${f.img} 1672w`} sizes="100vw" alt="" width="1672" height="941" decoding="async" fetchpriority={i === 0 ? "high" : "low"} loading={i === 0 ? "eager" : "lazy"} style={`object-position:${f.focus}`} />
           </figure>
         ))}
         <div class="film-grade"></div>

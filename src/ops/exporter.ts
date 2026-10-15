@@ -1,4 +1,5 @@
 import type { Conn } from "../db/client.js";
+import { HttpError } from "../lib/util.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx } from "../lib/perms.js";
 import {canReadGeneratedDrafts} from './document-drafts.js';
@@ -6,7 +7,7 @@ import {redactFulfilmentRecipient,redactFields} from '../lib/data-policy.js';
 
 const TABLES = ["parties", "enquiries", "rates", "quotes", "quote_versions", "quote_lines", "jobs", "job_charges", "job_costs",
   "job_milestones", "job_exceptions", "documents", "invoices", "invoice_lines", "receipts",
-  "entities", "branches", "tenant_sectors", "audit_log",
+  "gl_settings", "gl_accounts", "gl_journals", "gl_lines", "gl_manual_entries", "fx_revaluations", "fx_revaluation_lines", "entities", "branches", "tenant_sectors", "audit_log",
   "vehicles", "drivers", "compliance_items",
   "maintenance_blocks", "trips", "transport_orders", "transport_order_charges", "trip_legs", "trip_events",
   "trip_expenses", "trip_expense_receipts", "wh_locations", "skus", "stock_levels", "stock_movements", "inbound_shipments",
@@ -21,7 +22,14 @@ const TABLES = ["parties", "enquiries", "rates", "quotes", "quote_versions", "qu
 export async function exportTenantData(c: Conn, ctx: Ctx) {
   require(ctx, "export");
   const out: Record<string, unknown> = { exported_at: new Date().toISOString(), tenant_id: ctx.tenantId };
-  for (const t of TABLES) {const rows=(await c.query(`SELECT * FROM ${t}`)).rows;out[t]=['generated_documents','document_templates'].includes(t)&&!canReadGeneratedDrafts(ctx)?[]:t==='fulfil_orders'?rows.map(row=>redactFulfilmentRecipient(row,ctx)):rows.map(row=>redactFields(t,row,ctx));}
+  let remaining = 100_000;
+  for (const t of TABLES) {
+    if (['generated_documents','document_templates'].includes(t) && !canReadGeneratedDrafts(ctx)) { out[t] = []; continue; }
+    const rows = (await c.query(`SELECT * FROM ${t} LIMIT $1`, [remaining + 1])).rows;
+    if (rows.length > remaining) throw new HttpError(413, "This export exceeds 100,000 records. Use a reviewed database export for the complete archive; no partial export was returned.");
+    remaining -= rows.length;
+    out[t] = t === 'fulfil_orders' ? rows.map(row => redactFulfilmentRecipient(row,ctx)) : rows.map(row => redactFields(t,row,ctx));
+  }
   await audit(c, ctx.tenantId, actorOf(ctx), "data.exported", "tenant", ctx.tenantId);
   return out;
 }
@@ -33,7 +41,7 @@ const esc = (v: unknown) => {
 };
 export async function invoicesCsv(c: Conn, ctx: Ctx) {
   require(ctx, "export");
-  const r = await c.query<any>(`SELECT i.no, p.name AS customer, i.issued_at, i.due_at, i.currency, i.subtotal_minor, i.tax_minor, i.total_minor, i.paid_minor, i.credited_minor, i.status, i.external_id, i.sync_status
+  const r = await c.query<any>(`SELECT i.no, i.buyer_snapshot->>'name' AS customer, i.issued_at, i.due_at, i.currency, i.subtotal_minor, i.tax_minor, i.total_minor, i.paid_minor, i.credited_minor, i.status, i.external_id, i.sync_status
     FROM invoices i JOIN parties p ON p.id=i.party_id ORDER BY i.issued_at`);
   const head = "invoice_no,customer,issued_at,due_at,currency,subtotal,tax,total,paid,credited,status,external_id,sync_status";
   const rows = r.rows.map((x) => [x.no, x.customer, x.issued_at, x.due_at, x.currency, x.subtotal_minor / 100, x.tax_minor / 100, x.total_minor / 100, x.paid_minor / 100, x.credited_minor / 100, x.status, x.external_id, x.sync_status].map(esc).join(","));

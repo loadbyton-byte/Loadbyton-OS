@@ -1,6 +1,6 @@
 import type { Child } from "hono/jsx";
 import { Icon, SECTION_BLURB, SECTION_ICON, slugOf } from "./experience.js";
-import { B, CONTACT, Lbt, activeOffer, chatStaffed, waLink } from "./brand.js";
+import { B, BrandLockup, CONTACT, Lbt, activeOffer, chatStaffed, waLink } from "./brand.js";
 import { config } from "../config.js";
 import { fmtMoney } from "../lib/util.js";
 import { SECTORS } from "../platform/catalog.js";
@@ -115,16 +115,15 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
         {p.quiet ? null : <OfferBar />}
         <header class={`site-head${p.heroDark && !p.quiet ? " on-dark" : ""}${p.quiet ? " solid" : ""}`}>
           <div class="bar">
-            <a class="brand" href="/" aria-label="LOAD|BY|TON home">
-              <img class="logo-light" src="/brand/lbt-logo-navy.png" alt="LOAD|BY|TON" width="140" height="38" />
-              <img class="logo-dark" src="/brand/lbt-logo-white.png" alt="" width="140" height="38" />
+            <a class="brand" href="/" aria-label="LOAD|BY|TON.store home">
+              <BrandLockup />
             </a>
             <nav class="nav" id="public-navigation" aria-label="Main">
               {PUBLIC_NAV.map(([h, l]) => <a class="l" href={h} aria-current={p.path === h || (h !== "/" && p.path.startsWith(h + "/")) ? "page" : undefined}>{l}</a>)}
             </nav>
             <div class="head-cta">
               <a class="wa-mini" href={waLink()} target="_blank" rel="noopener" aria-label="Chat on WhatsApp"><Icon name="whatsapp" size={20} /></a>
-              {p.user ? <a class="btn red sm" href="/app">Open workspace</a> : (
+              {p.user ? <a class="btn red sm" href="/app" aria-label="Open workspace"><span class="hide-s">Open </span>workspace</a> : (
                 <>
                   <a class="signin" href="/login">Sign in</a>
                   <a class="btn red sm" href="/start">Start free<span class="hide-s"> <Icon name="arrow" size={16} /></span></a>
@@ -143,7 +142,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
           <div class="wrap">
             <div class="foot-grid">
               <div>
-                <a class="foot-logo" href="/" aria-label="LOAD|BY|TON.store home"><img src="/brand/lbt-store-white.png" alt="LOAD|BY|TON.store" width="200" height="46" /></a>
+                <a class="foot-logo" href="/" aria-label="LOAD|BY|TON.store home"><BrandLockup light /></a>
                 <p class="foot-about">Logistics operating software for freight, transport, warehouse, delivery and customs teams. Built in India, priced for the UAE market.</p>
                 <ul class="foot-contact">
                   <li><Icon name="phone" size={18} /><a href={CONTACT.tel}>{CONTACT.phoneDisplay}</a></li>
@@ -202,8 +201,7 @@ function DeskFrame({ p, nav, area, tenantName, roles, banner, switcher, rail, pi
         <div class="desk-frame">
           <header class="topbar no-print">
             <a class="brand" href={home} aria-label={area === "control" ? "LOAD|BY|TON control console" : "LOAD|BY|TON workspace home"}>
-              <img class="logo-light" src="/brand/lbt-logo-navy.png" alt="" width="110" height="30" />
-              <img class="logo-dark" src="/brand/lbt-logo-white.png" alt="" width="110" height="30" />
+              <BrandLockup />
               <span class="os">{area === "control" ? "CONSOLE" : "OS"}</span>
             </a>
             <nav class="primary-pills" aria-label="Primary">

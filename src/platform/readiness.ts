@@ -33,7 +33,7 @@ export const GATES: GateSeed[] = [
   { key: "unit_economics", area: "Business", title: "Unit economics", evidence: "Measured acquisition cost, conversion, retention, support cost and gross margin from real customers, with the calculation method" },
   { key: "support_coverage", area: "Governance", title: "Support coverage and escalation owners", evidence: "Named coverage hours, first-line and escalation owners, tested on-call contact path" },
   { key: "governance_owners", area: "Governance", title: "Security, privacy and change governance owners", evidence: "Named owners for security incidents, privacy requests, change approval and vendor review, with a review calendar" },
-  ...SECTORS.map((x): GateSeed => ({ key: sectorGateKey(x.slug), area: "Sector release", title: `${x.name} release`, blocking: false,
+  ...SECTORS.map((x): GateSeed => ({ key: sectorGateKey(x.slug), area: "Sector release", title: `${x.name} release`, blocking: true,
     evidence: `${x.specialist ? "Qualified subject-matter review of the workflow and controls; " : ""}representative live cases run end to end, incident and hold disposition, fee and accounting reconciliation, and a named support owner for ${x.name}` })),
 ];
 
@@ -107,7 +107,7 @@ export async function gateViews(db: Db, asOf = today()): Promise<GateView[]> {
 }
 export async function readinessSummary(db: Db, asOf = today()) {
   const gates = await gateViews(db, asOf);
-  const ok = (g: GateView) => g.effective === "accepted" || g.effective === "waived";
+  const ok = (g: GateView) => g.effective === "accepted" || (!g.key.startsWith("sector_") && g.effective === "waived");
   const open = gates.filter((g) => !ok(g));
   return { total: gates.length, done: gates.length - open.length, open, blockers: open.filter((g) => g.blocking), ready: !open.some((g) => g.blocking), gates };
 }

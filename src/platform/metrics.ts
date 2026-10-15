@@ -4,14 +4,14 @@ import type { Db } from "../db/client.js";
 const beats = new Map<string, { at: number; ok: boolean }>();
 export const markWorker = (name: string, ok = true, at = Date.now()) => beats.set(name, { at, ok });
 export const resetWorkers = () => beats.clear();
-export const WORKERS = { provisioning: 5_000, outbox: 5_000, subscriptions: 10 * 60_000 } as const;
+export const WORKERS = { provisioning: 5_000, outbox: 5_000, subscriptions: 60_000, storage: 60_000, ledger: 300_000, feeds: 300_000, orders: 300_000, einvoice: 60_000, privacy: 3_600_000 } as const;
 
 /** Healthy when every expected worker ran successfully within 3 × its interval (and has run at least once after the start-up grace). */
 export function workersStatus(expected: Record<string, number> = WORKERS, now = Date.now(), startedAt = processStart, graceMs = 60_000) {
   const stale: string[] = [];
   for (const [name, every] of Object.entries(expected)) {
     const b = beats.get(name);
-    if (!b) { if (now - startedAt > graceMs + 3 * every) stale.push(`${name}: never ran`); continue; }
+    if (!b) { if (now - startedAt > graceMs) stale.push(`${name}: never ran`); continue; }
     if (!b.ok) stale.push(`${name}: last run failed`);
     else if (now - b.at > Math.max(3 * every, 30_000)) stale.push(`${name}: silent for ${Math.round((now - b.at) / 1000)}s`);
   }

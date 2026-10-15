@@ -46,3 +46,8 @@ The 220-test full runs include reviewed count schedules, scoped assistant drafts
 The rotation CLI was rehearsed against an isolated restored database: an authentication-only dry run, atomic apply and a follow-up dry run with zero pending secrets. MFA enrollment/replay counters, provider configuration and invitation delivery status were preserved. The maintenance changes never contacted providers or sent invitations. An isolated worker runtime exercised the registered storage loop with successful counters and zero storage errors; unit/transaction tests cover actual scoped day accrual and concurrent-worker behavior.
 
 Broader work and external acceptance remain explicit in `IMPLEMENTATION_BACKLOG.md` and `RELEASE_ACCEPTANCE.md`; these checks do not establish live merchant eligibility, authoritative document issuance or completion of future expansion modules.
+
+
+## 15 October 2026 — release hardening on bc740b3c
+
+See [RELEASE_HARDENING.md](RELEASE_HARDENING.md) for the reviewed changes, exact verification scope and remaining release limits. The complete embedded suite passed 606 tests across 91 files; four further backup verification checks passed separately. Focused PostgreSQL 16 suites, browser experience and responsive geometry checks, type checking and the application image's startup/readiness checks passed. No GitHub pipeline, production rollout, live-provider acceptance or customer-data recovery is claimed.

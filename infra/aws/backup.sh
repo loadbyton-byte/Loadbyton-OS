@@ -42,7 +42,8 @@ NEW="$(find "$OUT" -name '*.lbt' -newer "$STAMP" -print 2>/dev/null | xargs -r l
 [ -n "$NEW" ] || { echo "No NEW backup file was created by this run (an older one must not be reported as today's backup)."; exit 1; }
 echo "[$(date -u +%FT%TZ)] uploading $(basename "$NEW") ($(du -h "$NEW" | cut -f1)) to R2..."
 aws s3 cp "$NEW" "s3://$R2_BUCKET/$(basename "$NEW")" --endpoint-url "$EP" --only-show-errors
-aws s3 ls "s3://$R2_BUCKET/$(basename "$NEW")" --endpoint-url "$EP" >/dev/null && echo "[$(date -u +%FT%TZ)] backup OK: uploaded and found in R2."
+aws s3 ls "s3://$R2_BUCKET/$(basename "$NEW")" --endpoint-url "$EP" >/dev/null
+echo "[$(date -u +%FT%TZ)] backup OK: uploaded and found in R2."
 find "$OUT" -name '*.lbt' -mtime +3 -delete
 # Optional dead-man's switch: set BACKUP_HEARTBEAT_URL (e.g. a healthchecks.io check) in /etc/loadbyton-backup.env so a missed or failed night alerts someone.
 [ -z "${BACKUP_HEARTBEAT_URL:-}" ] || curl -fsS -m 10 --retry 3 "$BACKUP_HEARTBEAT_URL" >/dev/null || echo "heartbeat ping failed"

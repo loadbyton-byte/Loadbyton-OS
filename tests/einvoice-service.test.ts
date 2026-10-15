@@ -75,12 +75,12 @@ async function staffUser(role = "commercial_admin") {
 /** A workspace with complete data and a generated, submittable e-invoice, ready to send through its provider. */
 async function readyWorkspace() {
   const t = await newTenant(db), j = await convertedJob(db, t, 100000, 60000);
-  const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
   await db.tenant(t.tenantId, async (c) => {
     await updateEntityDetails(c, t.ctx, { tax_id: "100234567890003", address_line: "Office 12", city: "Dubai", emirate: "Dubai", country: "AE" });
     await c.query(`UPDATE entities SET legal_name='Managed Logistics LLC'`);
     await updatePartyDetails(c, t.ctx, j.customerId, { tax_id: "100987654321003", address_line: "Warehouse 4", city: "Dubai", emirate: "Dubai", country: "AE" });
   });
+  const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
   return { t, inv, j };
 }
 const generate = (t: any, invId: string) => db.tenant(t.tenantId, (c) => generateEInvoice(c, t.ctx, "invoice", invId));

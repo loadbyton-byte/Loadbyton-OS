@@ -43,6 +43,15 @@ export async function rfLogin(db: Db, slug: string, email: string, pin: string):
   return { ok: true, ctx: { userId: row.user_id, tenantId: row.tenant_id, roles: row.roles, perms, partyId: null, driverId: null, readOnly: false, supportStaffId: null } };
 }
 
+async function refreshRfContext(c: Conn, previous: Ctx): Promise<Ctx> {
+  const row = (await c.query<any>(`SELECT m.roles, m.party_id, m.driver_id FROM memberships m JOIN tenants t ON t.id=m.tenant_id
+    WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.active AND t.status='active' FOR SHARE OF m`, [previous.tenantId, previous.userId])).rows[0];
+  if (!row) throw new HttpError(403, "Access revoked. Sign in again.");
+  const ctx = {...previous, roles: row.roles, perms: permsFor(row.roles), partyId: row.party_id, driverId: row.driver_id};
+  require(ctx, "read");
+  return ctx;
+}
+
 type Stage = "slug" | "email" | "pin" | "menu" | "look" | "from" | "item" | "qty" | "to" | "confirm";
 /** One handheld's conversation. `feed(line)` returns the lines to show next; `closed` tells the server to hang up. */
 export class RfSession {
@@ -52,6 +61,11 @@ export class RfSession {
   banner() { return this.wrap("LOAD|BY|TON RF\nCompany code:"); }
   private menu() { this.stage = "menu"; return this.wrap("1 Look up\n2 Move stock\n0 Sign out"); }
   async feed(raw: string): Promise<string[]> {
+    if (this.closed) return ["Bye."];
+    if (this.ctx) {
+      try { this.ctx = await this.db.tenant(this.ctx.tenantId, c => refreshRfContext(c, this.ctx!)); }
+      catch { this.closed = true; this.ctx = null; return this.wrap("Access revoked. Sign in again."); }
+    }
     const line = raw.replace(/[\u0000-\u001f\u007f]/g, "").trim();
     if (line.toUpperCase() === "QUIT" && this.stage !== "pin") { this.closed = true; return ["Bye."]; }
     switch (this.stage) {
@@ -69,7 +83,7 @@ export class RfSession {
         return [...this.wrap("Choose 1, 2 or 0."), ...this.menu()];
       case "look": {
         try {
-          const hits = await this.db.tenant(this.ctx!.tenantId, (c) => resolveScan(c, this.ctx!, line));
+          const hits = await this.db.tenant(this.ctx!.tenantId, async (c) => resolveScan(c, await refreshRfContext(c, this.ctx!), line));
           this.stage = "menu";
           return [...(hits.length ? hits.flatMap((h) => this.wrap(h.kind === "location" ? `LOC ${h.code}` : h.kind === "sku" ? `SKU ${h.code} ${h.owner}` : h.kind === "lot" ? `LOT ${h.lot} ${h.sku}` : `${h.kind.toUpperCase()} ${h.no} ${h.status}`)) : this.wrap("Not found.")), ...this.menu()];
         } catch (e) { this.stage = "menu"; return [...this.wrap(msg(e)), ...this.menu()]; }
@@ -82,7 +96,7 @@ export class RfSession {
         if (line.toUpperCase() !== "Y") { this.stage = "menu"; return [...this.wrap("Cancelled."), ...this.menu()]; }
         try {
           const ref = `rf-${this.ctx!.userId.slice(0, 8)}-${Date.now()}`;
-          await this.db.tenant(this.ctx!.tenantId, (c) => rfMove(c, this.ctx!, { ...this.move, client_ref: ref }));
+          await this.db.tenant(this.ctx!.tenantId, async (c) => rfMove(c, await refreshRfContext(c, this.ctx!), { ...this.move, client_ref: ref }));
           this.stage = "menu"; return [...this.wrap("Moved."), ...this.menu()];
         } catch (e) { this.stage = "menu"; return [...this.wrap(msg(e)), ...this.menu()]; }
       }

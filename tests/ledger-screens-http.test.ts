@@ -57,7 +57,12 @@ describe("ledger and statement-feed screens", () => {
     const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     expect(flash((await b.post("/app/finance/ledger/entries", { entry_date: day, memo: "Opening cash", account_1: id("1000"), debit_1: "250", account_2: id("3000"), credit_2: "250" })).headers.get("location"))).toMatch(/proposed/);
     const e = (await db.query<any>(`SELECT id FROM gl_manual_entries WHERE tenant_id=$1`, [t.tenantId])).rows[0].id;
-    expect(flash((await b.post(`/app/finance/ledger/entries/${e}/approve`, {})).headers.get("location"))).toMatch(/approved and posted/);      // the workspace owner may approve
+    expect(flash((await b.post(`/app/finance/ledger/entries/${e}/approve`, {})).headers.get("location"))).toMatch(/someone other/);
+    const reviewerEmail=`ledger-reviewer-${Date.now()}@example.test`;
+    const token=await db.tenant(t.tenantId,c=>invite(c,t.ctx,{email:reviewerEmail,roles:['owner']}));
+    await acceptInvite(db,token,{name:'Independent owner',password:'reviewer-password-123'});
+    const reviewer=new Browser();await reviewer.login(reviewerEmail,'reviewer-password-123');
+    expect(flash((await reviewer.post(`/app/finance/ledger/entries/${e}/approve`, {})).headers.get("location"))).toMatch(/approved and posted/);
     const acct = await b.page(`/app/finance/ledger/accounts/${id("1000")}`);
     expect(acct.status).toBe(200); expect(acct.html).toContain("250.00");
     const j = (await db.query<any>(`SELECT id FROM gl_journals WHERE tenant_id=$1`, [t.tenantId])).rows[0].id;

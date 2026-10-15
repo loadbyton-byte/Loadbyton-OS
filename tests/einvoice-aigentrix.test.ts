@@ -134,13 +134,13 @@ async function staffUser(role = "commercial_admin") {
 let companySeq = 1000;
 async function onboarded(environment = "sandbox") {
   const t = await newTenant(db), j = await convertedJob(db, t, 100000, 60000), staff = await staffUser(), companyId = String(++companySeq);
-  const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
   await db.tenant(t.tenantId, async (c) => {
     await updateEntityDetails(c, t.ctx, { tax_id: "100234567890003", address_line: "Office 12", city: "Dubai", emirate: "Dubai", country: "AE" });
     await c.query(`UPDATE entities SET legal_name='Managed Logistics LLC'`);
     await updatePartyDetails(c, t.ctx, j.customerId, { tax_id: "100987654321003", address_line: "Warehouse 4", city: "Dubai", emirate: "Dubai", country: "AE" });
     await requestActivation(c, t.ctx, "start");
   });
+  const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); return invoiceJob(c, t.ctx, j.jobId); });
   await staffConfigure(db, staff, t.tenantId, { provider: "aigentrix", api_key: KEY, taxpayer_id: companyId, environment, webhook_secret: SECRET });
   return { t, inv, staff, companyId };
 }

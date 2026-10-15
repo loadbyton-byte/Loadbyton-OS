@@ -16,7 +16,7 @@ describe("driver offline shell", () => {
     const text = await sw.text();
     expect(text).toContain("/app/driver/offline");
     expect(text).toMatch(/type === "clear"/);                       // sign-out removes saved pages
-    expect(text).toMatch(/sync\|positions\|sw/);                     // writes are never cached by the worker
+    expect(text).toContain('req.method !== "GET"');                     // writes are never cached by the worker
     const manifest = await app.request("/app/driver/manifest.webmanifest");
     expect(manifest.status).toBe(200);
     expect((await manifest.json()).scope).toBe("/app/driver");

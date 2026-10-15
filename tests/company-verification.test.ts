@@ -137,6 +137,7 @@ describe("the read-only gate and the verification steps", () => {
     await expect(sendPhoneCode(db, r.tenantId)).resolves.toBeUndefined();                                 // allowed, but the workspace stays read-only
     await decideKyc(db, s, r.tenantId, "reopen", "Owner sent a corrected licence by email");
     expect((await kycState(db, r.tenantId))).toMatchObject({ status: "in_review" });
+    await expect(decideKyc(db, s, r.tenantId, "approve", "Attempted bypass after reopen")).rejects.toThrow(/Email, mobile/);
   });
 
   it("keeps verification off for installations that do not require it, and existing workspaces stay open", async () => {

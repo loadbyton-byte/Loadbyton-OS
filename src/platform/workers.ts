@@ -35,6 +35,7 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
    const p=(async()=>{try{if(await acquireLease(db,name,Math.max(30000,interval*3)))await work();metrics.worker(name);markWorker(name,true);}catch{metrics.worker(name,true);markWorker(name,false);console.error(`[worker:${name}] failed`);}finally{active.delete(name);}})();
    running.add(p);void p.finally(()=>running.delete(p));
   };
+  run(); // Readiness must reflect real startup work, including the slow maintenance loops.
   timers.push(setInterval(run,interval));
  }
  return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','ledger','feeds','orders','einvoice','privacy'].map((n)=>releaseLease(db,n)));};

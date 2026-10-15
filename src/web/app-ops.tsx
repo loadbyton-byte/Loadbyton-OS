@@ -230,6 +230,7 @@ ops.get("/app/invoices/:id", async (c) => {
     <PageHead title={`Invoice ${inv.no}`} sub={`${inv.party_name}${inv.job_no ? ` · job ${inv.job_no}` : ""}`}>
       <Badge s={inv.status} />{inv.job_id && !ctx.partyId ? <a class="btn ghost sm" href={J(inv.job_id)}>Open job</a> : null}<a class="btn ghost sm" href={`/app/invoices/${id}?lang=${arabic?"en":"ar"}`}>{arabic?"English":"العربية"}</a><button class="btn ghost sm" data-print="1" type="button">Print</button>
     </PageHead>
+    {inv.identity_snapshot_source === 'legacy_migration' ? <p class="alert warn">Identity details were captured during migration. Check them against the original issued document.</p> : null}
     <div class="print-doc" lang={arabic?"ar":"en"} dir={arabic?"rtl":"ltr"}>
       <h2>{arabic && inv.legal_name_ar ? inv.legal_name_ar : (inv.legal_name ?? inv.entity_name)}</h2>
       <p class="small">{inv.entity_tax_id ? `Tax registration no. ${inv.entity_tax_id} · ` : ""}{label("Invoice","فاتورة")} <strong>{inv.no}</strong> · {label("Issued","تاريخ الإصدار")} {formatDay(inv.issued_at)} · {label("Due","تاريخ الاستحقاق")} {formatDay(inv.due_at)}<br />{label("Bill to","العميل")}: {arabic && inv.party_name_ar ? inv.party_name_ar : inv.party_name}{inv.party_tax_id ? ` · Tax no. ${inv.party_tax_id}` : ""}</p>

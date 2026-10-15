@@ -47,7 +47,6 @@ describe("UAE readiness screens", () => {
     const t = await newTenant(db);
     const email = (await db.query<any>(`SELECT email FROM users WHERE id=$1`, [t.userId])).rows[0].email;
     const j = await convertedJob(db, t, 100000, 60000);
-    const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); await c.query(`UPDATE entities SET legal_name='Screen Logistics LLC'`); return invoiceJob(c, t.ctx, j.jobId); });
     const b = new Browser();
     expect((await b.login(email, "correct horse battery")).status).toBe(302);
     for (const p of ["/app/einvoice", `/app/parties/${j.customerId}/details`]) expect((await b.page(p)).status, p).toBe(200);
@@ -59,6 +58,7 @@ describe("UAE readiness screens", () => {
     expect(flash((await b.post("/app/einvoice/settings", { mode: "live", provider: "unknown-asp" })).headers.get("location"))).toMatch(/No adapter is installed/);
     expect(flash((await b.post("/app/einvoice/settings", { mode: "sandbox", customization_id: "C1", profile_id: "P1" })).headers.get("location"))).toMatch(/Settings saved/);
 
+    const inv = await db.tenant(t.tenantId, async (c) => { await c.query(`UPDATE job_charges SET approved=true WHERE job_id=$1`, [j.jobId]); await c.query(`UPDATE entities SET legal_name='Screen Logistics LLC'`); return invoiceJob(c, t.ctx, j.jobId); });
     const g = await b.post("/app/einvoice/generate", { invoice_id: inv.id });
     expect(flash(g.headers.get("location"))).toMatch(/Document generated/);
     const id = g.headers.get("location")!.split("/").pop()!.split("?")[0];

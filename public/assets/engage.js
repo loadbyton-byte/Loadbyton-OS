@@ -54,7 +54,7 @@
   var day = new Date().toISOString().slice(0, 10), dayKey = "lbt-toasts-" + day;
   var shownDay = +(store.get(dayKey) || 0), shownSession = +(store.sget("lbt-toasts") || 0), dismissed = +(store.sget("lbt-toast-x") || 0), lastAt = 0, elapsed = +(store.sget("lbt-elapsed") || 0), fired = JSON.parse(store.sget("lbt-fired") || "[]");
   var chatOpen = function () { var p = doc.querySelector(".chat-panel.open"); return !!p; };
-  var blocked = function () { return doc.hidden || doc.querySelector("dialog[open]") || chatOpen(); };
+  var blocked = function () { return doc.hidden || doc.querySelector("dialog[open], .site-head.is-open, .toast") || chatOpen() || (doc.activeElement && doc.activeElement.matches("input, textarea, select, [contenteditable=true]")); };
   var money = function () { return ""; };
 
   function show(q) {
@@ -62,8 +62,9 @@
     if (q.id === "page") { o = PAGE[path] || PAGE[Object.keys(PAGE).filter(function (k) { return path.indexOf(k) === 0; })[0]]; if (!o) o = { title: "Built in India, priced for the UAE", text: "Plans are published in AED and export is free on every plan.", href: "/pricing", cta: "See pricing" }; }
     else if (q.needsOffer) { if (!offer) return false; var d = daysLeft(); o = { icon: "gift", title: offer.title || "Onboarding offer", text: (d <= 1 ? "Ends today." : "Ends in " + d + " days (" + offer.label + ").") + " Start this month and we set it up with you.", href: "/start?offer=" + encodeURIComponent(offer.code), cta: "Claim it" }; }
     else o = q;
-    var t = { banner: o.banner, badge: o.badge, title: o.title, text: o.text, href: o.href, cta: o.cta, ext: o.ext, action: o.action, actionLabel: o.actionLabel, icon: o.icon === "gift" ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16v4H4zM6 13h12v8H6zM12 9v12M12 9c-2 0-4-1-4-2.5S9.5 4 12 6c2.5-2 4-.5 4 .5S14 9 12 9z"/></svg>' : undefined, img: o.icon ? undefined : "/brand/lbt-chat-avatar.png", ms: 11000,
+    var t = {  title: o.title, text: o.text, href: o.href, cta: o.cta, ext: o.ext, action: o.action, actionLabel: o.actionLabel, icon: o.icon === "gift" ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16v4H4zM6 13h12v8H6zM12 9v12M12 9c-2 0-4-1-4-2.5S9.5 4 12 6c2.5-2 4-.5 4 .5S14 9 12 9z"/></svg>' : undefined, img: o.icon ? undefined : "/brand/lbt-chat-avatar.png", ms: 11000,
       onClose: function () { dismissed++; store.sset("lbt-toast-x", String(dismissed)); } };
+    if (q.id === "free" || q.needsOffer) { t.image = "/assets/photo/product/onboarding-800.webp"; t.imageAlt = "A logistics team setting up its workspace"; }
     LBT.toast(t); return true;
   }
   function tickQ() {
@@ -86,17 +87,19 @@
     if (popShown || !offer || blocked()) return; popShown = true; store.set(POP_KEY, String(Date.now()));
     var d = doc.createElement("dialog"); d.className = "offer-dialog"; d.setAttribute("aria-labelledby", "offer-h");
     var wa = WA + (WA.indexOf("?") > -1 ? "&" : "?") + "text=" + encodeURIComponent("Hi, I would like the " + offer.code + " offer: " + offer.title);
-    d.innerHTML = '<div class="offer-sheet"><button class="x" type="button" aria-label="Close">×</button>' +
-      '<div class="offer-art"><img class="bg" src="/assets/photo/product/onboarding-800.webp" alt="" width="800" height="450" decoding="async"><img class="ic" src="/brand/lbt-iconmark-crop.png" alt="" width="84" height="84"><div><div class="big">FREE<small>setup</small></div><p>Onboarding call and customer import</p></div></div>' +
+    d.innerHTML = '<div class="offer-sheet"><div class="offer-toolbar"><button class="x" type="button" aria-label="Close offer">×</button></div>' +
+      '<div class="offer-art"><img class="offer-photo" src="/assets/photo/product/onboarding-800.webp" alt="A logistics team setting up its workspace" width="800" height="450" decoding="async"><div><div class="big">FREE<small>setup</small></div><p>Onboarding call and customer import</p></div></div>' +
       '<div class="offer-body"><span class="eyebrow" style="margin:0">LIMITED TIME · ENDS ' + LBT.esc(offer.label.toUpperCase()) + '</span><h2 id="offer-h">' + LBT.esc(offer.title) + '</h2><p>' + LBT.esc(offer.detail) + '</p><div class="cd" data-pcd></div>' +
       '<form data-form><input type="email" name="email" placeholder="Work email" required autocomplete="email" maxlength="254" aria-label="Work email"><input type="text" name="name" placeholder="Your name" required autocomplete="name" maxlength="120" aria-label="Your name"><button class="btn red" type="submit">Claim the offer</button></form>' +
       '<a class="btn wa" href="' + LBT.esc(wa) + '" target="_blank" rel="noopener">Or claim it on WhatsApp</a><p class="fine">We use your details only to arrange the call. One email, no list.</p></div></div>';
-    doc.body.appendChild(d); d.showModal(); var fi = d.querySelector('input'); if (fi) fi.focus();
+    var previousFocus = doc.activeElement;
+    doc.body.appendChild(d); d.showModal();
     var pc = d.querySelector("[data-pcd]"), t = setInterval(function () { var ms = offer ? offer.ends - Date.now() : 0; if (ms <= 0) { pc.textContent = ""; return; } pc.textContent = "Ends in " + Math.floor(ms / 864e5) + "d " + Math.floor(ms % 864e5 / 36e5) + "h " + Math.floor(ms % 36e5 / 6e4) + "m"; }, 1000);
-    var closeIt = function () { clearInterval(t); d.close(); d.remove(); };
+    var closeIt = function () { d.close(); };
+    d.addEventListener("close", function () { clearInterval(t); d.remove(); if (previousFocus && previousFocus.isConnected) previousFocus.focus({ preventScroll: true }); });
     d.querySelector(".x").addEventListener("click", closeIt);
     d.addEventListener("click", function (e) { if (e.target === d) closeIt(); });
-    d.addEventListener("cancel", function () { clearInterval(t); });
+    d.addEventListener("cancel", function (e) { e.preventDefault(); closeIt(); });
     d.querySelector("[data-form]").addEventListener("submit", function (e) {
       e.preventDefault(); var f = e.target, btn = f.querySelector("button"); btn.disabled = true;
       var body = new URLSearchParams({ _csrf: csrf, name: f.name.value, email: f.email.value, company: "", message: "Offer " + offer.code + ": " + offer.title, source: "offer" });

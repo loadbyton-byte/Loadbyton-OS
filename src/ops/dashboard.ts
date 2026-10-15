@@ -8,13 +8,15 @@ import { jobMargin } from "./jobs.js";
  * ("Why this number?"). Costs flagged `estimated` are never presented as reconciled books.
  */
 export async function ownerDashboard(c: Conn, tenantId: string) {
-  const jobs = (await c.query<any>(`SELECT * FROM jobs WHERE status <> 'cancelled'`)).rows;
-  const charges = (await c.query<any>(`SELECT * FROM job_charges`)).rows;
-  const costs = (await c.query<any>(`SELECT * FROM job_costs`)).rows;
-  const invoices = (await c.query<any>(`SELECT * FROM invoices`)).rows;
+  const jobs = (await c.query<any>(`SELECT id FROM jobs WHERE status <> 'cancelled'`)).rows;
+  const charges = (await c.query<any>(`SELECT job_id,qty,unit_minor FROM job_charges`)).rows;
+  const costs = (await c.query<any>(`SELECT job_id,actual_minor,estimated_minor FROM job_costs`)).rows;
+  const invoices = (await c.query<any>(`SELECT i.job_id,i.status,i.subtotal_minor,coalesce((SELECT sum(n.subtotal_minor) FROM credit_notes n WHERE n.invoice_id=i.id AND n.status='issued'),0) AS credited_subtotal_minor FROM invoices i`)).rows;
+  const group = (rows: any[]) => { const byJob = new Map<string, any[]>(); for (const row of rows) { const list=byJob.get(row.job_id) ?? []; list.push(row); byJob.set(row.job_id,list); } return byJob; };
+  const byCharge=group(charges),byCost=group(costs),byInvoice=group(invoices);
   let estSell = 0, estCost = 0, actSell = 0, actCost = 0, accrual = 0, reconciledJobs = 0;
   for (const j of jobs) {
-    const m = jobMargin(charges.filter((x) => x.job_id === j.id), costs.filter((x) => x.job_id === j.id), invoices.filter((x) => x.job_id === j.id), null);
+    const m = jobMargin(byCharge.get(j.id) ?? [], byCost.get(j.id) ?? [], byInvoice.get(j.id) ?? [], null);
     estSell += m.expected.sell; estCost += m.expected.cost; accrual += m.accrualMinor;
     if (m.actual) { actSell += m.actual.sell; actCost += m.actual.cost; reconciledJobs++; }
   }
@@ -40,12 +42,12 @@ export async function ownerDashboard(c: Conn, tenantId: string) {
   const holds = (await c.query<any>(
     `SELECT d.id, d.title, d.job_id, 'on hold' AS why FROM documents d WHERE d.hold
      UNION ALL SELECT NULL, 'Delivered without proof of delivery', j.id, j.no FROM jobs j
-       WHERE j.status IN ('delivered','operationally_complete') AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.job_id=j.id AND d.kind='pod')`)).rows;
+       WHERE j.status IN ('delivered','operationally_complete') AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.job_id=j.id AND d.kind='pod' AND d.status='issued' AND NOT d.hold)`)).rows;
   const capacity = (await c.query<any>(
     `SELECT coalesce(u.name,'Unassigned') AS who, count(*)::int n FROM jobs j LEFT JOIN team_members u ON u.user_id=j.assigned_to
      WHERE j.status IN ('planned','in_transit') GROUP BY 1 ORDER BY 2 DESC`)).rows;
   const conc = (await c.query<any>(
-    `SELECT p.name, sum(i.subtotal_minor) AS n FROM invoices i JOIN parties p ON p.id=i.party_id WHERE i.status<>'void' GROUP BY p.name ORDER BY 2 DESC`)).rows;
+    `SELECT p.name, sum(i.subtotal_minor - coalesce((SELECT sum(cn.subtotal_minor) FROM credit_notes cn WHERE cn.invoice_id=i.id AND cn.status='issued'),0)) AS n FROM invoices i JOIN parties p ON p.id=i.party_id WHERE i.status<>'void' GROUP BY p.id,p.name ORDER BY 2 DESC`)).rows;
   const concTotal = conc.reduce((a, r) => a + Number(r.n), 0);
   const unsynced = (await c.query<any>(`SELECT count(*)::int n FROM invoices WHERE sync_status<>'synced' AND status<>'void'`)).rows[0].n;
   const sub = (await c.query<any>(

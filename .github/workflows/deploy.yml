@@ -8,22 +8,27 @@ on:
 concurrency: { group: deploy-production, cancel-in-progress: false }
 permissions: { id-token: write, contents: read }
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with: { node-version: 22, cache: npm }
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
+  ci:
+    uses: ./.github/workflows/ci.yml
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions: { contents: read, security-events: write }
   deploy:
-    needs: test
+    needs: [ci, security]
     # workflow_dispatch can be started from any branch; production only ever receives main.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Verify required deployment settings
+        env:
+          REGION: ${{ vars.AWS_REGION }}
+          ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          INSTANCE: ${{ vars.AWS_INSTANCE_ID }}
+        run: |
+          test -n "$REGION" || { echo "Set AWS_REGION in production environment settings"; exit 1; }
+          test -n "$ROLE" || { echo "Set AWS_DEPLOY_ROLE_ARN in production environment settings"; exit 1; }
+          test -n "$INSTANCE" || { echo "Set AWS_INSTANCE_ID in production environment settings"; exit 1; }
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}

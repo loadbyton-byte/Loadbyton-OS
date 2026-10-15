@@ -68,7 +68,7 @@ export function accountingHandlers(db: Db, adapter?: AccountingAdapter): OutboxH
     },
     /** Credit notes are created as drafts for the controller to post, like invoices. */
     async "accounting.credit_note"(row) {
-      const n = (await db.query<any>(`SELECT n.*, i.no AS invoice_no, i.external_id AS invoice_external, p.name AS customer FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id JOIN parties p ON p.id=n.party_id WHERE n.id=$1`, [row.payload.creditNoteId])).rows[0];
+      const n = (await db.query<any>(`SELECT n.*, i.no AS invoice_no, i.external_id AS invoice_external, i.buyer_snapshot->>'name' AS customer FROM credit_notes n JOIN invoices i ON i.id=n.invoice_id JOIN parties p ON p.id=n.party_id WHERE n.id=$1`, [row.payload.creditNoteId])).rows[0];
       if (!n) throw new Error("credit note not found");
       if (n.tenant_id !== row.tenant_id) throw new Error("Accounting event tenant mismatch");
       if (n.external_id) { await db.query(`UPDATE credit_notes SET sync_status='synced' WHERE id=$1`, [n.id]); return { externalId: n.external_id }; }
@@ -90,7 +90,7 @@ export function accountingHandlers(db: Db, adapter?: AccountingAdapter): OutboxH
     },
     async "accounting.invoice"(row) {
       const invId = row.payload.invoiceId as string;
-      const inv = (await db.query<any>(`SELECT i.*, p.name AS customer FROM invoices i JOIN parties p ON p.id=i.party_id WHERE i.id=$1`, [invId])).rows[0];
+      const inv = (await db.query<any>(`SELECT i.*, i.buyer_snapshot->>'name' AS customer FROM invoices i JOIN parties p ON p.id=i.party_id WHERE i.id=$1`, [invId])).rows[0];
       if (!inv) throw new Error("invoice not found");
       if(inv.status==='void')throw new Error('Void invoice needs controller reversal review; draft sync was stopped');
       if(inv.tenant_id!==row.tenant_id)throw new Error('Accounting event tenant mismatch');
