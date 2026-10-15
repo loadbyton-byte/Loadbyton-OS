@@ -7,6 +7,7 @@ import { uploadDocument } from "../src/ops/documents.js";
 import { approveSpecialistReview, createSpecialistCase, getSpecialistCase, recordSpecialistEvent, transitionSpecialistCase } from "../src/ops/specialists.js";
 import { bindDevice, caseMonitor, deviceOverview, importLoggerCsv, meanKineticTemp, registerDevice, retireDevice, unbindDevice } from "../src/ops/device-feed.js";
 import { signRelay } from "../src/ops/inbound.js";
+import { approveCertificate, recordCertificate, revokeCertificate, setRequireCertificate } from "../src/ops/device-certs.js";
 import { verifyInvariants } from "../src/platform/invariants.js";
 import { resetThrottle } from "../src/platform/auth.js";
 
@@ -223,3 +224,28 @@ describe("scanner and tracker feeds for aviation, distribution and moving", () =
   });
 });
 
+
+describe("device certificates", () => {
+  const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+  it("needs a second person to approve, and refuses readings of a certificate-required logger until an in-date approved certificate covers them", async () => {
+    const { t, run, p } = await coldCase();
+    const dev = await run((c) => registerDevice(c, t.ctx, { label: "Logger C", serial: "LC-1" }));
+    await run((c) => bindDevice(c, t.ctx, dev.id, p.id, iso(120)));
+    await run((c) => setRequireCertificate(c, t.ctx, dev.id, true));
+    const csv = (id: string) => `time,celsius\n${iso(30)},5\n`;
+    expect(await importLoggerCsv(db, t.ctx, dev.id, csv("1"))).toMatchObject({ ingested: 0, rejected: 1 });
+    const cert = await run((c) => recordCertificate(c, t.ctx, dev.id, { kind: "calibration", certificate_no: "CAL-77", issuer: "Gulf Metrology Lab", accreditation_ref: "ISO17025-123", issued_on: day(-30), valid_until: day(300), evidence_ref: "Binder 4, tab 2" }));
+    await expect(run((c) => recordCertificate(c, t.ctx, dev.id, { kind: "calibration", certificate_no: "CAL-77", issuer: "Gulf Metrology Lab", issued_on: day(-30), valid_until: day(300), evidence_ref: "x" }))).rejects.toThrow(/already recorded/);
+    await expect(run((c) => approveCertificate(c, t.ctx, cert))).rejects.toThrow(/different person/);
+    expect(await importLoggerCsv(db, t.ctx, dev.id, `time,celsius\n${iso(29)},5\n`)).toMatchObject({ ingested: 0 });
+    const other = await newTenant(db);
+    await db.query(`INSERT INTO memberships(tenant_id,user_id,roles) VALUES($1,$2,ARRAY['specialist'])`, [t.tenantId, other.userId]);
+    await run((c) => approveCertificate(c, ctxFor(other.userId, t.tenantId, ["specialist"]), cert));
+    expect(await importLoggerCsv(db, t.ctx, dev.id, `time,celsius\n${iso(28)},5\n`)).toMatchObject({ ingested: 1 });
+    await expect(run((c) => revokeCertificate(c, ctxFor(other.userId, t.tenantId, ["specialist"]), cert, "no"))).rejects.toThrow(/why/);
+    await run((c) => revokeCertificate(c, ctxFor(other.userId, t.tenantId, ["specialist"]), cert, "Lab withdrew the certificate"));
+    expect(await importLoggerCsv(db, t.ctx, dev.id, `time,celsius\n${iso(27)},5\n`)).toMatchObject({ ingested: 0 });
+    await expect(run((c) => recordCertificate(c, t.ctx, dev.id, { kind: "calibration", certificate_no: "C2", issuer: "Lab", issued_on: day(-5), valid_until: day(-5), evidence_ref: "x" }))).rejects.toThrow(/expire after/);
+    expect(await verifyInvariants(db)).toEqual([]);
+  });
+});

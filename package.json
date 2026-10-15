@@ -11,6 +11,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "worker": "tsx src/worker.ts",
+    "rf": "tsx src/rf-server.ts",
     "preflight": "tsx scripts/preflight.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",

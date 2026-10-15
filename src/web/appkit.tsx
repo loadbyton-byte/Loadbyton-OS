@@ -48,9 +48,11 @@ export function navFor(c: C): NavItem[] {
     n.push({href:'/app/warehouse/count-schedules',label:'Count schedules',section:'Warehouse'},{href:'/app/warehouse/returns',label:'Customer returns',section:'Warehouse'},{href:'/app/warehouse/policy',label:'Custody policy',section:'Warehouse'},{href:'/app/warehouse/labels',label:'Labels',section:'Warehouse'},{href:'/app/warehouse/rf',label:'Handheld',section:'Warehouse'});
     n.push({ href: "/app/warehouse/printing", label: "Label printing", section: "Warehouse" });
     if (ctx.perms.has("wh.bill")) n.push({ href: "/app/warehouse/billing", label: "Activity billing", section: "Warehouse" });
+    if (ctx.perms.has("settings.manage")) n.push({ href: "/app/warehouse/rf-pins", label: "RF terminal PINs", section: "Warehouse" });
   }
   for(const s of t?.sectors??[]) if(SPECIALIST_PROFILES[s]) n.push({href:`/app/specialists/${s}`,label:sectorBySlug(s)!.name,section:"Specialist cases"});
   if(t?.sectors.includes('cold-chain')&&ctx.perms.has('specialist.write'))n.push({href:'/app/cold-chain/devices',label:'Temperature loggers',section:'Specialist cases'});
+  if(ctx.perms.has('specialist.write')&&t?.sectors.some(x=>['cold-chain','automotive-logistics','aviation-logistics','distribution','moving-relocation'].includes(x)))n.push({href:'/app/devices/certificates',label:'Device certificates',section:'Specialist cases'});
   if (t?.sectors.includes("courier-last-mile")) {
     const w = (href: string, label: string) => n.push({ href, label, section: "Delivery" });
     w("/app/delivery", "Delivery board"); w("/app/delivery/shipments", "Parcels"); w("/app/delivery/runs", "Runs"); w("/app/delivery/riders", "Riders"); w("/app/delivery/cash", "Cash desk");
