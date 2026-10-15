@@ -17,7 +17,7 @@ const GOOGLE_MAX_POINTS = 25;                 // Routes API: at most 625 element
  * Google Routes API computeRouteMatrix with TRAFFIC_AWARE routing: durations reflect traffic now. Each origin–destination pair is one element in the streamed JSON array.
  * The field mask keeps the answer small and the cost at the basic tier. A pair without a route fails the whole plan: the planner never guesses a leg.
  */
-async function googleMatrix(points: { lat: number; lng: number }[], fetcher: MatrixFetcher): Promise<RoadMatrix> {
+export async function googleMatrix(points: { lat: number; lng: number }[], fetcher: MatrixFetcher): Promise<RoadMatrix> {
   const n = points.length;
   if (n > Math.min(GOOGLE_MAX_POINTS, config.routing.maxPoints)) throw badRequest(`Live-traffic routing is limited to ${Math.min(GOOGLE_MAX_POINTS, config.routing.maxPoints)} points per request.`);
   const wp = (p: { lat: number; lng: number }) => ({ waypoint: { location: { latLng: { latitude: Number(p.lat.toFixed(6)), longitude: Number(p.lng.toFixed(6)) } } } });

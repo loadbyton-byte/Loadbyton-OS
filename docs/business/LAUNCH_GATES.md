@@ -6,7 +6,7 @@ Do not take paying customers until each gate is ticked with an owner and a date.
 - [ ] Hardening checklist complete (security/HARDENING_CHECKLIST.md)
 - [ ] Restore drill passed and recorded; RPO/RTO measured
 - [ ] Monitoring alerts reach a person; incident roles named (security/INCIDENT_RESPONSE.md)
-- [ ] Each live provider tested in its sandbox first: payments, e-mail, SMS, e-invoicing, and any bank, carrier or marketplace connection offered to customers. Connections written from public documentation (DHL Express, Amazon, Magento, Google Routes, open-banking signing) have **not** been run against the live providers from this repository and must be proven in the provider's test environment before they are offered as working.
+- [ ] Each live provider tested in its sandbox first: payments, e-mail, SMS, e-invoicing, and any bank, carrier or marketplace connection offered to customers. Connections written from public documentation (DHL Express, Amazon, Magento, Google Routes, open-banking signing) have **not** been run against the live providers from this repository and must be proven in the provider's test environment before they are offered as working. Use `npm run provider-check -- dhl|google-routes|orders` with sandbox credentials and keep the output as evidence; the noon connector is proven by capturing a real delivery and mapping it.
 - [ ] Load and abuse test at the expected first-year volume
 
 ## Legal and finance
