@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { addAccount, accountLedger, decideManualEntry, enableLedger, journalDetail, ledgerReconciliation, ledgerSettings, listAccounts, listJournals, listManualEntries, postLedgerNow, proposeManualEntry, trialBalance } from "../ops/ledger.js";
+import { addAccount, accountLedger, decideManualEntry, enableLedger, journalDetail, ledgerReconciliation, ledgerSettings, listAccounts, listJournals, listManualEntries, postLedgerNow, proposeManualEntry, revalueReceivables, trialBalance } from "../ops/ledger.js";
 import { today } from "../ops/common.js";
 import { act, appPage, can, need, PageHead, withT } from "./appkit.js";
 import { Badge, Csrf, Money, Table } from "./ui.js";
@@ -25,7 +25,8 @@ ledger.get(U, async (c) => {
   const open = d.entries.filter((e: any) => e.status === "proposed");
   return appPage(c, "General ledger", <>
     <PageHead title="General ledger" sub={`${NOTE} Started ${String(d.settings.start_date).slice(0, 10)}.`}>
-      <form method="post" action={`${U}/post`}><Csrf t={csrf} /><button class="btn sm">Post pending now</button></form></PageHead>
+      <form method="post" action={`${U}/post`}><Csrf t={csrf} /><button class="btn sm">Post pending now</button></form>
+      <form method="post" action={`${U}/revalue`} data-confirm="Revalue open foreign-currency receivables at today's approved rates? The entry reverses itself tomorrow."><Csrf t={csrf} /><button class="btn ghost sm">Revalue receivables</button></form></PageHead>
     {d.rec ? <div class={`alert ${d.rec.ok ? "good" : "warn"}`}>{d.rec.ok ? "The receivable and payable control accounts agree with the sub-ledgers." : <>Sub-ledger check: {d.rec.pending ? `${d.rec.pending} source record(s) are not journalled yet. ` : ""}{d.rec.items.filter((x: any) => x.difference !== 0).map((x: any) => `${x.name}: ledger ${(x.ledger / 100).toFixed(2)} vs sub-ledger ${(x.subledger / 100).toFixed(2)}. `)}</>}</div> : null}
     <h2>Trial balance as of {d.tb.asOf}</h2>
     <Table head={["Account", "Type", ["Debit", "num"], ["Credit", "num"], ["Balance", "num"]]}>
@@ -49,6 +50,7 @@ ledger.get(U, async (c) => {
 });
 ledger.post(`${U}/enable`, async (c) => { const b = await formBody(c); return act(c, U, async () => { await withT(c, (cn, ctx) => enableLedger(cn, ctx, str(b.start_date))); return { to: U, ok: "General ledger enabled." }; }); });
 ledger.post(`${U}/post`, async (c) => act(c, U, async () => { const n = await withT(c, (cn, ctx) => postLedgerNow(cn, ctx)); return { to: U, ok: `${n} journal${n === 1 ? "" : "s"} posted.` }; }));
+ledger.post(`${U}/revalue`, async (c) => act(c, U, async () => { const r = await withT(c, (cn, ctx) => revalueReceivables(cn, ctx)); return { to: U, ok: `${r.lines} invoice(s) revalued; net difference ${(r.net_minor / 100).toFixed(2)}. Post pending to journal it.` }; }));
 ledger.post(`${U}/accounts`, async (c) => { const b = await formBody(c); return act(c, U, async () => { await withT(c, (cn, ctx) => addAccount(cn, ctx, b)); return { to: U, ok: "Account added." }; }); });
 ledger.post(`${U}/entries`, async (c) => {
   const b = await formBody(c);
