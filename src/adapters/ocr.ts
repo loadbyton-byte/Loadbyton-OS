@@ -38,4 +38,24 @@ export function googleVisionOcr(cfg = config.ocr, fetchImpl: Fetch = fetch): Ocr
     },
   };
 }
-export const defaultOcr = (): OcrAdapter | null => (config.ocr.provider === "google-vision" ? googleVisionOcr() : null);
+/**
+ * OCR through a sidecar the installation runs itself (ops/ocr: Tesseract + poppler). The file is POSTed as-is to `/ocr`; the answer is {text,pages}.
+ * Nothing leaves the installation, so no data-processing review flag is needed. Recognised text is a proposal, exactly as with any other OCR source.
+ */
+export function selfHostedOcr(cfg = config.ocr, fetchImpl: Fetch = fetch): OcrAdapter {
+  return {
+    name: "self-hosted",
+    async recognise(buf, mime) {
+      let res: Response;
+      try { res = await fetchImpl(`${cfg.apiBase}/ocr`, { method: "POST", headers: { "content-type": mime }, body: buf as any, signal: AbortSignal.timeout(90_000) }); }
+      catch { throw new Error("The OCR service could not be reached."); }
+      if (res.status === 415) throw new Error("The OCR service does not read this file type.");
+      if (res.status >= 500) throw new Error(`The OCR service is unavailable (${res.status}).`);
+      if (!res.ok) throw new Error(`The OCR service could not read this file (${res.status}).`);
+      const out: any = await res.json().catch(() => ({}));
+      if (typeof out?.text !== "string") throw new Error("The OCR service returned an unexpected answer.");
+      return { text: out.text.trim(), pages: Number(out.pages) || 1 };
+    },
+  };
+}
+export const defaultOcr = (): OcrAdapter | null => (config.ocr.provider === "google-vision" ? googleVisionOcr() : config.ocr.provider === "self-hosted" ? selfHostedOcr() : null);

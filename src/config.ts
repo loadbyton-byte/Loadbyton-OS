@@ -194,7 +194,8 @@ export function validateConfig(c = config, production = isProd) {
   if (c.routing.url && !/^https:\/\/[^\s]+$/.test(c.routing.url)) problems.push("ROUTING_URL must be an https address");
   if (c.geocoder.url && !/^https:\/\/[^\s]+$/.test(c.geocoder.url)) problems.push("GEOCODER_URL must be an https address");
   if (!Number.isInteger(c.liveFeeds.intervalMinutes) || c.liveFeeds.intervalMinutes < 15 || c.liveFeeds.intervalMinutes > 1440) problems.push("FEED_PULL_INTERVAL_MINUTES must be a whole number between 15 and 1440");
-  if (!["none", "google-vision"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none" or "google-vision" (got "${c.ocr.provider}")`);
+  if (!["none", "google-vision", "self-hosted"].includes(c.ocr.provider)) problems.push(`OCR_PROVIDER must be "none", "google-vision" or "self-hosted" (got "${c.ocr.provider}")`);
+  if (c.ocr.provider === "self-hosted" && !/^https?:\/\/[^\s/]+(:\d+)?$/.test(c.ocr.apiBase)) problems.push("OCR_API_BASE must be the sidecar's address (for example http://ocr:8080) when OCR_PROVIDER=self-hosted");
   if (c.ocr.provider === "google-vision") {
     if (!c.ocr.apiKey) problems.push("OCR_API_KEY is required when OCR_PROVIDER=google-vision");
     if (!c.ocr.reviewed) problems.push("OCR sends document content to the provider: set OCR_DATA_PROCESSING_REVIEWED=true once that processing has been reviewed");

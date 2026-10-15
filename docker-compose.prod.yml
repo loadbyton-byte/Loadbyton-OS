@@ -16,6 +16,16 @@ services:
     healthcheck: { test: ["CMD-SHELL", "wget -qO- http://localhost:3000/healthz || exit 1"], interval: 30s, timeout: 5s, retries: 3, start_period: 40s }
     logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
 
+  # Optional self-hosted OCR (Tesseract + poppler): no document content leaves the VM. Enable with OCR_PROVIDER=self-hosted and OCR_API_BASE=http://ocr:8080, then `--profile ocr`.
+  ocr:
+    profiles: ["ocr"]
+    build: ./ops/ocr
+    restart: unless-stopped
+    expose: ["8080"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
   # Outbound-only tunnel to Cloudflare. Create the tunnel in Cloudflare Zero Trust → Networks → Tunnels, add public hostnames
   #   www.YOUR-DOMAIN, app.YOUR-DOMAIN, admin.YOUR-DOMAIN, help.YOUR-DOMAIN and *.YOUR-DOMAIN  →  http://web:3000
   # then put its token in .env as CLOUDFLARE_TUNNEL_TOKEN. Remove this service if you terminate TLS another way.
