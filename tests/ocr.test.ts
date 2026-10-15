@@ -3,7 +3,7 @@ import type { Db } from "../src/db/client.js";
 import { freshDb, newTenant, convertedJob } from "./helpers.js";
 import { uploadDocument } from "../src/ops/documents.js";
 import { extractFromDocument } from "../src/ops/doc-extract.js";
-import { googleVisionOcr, type OcrAdapter } from "../src/adapters/ocr.js";
+import { googleVisionOcr, selfHostedOcr, type OcrAdapter } from "../src/adapters/ocr.js";
 import { config, validateConfig } from "../src/config.js";
 
 let db: Db;
@@ -48,5 +48,24 @@ describe("OCR for scanned documents", () => {
     expect(() => validateConfig({ ...config, ocr: { ...cfg, reviewed: false } } as any, false)).toThrow(/OCR_DATA_PROCESSING_REVIEWED/);
     expect(() => validateConfig({ ...config, ocr: { ...cfg, apiKey: "" } } as any, false)).toThrow(/OCR_API_KEY/);
     expect(() => validateConfig({ ...config, ocr: cfg } as any, false)).not.toThrow();
+  });
+});
+
+describe("self-hosted OCR sidecar", () => {
+  const scfg = { provider: "self-hosted", apiKey: "", apiBase: "http://ocr:8080", maxPages: 5, reviewed: false };
+  it("posts the file as-is to /ocr and returns the sidecar's text, mapping failures to plain messages", async () => {
+    let seen: { url: string; type: string; len: number } | null = null;
+    const mk = (status: number, body: unknown) => selfHostedOcr(scfg, (async (url: string, init: RequestInit) => { seen = { url, type: (init.headers as any)["content-type"], len: (init.body as Buffer).length }; return new Response(JSON.stringify(body), { status }); }) as any);
+    expect(await mk(200, { text: " AWB 176-12345675 \n", pages: 2 }).recognise(Buffer.from("%PDF-1.4 xx"), "application/pdf")).toEqual({ text: "AWB 176-12345675", pages: 2 });
+    expect(seen).toEqual({ url: "http://ocr:8080/ocr", type: "application/pdf", len: 11 });
+    await expect(mk(415, {}).recognise(Buffer.from("x"), "image/png")).rejects.toThrow(/file type/);
+    await expect(mk(503, {}).recognise(Buffer.from("x"), "image/png")).rejects.toThrow(/unavailable/);
+    await expect(mk(422, {}).recognise(Buffer.from("x"), "image/png")).rejects.toThrow(/could not read/);
+    await expect(mk(200, { nope: 1 }).recognise(Buffer.from("x"), "image/png")).rejects.toThrow(/unexpected answer/);
+    await expect(selfHostedOcr(scfg, (async () => { throw new Error("ECONNREFUSED"); }) as any).recognise(Buffer.from("x"), "image/png")).rejects.toThrow(/could not be reached/);
+  });
+  it("is accepted by configuration without the third-party review flag, but needs a sidecar address", () => {
+    expect(() => validateConfig({ ...config, ocr: scfg } as any, false)).not.toThrow();
+    expect(() => validateConfig({ ...config, ocr: { ...scfg, apiBase: "ocr:8080" } } as any, false)).toThrow(/OCR_API_BASE/);
   });
 });
