@@ -2,7 +2,8 @@ import type { Conn, Db } from "../db/client.js";
 import { config } from "../config.js";
 import { audit } from "../lib/audit.js";
 import { actorOf, require, type Ctx, type Perm } from "../lib/perms.js";
-import { getJson, validateWebhookUrl, type PostOptions, type PostResult } from "../lib/safe-http.js";
+import { getJson, postJson, validateWebhookUrl, type PostOptions, type PostResult } from "../lib/safe-http.js";
+import { parseCsv } from "./importer.js";
 import { seal, unseal } from "../lib/seal.js";
 import { badRequest } from "../lib/util.js";
 import { assertWritable } from "../platform/entitlements.js";
@@ -40,7 +41,20 @@ export async function createFeedConnection(c: Conn, ctx: Ctx, f: Record<string, 
   if (!["bank", "fuel", "salik"].includes(kind)) throw badRequest("Choose bank or card settlement, fuel card or Salik.");
   try { allowedHost(String(f.url ?? "")); } catch (e: any) { throw badRequest(e.message); }
   const scheme = String(f.auth_scheme ?? "bearer");
-  if (!["bearer", "header"].includes(scheme)) throw badRequest("Authentication is a bearer token or a named header.");
+  if (!["bearer", "header", "oauth2_client"].includes(scheme)) throw badRequest("Authentication is a bearer token, a named header or OAuth2 client credentials.");
+  let tokenUrl: string | null = null;
+  if (scheme === "oauth2_client") {
+    try { tokenUrl = allowedHost(String(f.token_url ?? "")).toString(); } catch (e: any) { throw badRequest(`Token address: ${e.message}`); }
+    if (!/^[^:\s]{1,200}:.{1,400}$/.test(String(f.secret ?? ""))) throw badRequest("For OAuth2 the credential is entered as client_id:client_secret.");
+  }
+  const format = f.response_format === "csv" ? "csv" : "json";
+  const pageMode = ["none", "cursor", "page", "link"].includes(String(f.page_mode)) ? String(f.page_mode) : "none";
+  const pageParam = String(f.page_param ?? "").trim() || (pageMode === "page" ? "page" : pageMode === "cursor" ? "cursor" : "");
+  const nextPath = String(f.next_path ?? "").trim();
+  if ((pageParam && !/^[A-Za-z0-9_.-]{1,40}$/.test(pageParam)) || (nextPath && !/^[A-Za-z0-9_.-]{1,80}$/.test(nextPath))) throw badRequest("The paging field names may contain letters, digits, dots, hyphens and underscores.");
+  if (pageMode === "cursor" && !nextPath) throw badRequest("Cursor paging needs the field that holds the next cursor.");
+  if (pageMode !== "none" && format === "csv" && pageMode !== "page") throw badRequest("A CSV answer can be paged by page number only.");
+  const maxPages = Math.min(50, Math.max(1, Number(f.max_pages ?? 10) || 10));
   const header = scheme === "header" ? reqStr(f.auth_header, "Header name", 60) : null;
   if (header && !/^[A-Za-z0-9-]{1,60}$/.test(header)) throw badRequest("The header name may contain letters, digits and hyphens.");
   const secret = reqStr(f.secret, "Credential", 2000);
@@ -51,8 +65,9 @@ export async function createFeedConnection(c: Conn, ctx: Ctx, f: Record<string, 
   const since = String(f.since_param ?? "since").trim() || "since";
   if (!/^[A-Za-z0-9_.-]{1,40}$/.test(since)) throw badRequest("The date parameter name is not valid.");
   const row = (await c.query<any>(
-    `INSERT INTO feed_connections(tenant_id,kind,label,url,auth_scheme,auth_header,secret_sealed,items_path,since_param,field_map,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-    [ctx.tenantId, kind, reqStr(f.label, "Name", 80), String(f.url).trim(), scheme, header, seal(secret), String(f.items_path ?? "").trim().slice(0, 80), since, JSON.stringify(map), ctx.userId]).catch((e) => {
+    `INSERT INTO feed_connections(tenant_id,kind,label,url,auth_scheme,auth_header,secret_sealed,items_path,since_param,field_map,created_by,token_url,token_scope,response_format,page_mode,page_param,next_path,max_pages) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+    [ctx.tenantId, kind, reqStr(f.label, "Name", 80), String(f.url).trim(), scheme, header, seal(secret), String(f.items_path ?? "").trim().slice(0, 80), since, JSON.stringify(map), ctx.userId,
+      tokenUrl, String(f.token_scope ?? "").trim().slice(0, 200) || null, format, pageMode, pageParam || null, nextPath || null, maxPages]).catch((e) => {
       if (/unique/i.test(String(e.message))) throw badRequest("A feed with that name already exists."); throw e;
     })).rows[0];
   await audit(c, ctx.tenantId, actorOf(ctx), "feed.created", "feed_connection", row.id, { kind });
@@ -90,7 +105,7 @@ export function toCsv(kind: FeedKind, items: unknown[], map: FeedMap): { csv: st
   return { csv: out.join("\n"), ids, latest, skipped };
 }
 
-export interface PullDeps { get?: (url: string, headers: Record<string, string>, o?: PostOptions) => Promise<PostResult>; postOptions?: PostOptions }
+export interface PullDeps { get?: (url: string, headers: Record<string, string>, o?: PostOptions) => Promise<PostResult>; post?: (url: string, body: string, headers: Record<string, string>, o?: PostOptions) => Promise<PostResult>; postOptions?: PostOptions }
 const SERVICE_PERMS: Perm[] = ["read", "dlv.cash", "transport.expense"];
 async function serviceCtx(db: Db, tenantId: string): Promise<Ctx> {
   const email = `feed-puller-${tenantId}@service.invalid`;
@@ -98,25 +113,67 @@ async function serviceCtx(db: Db, tenantId: string): Promise<Ctx> {
   return { userId: id, tenantId, roles: ["service"], perms: new Set<Perm>(SERVICE_PERMS), partyId: null, driverId: null, readOnly: false, supportStaffId: null };
 }
 
+/** Header(s) that authenticate a pull. OAuth2 client credentials exchange the sealed id:secret for a short-lived token on every pull; nothing is cached. */
+async function authHeaders(f: any, deps: PullDeps): Promise<Record<string, string>> {
+  const secret = unseal(f.secret_sealed);
+  if (f.auth_scheme === "bearer") return { authorization: `Bearer ${secret}` };
+  if (f.auth_scheme === "header") return { [f.auth_header]: secret };
+  allowedHost(f.token_url);
+  const i = secret.indexOf(":"), id = secret.slice(0, i), sec = secret.slice(i + 1);
+  const form = new URLSearchParams({ grant_type: "client_credentials", ...(f.token_scope ? { scope: f.token_scope } : {}) }).toString();
+  const res = await (deps.post ?? postJson)(f.token_url, form, { authorization: `Basic ${Buffer.from(`${id}:${sec}`).toString("base64")}`, accept: "application/json" }, { ...deps.postOptions, contentType: "application/x-www-form-urlencoded" });
+  if (res.status === 400 || res.status === 401 || res.status === 403) throw Object.assign(new Error("refused"), { permanentMessage: "The provider refused the client credentials." });
+  if (res.status < 200 || res.status >= 300) throw new Error(`token request answered HTTP ${res.status}`);
+  let token = "";
+  try { token = String(JSON.parse(res.body).access_token ?? ""); } catch { /* handled below */ }
+  if (!token) throw Object.assign(new Error("no token"), { permanentMessage: "The provider's sign-in answer had no access token." });
+  return { authorization: `Bearer ${token}` };
+}
+/** One page of an answer: its rows, and where the next page is (a cursor in the body, or a rel="next" Link header). */
+function parsePage(f: any, res: PostResult): { items: unknown[]; cursor?: string; link?: string } {
+  if (f.response_format === "csv") {
+    const rows = parseCsv(res.body).filter((r) => r.some((x) => x.trim()));
+    if (rows.length < 2) return { items: [] };
+    const head = rows[0].map((h) => h.trim());
+    return { items: rows.slice(1).map((r) => Object.fromEntries(head.map((h, i) => [h, (r[i] ?? "").trim()]))) };
+  }
+  let body: any;
+  try { body = JSON.parse(res.body); } catch { throw Object.assign(new Error("not JSON"), { permanentMessage: "The provider's answer was not the expected list of transactions." }); }
+  const list = f.items_path ? pick(body, f.items_path) : body;
+  if (!Array.isArray(list)) throw Object.assign(new Error("not a list"), { permanentMessage: "The provider's answer was not the expected list of transactions." });
+  const cursor = f.next_path ? pick(body, f.next_path) : undefined;
+  const link = String(Array.isArray(res.headers?.link) ? res.headers!.link.join(",") : res.headers?.link ?? "").match(/<([^>]+)>\s*;\s*rel="?next"?/i)?.[1];
+  return { items: list, cursor: cursor ? String(cursor) : undefined, link };
+}
+
 /** One pull of one feed. Failures are recorded on the connection (and returned), never thrown past the scheduler. */
 export async function pullFeed(db: Db, tenantId: string, id: string, deps: PullDeps = {}): Promise<{ added: number; skipped: string[]; error?: string }> {
   const fail = async (msg: string) => { await db.tenant(tenantId, (c) => c.query(`UPDATE feed_connections SET last_pull_at=now(), last_status='error', last_error=$2 WHERE id=$1`, [id, msg.slice(0, 300)])); return { added: 0, skipped: [], error: msg }; };
   const f = (await db.tenant(tenantId, (c) => c.query<any>(`SELECT * FROM feed_connections WHERE id=$1 AND active`, [id]))).rows[0];
   if (!f) return { added: 0, skipped: [], error: "Feed not found or switched off." };
-  let res: PostResult;
+  let items: unknown[] = [];
   try {
     allowedHost(f.url);                                                                          // the allow-list is re-checked on every pull, not only at set-up
-    const u = new URL(f.url);
-    if (f.cursor) { const from = new Date(f.cursor); from.setUTCDate(from.getUTCDate() - 3); u.searchParams.set(f.since_param, from.toISOString().slice(0, 10)); }   // a small overlap; remembered ids make it harmless
-    const secret = unseal(f.secret_sealed);
-    const headers: Record<string, string> = f.auth_scheme === "bearer" ? { authorization: `Bearer ${secret}` } : { [f.auth_header]: secret };
-    res = await (deps.get ?? getJson)(u.toString(), headers, deps.postOptions);
-  } catch (e: any) { return fail(`The provider could not be reached: ${e.message}`); }
-  if (res.status === 401 || res.status === 403) return fail("The provider refused the credential.");
-  if (res.status < 200 || res.status >= 300) return fail(`The provider answered HTTP ${res.status}.`);
-  let items: unknown[];
-  try { const body = JSON.parse(res.body); const list = f.items_path ? pick(body, f.items_path) : body; if (!Array.isArray(list)) throw new Error("not a list"); items = list; }
-  catch { return fail("The provider's answer was not the expected list of transactions."); }
+    const u0 = new URL(f.url);
+    if (f.cursor) { const from = new Date(f.cursor); from.setUTCDate(from.getUTCDate() - 3); u0.searchParams.set(f.since_param, from.toISOString().slice(0, 10)); }   // a small overlap; remembered ids make it harmless
+    const get = deps.get ?? getJson;
+    const headers = await authHeaders(f, deps);
+    let next: URL | null = u0, page = 1;
+    for (let n = 0; next && n < f.max_pages; n++) {
+      allowedHost(next.toString());                                                              // a paged "next" address is checked like the first
+      const res = await get(next.toString(), headers, deps.postOptions);
+      if (res.status === 401 || res.status === 403) return fail("The provider refused the credential.");
+      if (res.status < 200 || res.status >= 300) return fail(`The provider answered HTTP ${res.status}.`);
+      const got = parsePage(f, res);
+      items.push(...got.items);
+      if (items.length > 2000) break;
+      next = null;
+      if (!got.items.length) break;
+      if (f.page_mode === "page") { page++; next = new URL(u0); next.searchParams.set(f.page_param || "page", String(page)); }
+      else if (f.page_mode === "cursor" && got.cursor) { next = new URL(u0); next.searchParams.set(f.page_param || "cursor", got.cursor); }
+      else if (f.page_mode === "link" && got.link) next = new URL(got.link, u0);
+    }
+  } catch (e: any) { return fail(e.permanentMessage ?? `The provider could not be reached or answered unexpectedly: ${e.message}`); }
   if (items.length > 2000) return fail("The provider returned more than 2,000 transactions; narrow the window or lower the pull interval.");
   const seen = new Set((await db.tenant(tenantId, (c) => c.query<any>(`SELECT external_id FROM feed_seen WHERE connection_id=$1`, [id]))).rows.map((r: any) => r.external_id));
   const fresh = toCsv(f.kind, items.filter((_, i) => { const idv = String(pick(items[i], String(f.field_map?.id ?? "id")) ?? "").trim(); return idv && !seen.has(idv); }), f.field_map);

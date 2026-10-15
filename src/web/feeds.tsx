@@ -26,9 +26,13 @@ feeds.get(U, async (c) => {
       {field("label", "Name", { required: true })}
       <div class="field"><label for="kind">Kind</label><select id="kind" name="kind"><option value="bank">Bank or card settlement</option><option value="fuel">Fuel card</option><option value="salik">Salik</option></select></div>
       {field("url", "Provider address (https)", { type: "url", required: true })}
-      <div class="field"><label for="auth_scheme">Authentication</label><select id="auth_scheme" name="auth_scheme"><option value="bearer">Bearer token</option><option value="header">Named header</option></select></div>
+      <div class="field"><label for="auth_scheme">Authentication</label><select id="auth_scheme" name="auth_scheme"><option value="bearer">Bearer token</option><option value="header">Named header</option><option value="oauth2_client">OAuth2 client credentials (credential as client_id:client_secret)</option></select></div>
+      {field("token_url", "Token address (OAuth2 only)", { type: "url" })}{field("token_scope", "Scope (OAuth2, optional)")}
       {field("auth_header", "Header name (if a named header)")}{field("secret", "Credential from your provider", { type: "password", required: true, autocomplete: "off" })}
       {field("items_path", "Where the list of transactions is in the answer (blank = the answer itself)")}{field("since_param", "Date parameter name", { value: "since" })}
+      <div class="field"><label for="response_format">Answer format</label><select id="response_format" name="response_format"><option value="json">JSON</option><option value="csv">CSV (column names are used as field names)</option></select></div>
+      <div class="field"><label for="page_mode">Paging</label><select id="page_mode" name="page_mode"><option value="none">One answer</option><option value="page">Page number</option><option value="cursor">Cursor in the answer</option><option value="link">Link header (rel="next")</option></select></div>
+      {field("page_param", "Paging parameter name (page / cursor)")}{field("next_path", "Where the next cursor is in the answer (cursor paging)")}{field("max_pages", "Most pages per pull", { type: "number", value: "10", min: "1", max: "50" })}
       <details><summary>Field names in the provider's answer (leave blank if they are id, date, amount, reference, description, plate, litres, direction)</summary>
         {["id", "date", "amount", "reference", "description", "plate", "litres", "direction"].map((k) => field(`map_${k}`, k))}{field("debit_values", "Direction values that mean a debit (comma list)")}
         <div class="field"><label for="amount_unit">Amounts are in</label><select id="amount_unit" name="amount_unit"><option value="major">AED (e.g. 12.50)</option><option value="minor">fils (e.g. 1250)</option></select></div></details>
