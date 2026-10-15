@@ -60,7 +60,7 @@ describe("storefront connectors", () => {
     resetThrottle();
     const s = await store();
     expect((await post(s.path, "orders/create", shopifyOrder(), { secret: "wrong" })).status).toBe(401);
-    expect((await app.request(s.path.slice(0, -1) + "x", { method: "POST", body: "{}" })).status).toBe(404);
+    expect((await app.request(s.path.slice(0, -1) + (s.path.endsWith("x") ? "y" : "x"), { method: "POST", body: "{}" })).status).toBe(404);
     expect((await app.request(s.path, { method: "GET" })).status).toBe(404);
 
     let r = await post(s.path, "orders/create", shopifyOrder());

@@ -43,7 +43,7 @@ describe("temperature logger feeds", () => {
     const readings = (r: any[]) => ({ readings: r });
     expect((await push(dev.url, "wrong", readings([{ id: "a", at: iso(1), celsius: 4 }]))).status).toBe(401);
     expect((await push(dev.url, dev.secret, readings([{ id: "a", at: iso(1), celsius: 4 }]), Math.floor(Date.now() / 1000) - 3600)).status).toBe(401);
-    expect((await push(dev.url.slice(0, -1) + "x", dev.secret, readings([]))).status).toBe(404);
+    expect((await push(dev.url.slice(0, -1) + (dev.url.endsWith("x") ? "y" : "x"), dev.secret, readings([]))).status).toBe(404);
     expect((await push(dev.url, dev.secret, readings([]))).status).toBe(400);
 
     // not bound yet: the reading is kept as rejected

@@ -42,6 +42,8 @@ export interface PostOptions {
   lookup?: typeof dns.lookup; allowPrivate?: boolean; allowHttp?: boolean;
   /** request body media type for postJson (default application/json); the OAuth token call is form-encoded */
   contentType?: string;
+  /** include the response headers (needed for Link-header paging); off by default so results stay {status, body} */
+  returnHeaders?: boolean;
 }
 
 /**
@@ -72,7 +74,7 @@ function safeRequest(method: "GET" | "POST", url: string, body: string | null, h
     const req = mod.request(u, { method, lookup, timeout: o.timeoutMs ?? 10_000, headers: body === null ? { accept: "application/json, text/csv;q=0.9", ...headers } : { ...headers, "content-type": o.contentType ?? "application/json", "content-length": String(Buffer.byteLength(body)) } }, (res) => {
       const chunks: Buffer[] = []; let n = 0; const max = o.maxBodyBytes ?? 4096;
       res.on("data", (d: Buffer) => { n += d.length; if (n <= max) chunks.push(d); });
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8"), headers: res.headers as any }));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8"), ...(o.returnHeaders ? { headers: res.headers as any } : {}) }));
       res.on("error", reject);
     });
     req.on("timeout", () => req.destroy(new Error("the endpoint did not answer in time")));
