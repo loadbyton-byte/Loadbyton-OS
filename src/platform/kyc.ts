@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { Conn, Db } from "../db/client.js";
 import { audit } from "../lib/audit.js";
 import { config } from "../config.js";
@@ -120,7 +121,7 @@ export async function sendPhoneCode(db: Db, tenantId: string) {
     const k = (await c.query<any>(`SELECT phone_e164, phone_verified_at FROM tenant_kyc WHERE tenant_id=$1`, [tenantId])).rows[0];
     if (!k) throw badRequest("This workspace has no verification record.");
     if (k.phone_verified_at) throw badRequest("Your mobile number is already confirmed.");
-    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000).padStart(6, "0");
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
     await c.query(`UPDATE phone_codes SET consumed_at=now() WHERE tenant_id=$1 AND consumed_at IS NULL`, [tenantId]);
     const id = (await c.query<any>(`INSERT INTO phone_codes(tenant_id,code_hash,expires_at) VALUES ($1,$2, now() + ($3 || ' minutes')::interval) RETURNING id`, [tenantId, sha256(`${tenantId}:${code}`), String(OTP_TTL_MIN)])).rows[0].id;
     await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'kyc.sms',$2,$3)`, [tenantId, `kyc-sms:${id}`, JSON.stringify({ phoneEncrypted: encryptSecret(k.phone_e164), codeEncrypted: encryptSecret(code) })]);
