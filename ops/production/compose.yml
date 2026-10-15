@@ -33,6 +33,22 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+  # Optional RF-gun text terminal (cleartext). Off unless started with:  docker compose --profile rf up -d rf
+  # Set RF_PORT in .env.production and RF_PUBLISH to the server's PRIVATE address; never a public one. Reach it only over the warehouse network or a VPN.
+  rf:
+    profiles: ['rf']
+    image: ${APP_IMAGE:-loadbyton:local}
+    command: ['node', '--import', 'tsx', 'src/rf-server.ts']
+    env_file: .env.production
+    environment: {NODE_ENV: production, RF_HOST: '0.0.0.0', RF_BIND_ALL: 'yes'}
+    restart: unless-stopped
+    depends_on: {web: {condition: service_healthy}}
+    networks: [app]
+    ports: ['${RF_PUBLISH:-127.0.0.1}:${RF_PORT:-2323}:${RF_PORT:-2323}']
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
   scanner:
     image: ${SCANNER_IMAGE:-loadbyton-scanner:local}
     build: ./scanner

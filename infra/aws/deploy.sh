@@ -12,7 +12,9 @@ up() {
   git fetch --quiet origin
   git checkout --quiet --detach "$1"
   if grep -q '^SENTRY_RELEASE=' .env.production; then sed -i "s/^SENTRY_RELEASE=.*/SENTRY_RELEASE=$1/" .env.production; else echo "SENTRY_RELEASE=$1" >> .env.production; fi
-  "${C[@]}" up -d --build --remove-orphans
+  "${C[@]}" build
+  "${C[@]}" run --rm --no-deps web npm run migrate   # apply database changes once, before the new version starts
+  "${C[@]}" up -d --remove-orphans
 }
 healthy() {
   for _ in $(seq 1 30); do

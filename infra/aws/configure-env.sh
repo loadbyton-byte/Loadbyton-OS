@@ -23,17 +23,28 @@ PY
 getv() { grep -m1 "^$1=" "$F" | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' || true; }
 bad() { case "$1" in *'$'*|*' #'*|*'"'*|*"'"*) return 0;; esac; return 1; }
 
+# Long pastes through the AWS terminal can arrive in pieces: after the first line, keep appending any piece that follows within 2 seconds.
 ask() { # ask KEY "question" [secret]
-  local k="$1" q="$2" secret="${3:-}" cur v
+  local k="$1" q="$2" secret="${3:-}" cur v part
   cur="$(getv "$k")"
   while true; do
     if [ -n "$cur" ]; then
       if [ "$secret" = secret ]; then q2="$q [already set - Enter to keep]"; else q2="$q [$cur - Enter to keep]"; fi
     else q2="$q [Enter to skip]"; fi
-    if [ "$secret" = secret ]; then read -rsp "$q2: " v; echo; else read -rp "$q2: " v; fi
+    if [ "$secret" = secret ]; then IFS= read -rsp "$q2: " v || true; echo; else IFS= read -rp "$q2: " v || true; fi
     v="$(echo -n "$v" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     [ -z "$v" ] && return 0
+    while IFS= read -rs -t 2 part; do
+      part="$(echo -n "$part" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      [ -z "$part" ] && break
+      v="$v$part"
+    done
     if bad "$v"; then echo "  Value must not contain \$ or quotes or ' #'. Try again."; continue; fi
+    case "$k" in DATABASE_URL|MIGRATION_DATABASE_URL)
+      if ! python3 -c "import sys,urllib.parse as u;p=u.urlsplit(sys.argv[1]);sys.exit(0 if p.scheme in('postgres','postgresql') and p.hostname and '.' in p.hostname and p.port else 1)" "$v"; then
+        echo "  That does not look like a full database address (needs postgresql://user:password@host:port/postgres). Paste it again."; continue; fi;;
+    esac
+    echo "  saved (${#v} characters)"
     setv "$k" "$v"; return 0
   done
 }
@@ -42,6 +53,23 @@ secretgen() { # keep existing real secret, else generate
   case "$cur" in ""|change-me*|dev-only*) setv "$1" "$(openssl rand -hex 32)";; esac
 }
 
+if [ "${1:-}" = check ]; then
+  echo "== Settings check (no secret values shown) =="
+  for k in ROOT_DOMAIN PUBLIC_BASE_URL DATABASE_URL MIGRATION_DATABASE_URL S3_ENDPOINT S3_BUCKET S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN SENTRY_DSN \
+           CLOUDFLARE_TUNNEL_TOKEN CLOUDFLARE_ZONE_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_ORIGIN_HOSTNAME PAYMENT_PROVIDERS STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET RAZORPAY_KEY_ID LEGAL_REVIEWED; do
+    v="$(getv "$k")"
+    if [ -z "$v" ]; then printf '  %-28s EMPTY\n' "$k"; continue; fi
+    case "$k" in
+      DATABASE_URL|MIGRATION_DATABASE_URL) python3 -c "import sys,urllib.parse as u;p=u.urlsplit(sys.argv[2]);print('  %-28s host=%s port=%s user=%s... pw=%s'%(sys.argv[1],p.hostname,p.port,(p.username or '')[:12],'yes' if p.password else 'NO'))" "$k" "$v" || echo "  $k UNPARSEABLE";;
+      ROOT_DOMAIN|PUBLIC_BASE_URL|S3_ENDPOINT|S3_BUCKET|CLOUDFLARE_ORIGIN_HOSTNAME|PAYMENT_PROVIDERS|LEGAL_REVIEWED|UPSTASH_REDIS_REST_URL) printf '  %-28s %s\n' "$k" "$v";;
+      *) printf '  %-28s set (%s characters, starts %s...)\n' "$k" "${#v}" "${v:0:4}";;
+    esac
+  done
+  echo
+  echo "Typical lengths: tunnel token 150+, Stripe secret key ~107, Sentry DSN ~90, R2 secret 64, Cloudflare API token 40, Zone ID 32."
+  exit 0
+fi
+
 echo "== LOAD|BY|TON production settings =="
 echo "Paste each value and press Enter. Secrets are hidden while you type."
 echo
@@ -49,11 +77,12 @@ echo
 echo "-- Fixed settings"
 setv NODE_ENV production; setv PORT 3000
 setv STORAGE_DRIVER s3; setv S3_REGION auto; setv S3_PATH_STYLE true
-setv DATABASE_SSL require; setv MIGRATE_ON_START true
+setv DATABASE_SSL require; setv MIGRATE_ON_START false   # migrations run once per deploy (deploy.sh), not on every start
 setv TRUST_PROXY cloudflare; setv CLAMAV_HOST scanner
 setv REQUIRE_COMPANY_MFA true; setv DATA_RETENTION_DAYS 90
 setv DEPLOYMENT_REGION "AWS eu-north-1 (Stockholm)"
-setv MAIL_PROVIDER log; setv SMS_PROVIDER log; setv WHATSAPP_PROVIDER log
+[ -n "$(getv RESEND_API_KEY)" ] || setv MAIL_PROVIDER log
+setv SMS_PROVIDER log; setv WHATSAPP_PROVIDER log
 setv SENTRY_ENVIRONMENT production
 setv BACKUP_OUTPUT_DIR ./backups
 setv SENTRY_RELEASE "$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -71,13 +100,40 @@ if [ -n "$d" ]; then setv ROOT_DOMAIN "$d"; setv PUBLIC_BASE_URL "https://www.$d
 
 echo
 echo "-- Database (Supabase)"
-ask DATABASE_URL "Transaction pooler string (port 6543)" secret
-ask MIGRATION_DATABASE_URL "Session pooler string (port 5432)" secret
+echo "Long addresses cannot be pasted reliably here, so type 3 short pieces. In the Supabase string"
+echo "  postgresql://postgres.PROJECTREF:[YOUR-PASSWORD]@HOST:6543/postgres"
+echo "HOST is the text after the @ (before :6543). PROJECTREF is the text between 'postgres.' and the ':'."
+IFS= read -rp "  HOST, e.g. aws-0-eu-north-1.pooler.supabase.com [Enter to keep current]: " dbh || true
+dbh="$(echo -n "$dbh" | tr -d '[:space:]')"
+if [ -n "$dbh" ]; then
+  IFS= read -rp "  PROJECTREF (about 20 letters/numbers): " dbr || true
+  IFS= read -rsp "  Database PASSWORD (hidden): " dbp || true; echo
+  dbr="$(echo -n "$dbr" | tr -d '[:space:]')"; dbp="$(echo -n "$dbp" | tr -d '\r')"
+  if DBH="$dbh" DBR="$dbr" DBP="$dbp" python3 - "$F" <<'PY'
+import os, re, sys, urllib.parse as u
+h, r, p = os.environ["DBH"], os.environ["DBR"], os.environ["DBP"]
+if not re.fullmatch(r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}", h) or not re.fullmatch(r"[A-Za-z0-9]{10,40}", r) or not p:
+    print("  Something looks wrong (host, project ref or password). Nothing saved. Run the script again."); sys.exit(1)
+def put(k, v):
+    t = open(sys.argv[1]).read().split("\n"); out = []; done = False
+    for l in t:
+        if re.match("^" + k + "=", l):
+            if not done: out.append(k + "=" + v); done = True
+        else: out.append(l)
+    if not done: out.append(k + "=" + v)
+    open(sys.argv[1], "w").write("\n".join(out).rstrip("\n") + "\n")
+q = u.quote(p, safe="")
+put("DATABASE_URL", f"postgresql://postgres.{r}:{q}@{h}:6543/postgres")
+put("MIGRATION_DATABASE_URL", f"postgresql://postgres.{r}:{q}@{h}:5432/postgres")
+print("  saved both database addresses (transaction 6543, session 5432)")
+PY
+  then :; fi
+fi
 
 echo
 echo "-- File storage (Cloudflare R2)"
 read -rp "R2 Account ID [$(getv S3_ENDPOINT)]: " a
-a="$(echo -n "$a" | tr -d '[:space:]')"
+a="$(echo -n "$a" | tr -d '[:space:]' | sed 's#^https\?://##; s#\..*$##')"   # accepts the bare Account ID or a pasted full address
 [ -z "$a" ] || setv S3_ENDPOINT "https://$a.r2.cloudflarestorage.com"
 cur="$(getv S3_BUCKET)"; [ -n "$cur" ] || setv S3_BUCKET loadbyton-files
 ask S3_ACCESS_KEY_ID "R2 Access Key ID (files bucket token)" secret
@@ -120,6 +176,23 @@ if grep -qE '^(RAZORPAY_KEY_ID=rzp_test_|STRIPE_SECRET_KEY=sk_test_)' "$F"; then
   setv ALLOW_TEST_PAYMENT_KEYS true
   echo "  Test keys detected: ALLOW_TEST_PAYMENT_KEYS=true (no real money moves). Remove it before going live."
 fi
+
+echo
+echo "-- Email (Resend) - sends invitations and receipts. Needs your domain verified in Resend first."
+ask RESEND_API_KEY "Resend API key (re_...)" secret
+if [ -n "$(getv RESEND_API_KEY)" ]; then
+  setv MAIL_PROVIDER resend
+  cur="$(getv MAIL_FROM)"
+  read -rp "Sender address, e.g. noreply@$(getv ROOT_DOMAIN) [${cur:-Enter to skip}]: " mf
+  mf="$(echo -n "$mf" | tr -d '"<>' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [ -n "$mf" ]; then
+    case "$mf" in *@*) setv MAIL_FROM "LOAD-BY-TON <$mf>";; *) echo "  Not an email address, skipped.";; esac
+  fi
+fi
+
+echo
+echo "-- Tax note on checkout (words your accountant approves, for example about GST/VAT). Not invented by this script."
+ask CHECKOUT_TAX_NOTE "Tax note text (no quotes, no \$ sign)"
 
 echo
 echo "-- Legal confirmation"

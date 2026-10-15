@@ -15,6 +15,8 @@ const TARGETS: { name: string; table: string; keys: string[]; column: string }[]
   { name: "feed_connections.tls_cert_sealed", table: "feed_connections", keys: ["id"], column: "tls_cert_sealed" },
   { name: "feed_connections.tls_key_sealed", table: "feed_connections", keys: ["id"], column: "tls_key_sealed" },
   { name: "feed_connections.sign_key_sealed", table: "feed_connections", keys: ["id"], column: "sign_key_sealed" },
+  { name: "order_pulls.secret_sealed", table: "order_pulls", keys: ["id"], column: "secret_sealed" },
+  { name: "carrier_accounts.credentials_sealed", table: "carrier_accounts", keys: ["id"], column: "credentials_sealed" },
   { name: "feed_connections.consent_verifier_sealed", table: "feed_connections", keys: ["id"], column: "consent_verifier_sealed" },
 ];
 export async function resealSessionSecrets(db: Db, current: string, previous: string, apply = false) {
