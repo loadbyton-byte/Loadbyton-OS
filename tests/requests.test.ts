@@ -118,8 +118,12 @@ describe("brochure site", () => {
     for (const p of ["/demo", "/pricing", "/start", "/sectors"]) expect((await b.get(p)).status).toBe(200);
     const demo = await (await b.get("/demo")).text();
     expect((demo.match(/class="sector-card"/g) ?? []).length).toBe(SECTORS.length);   // all eighteen sectors are on the demo page
-    expect(demo).toContain("Built to order");
-    expect(demo).toContain("Working demo");
+    for (const sec of SECTORS) {   // and every sector has its own demo walkthrough
+      const page = await b.get(`/demo/${sec.slug}`);
+      expect(page.status, sec.slug).toBe(200);
+      expect(await page.text()).toContain("The day at a glance");
+    }
+    expect((await b.get("/demo/not-a-sector")).status).toBe(404);
     const pricing = await (await b.get("/pricing")).text();
     expect(pricing).toContain("Free build");
     expect(pricing).toContain("do not host your system");

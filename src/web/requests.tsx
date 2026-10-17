@@ -91,27 +91,21 @@ export const parseRequest = (b: Record<string, any>) => ({
 // ───────── public: demo
 requests.get("/demo", async (c) => {
   const all = withLiveAvailability(await releasedSectors(c.get("db")));
-  const live = all.filter((s) => sectorBySlug(s.slug)!.availability !== "planned");
-  const bespoke = all.filter((s) => sectorBySlug(s.slug)!.availability === "planned");
   return c.html(
     <PublicShell p={pubPg(c, "See the demo", { description: "Walk through the working sector packs, then tell us what to customise. Delivered within 24 hours." })}>
       <PageHero kicker="DEMO" photo={PHOTO.intelligence} title={<>See it first.<br />Then tell us what to change.</>} lede={`Browse the working packs below. Register what you need and we customise it, then hand it over within ${HOURS()} hours.`}>
         {config.demoUrl ? <a class="btn red" href={config.demoUrl} target="_blank" rel="noopener">Open the live demo <Icon name="arrowUpRight" size={16} /></a> : null}
         <a class="btn glass" href="/start">Register my requirement</a>
       </PageHero>
-      <Section eyebrow="WORKING PACKS" title={<>What the demo covers.</>} intro="Each pack is a complete workflow. Pick one for a free build, or combine several as a paid build.">
-        <div class="grid g3">{live.map((s) => (
-          <a class="sector-card" href={`/start?sector=${s.slug}`} data-reveal>
+      <Section eyebrow="ALL 18 SECTORS" title={<>What the demo covers.</>} intro="Open any sector to see its stages, sample records, documents and roles. Register the one you want and we customise it to your business.">
+        <div class="grid g3">{all.map((s) => {
+          const full = sectorBySlug(s.slug)!.availability !== "planned";
+          return (
+          <a class="sector-card" href={`/demo/${s.slug}`} data-reveal>
             <span class="sc-photo"><img src={sectorPhoto(s.slug, true)} alt="" width="800" height="450" loading="lazy" decoding="async" /></span>
-            <span class="sc-body"><span class="badge ok">Working demo</span><h3>{s.name}</h3><p>{s.workflow}</p><span class="go">Request this pack <Icon name="arrow" size={14} /></span></span>
-          </a>))}</div>
-      </Section>
-      <Section tone="tint" eyebrow={`MORE SECTORS · ${live.length + bespoke.length} IN ALL`} title={<>The other {bespoke.length} sectors, built to order.</>} intro="These sector packs are not in the working demo yet. Register a Paid build and we scope, quote and deliver it, with the same shared customer, finance and document records.">
-        <div class="grid g3">{bespoke.map((s) => (
-          <a class="sector-card" href={`/start?category=paid&sector=${s.slug}`} data-reveal>
-            <span class="sc-photo"><img src={sectorPhoto(s.slug, true)} alt="" width="800" height="450" loading="lazy" decoding="async" /></span>
-            <span class="sc-body"><span class="badge info">Built to order</span><h3>{s.name}</h3><p>{s.workflow}</p><span class="go">Request a paid build <Icon name="arrow" size={14} /></span></span>
-          </a>))}</div>
+            <span class="sc-body"><span class="badge ok">Demo</span><h3>{s.name}</h3><p>{s.workflow}</p><span class="small mute">{full ? "Full working pack" : "Sample-data walkthrough"}</span><span class="go">See the demo <Icon name="arrow" size={14} /></span></span>
+          </a>);
+        })}</div>
         {config.demoUrl ? null : <p class="mute small" style="margin-top:24px">A guided walkthrough of the demo is arranged on request — <a href="/contact">ask for a demo link</a> or <a href={waLink()} target="_blank" rel="noopener">WhatsApp {CONTACT.phoneDisplay}</a>.</p>}
       </Section>
       <Section eyebrow="HOW IT WORKS" title={<>Four steps. No usage meter.</>}>

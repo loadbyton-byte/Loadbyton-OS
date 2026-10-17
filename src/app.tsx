@@ -67,6 +67,7 @@ import { warehousePolicy } from "./web/warehouse-policy.js";
 import { deliveryFinance } from "./web/delivery-finance.js";
 import { documentDrafts } from "./web/document-drafts.js";
 import { requests } from "./web/requests.js";
+import { sectorDemo } from "./web/sector-demo.js";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { routePath } from "hono/route";
@@ -190,6 +191,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", deliveryFinance);
   app.route("/", documentDrafts);
   app.route("/", workspace);
+  app.route("/", sectorDemo);
   app.route("/", requests);
 
   const errorPage = (c: any, status: number, title: string, message: string) =>
