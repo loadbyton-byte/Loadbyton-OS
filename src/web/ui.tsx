@@ -308,14 +308,27 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
   );
 };
 
-export const ADMIN_NAV: [string, string, string][] = [["/admin", "Overview", "gauge"], ["/admin/tenants", "Tenants", "people"], ["/admin/orders", "Orders & payments", "money"], ["/admin/provisioning", "Provisioning", "bolt"],
+const ADMIN_ALL: [string, string, string][] = [["/admin", "Overview", "gauge"], ["/admin/tenants", "Tenants", "people"], ["/admin/orders", "Orders & payments", "money"], ["/admin/provisioning", "Provisioning", "bolt"],
   ["/admin/catalog", "Catalog & prices", "tag"], ["/admin/queues", "Queues & reviews", "layers"], ["/admin/service", "Setup & privacy", "lock"], ["/admin/partners", "Partners", "users"], ["/admin/rollout", "Rollout", "route"],
   ["/admin/reports", "Reports", "chart"], ["/admin/kyc", "Company verification", "shield"], ["/admin/readiness", "Readiness", "shield"], ["/admin/einvoice", "E-invoicing", "shield"], ["/admin/requests", "Build requests", "bolt"], ["/admin/leads", "Leads", "mail"], ["/admin/chats", "Live chats", "chat"]];
+/** Checkout, plan and revenue pages: in brochure mode nobody is billed through the platform, so they are left out of the menu (the routes stay for BROCHURE_MODE=false). */
+const BILLING_PAGES = new Set(["/admin/orders", "/admin/provisioning", "/admin/catalog", "/admin/partners", "/admin/reports"]);
+/** Evaluated per request so the delivery queue leads in brochure mode and the billing pages return when the flag is off. */
+export const adminNav = (): [string, string, string][] => {
+  if (!config.brochureMode) return ADMIN_ALL;
+  const rest = ADMIN_ALL.filter(([href]) => href !== "/admin" && href !== "/admin/requests" && !BILLING_PAGES.has(href));
+  return [ADMIN_ALL[0], ADMIN_ALL.find(([h]) => h === "/admin/requests")!, ...rest];
+};
 
 export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
-  const navItems = ADMIN_NAV.map(([href, label]) => ({ href, label }));
-  const rail = ADMIN_NAV.map(([href, label, icon]) => ({ href, label, icon, active: p.path === href || (href !== "/admin" && p.path.startsWith(href + "/")) }));
-  const pills = [["/admin", "Overview", "gauge"], ["/admin/tenants", "Tenants", "people"], ["/admin/orders", "Orders", "money"], ["/admin/chats", "Live chats", "chat"]].map(([href, label, icon]) => ({ href, label, icon, active: p.path === href || (href !== "/admin" && p.path.startsWith(href + "/")) }));
+  const nav = adminNav();
+  const isActive = (href: string) => p.path === href || (href !== "/admin" && p.path.startsWith(href + "/"));
+  const navItems = nav.map(([href, label]) => ({ href, label }));
+  const rail = nav.map(([href, label, icon]) => ({ href, label, icon, active: isActive(href) }));
+  const pills = (config.brochureMode
+    ? [["/admin", "Overview", "gauge"], ["/admin/requests", "Requests", "bolt"], ["/admin/tenants", "Clients", "people"], ["/admin/chats", "Live chats", "chat"]]
+    : [["/admin", "Overview", "gauge"], ["/admin/tenants", "Tenants", "people"], ["/admin/orders", "Orders", "money"], ["/admin/chats", "Live chats", "chat"]]
+  ).map(([href, label, icon]) => ({ href, label, icon, active: isActive(href) }));
   return (
     <DeskFrame p={p} nav={navItems} area="control" tenantName="Platform control" roles={["platform staff"]} rail={rail} pills={pills}
       banner={<div class="control-banner" role="status">Platform control console — privileged surface. All actions are audited.</div>}>{children}</DeskFrame>

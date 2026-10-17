@@ -5,7 +5,7 @@ import { buildApp } from "../src/app.js";
 import { freshDb, newTenant } from "./helpers.js";
 import { createStaff } from "../src/platform/admin.js";
 import { totp } from "../src/lib/util.js";
-import { cancelOwnRequest, clockOf, createRequest, listRequests, requestDetail, staffUpdateRequest } from "../src/platform/requests.js";
+import { cancelOwnRequest, clockOf, createRequest, listRequests, requestDetail, requestStats, staffUpdateRequest } from "../src/platform/requests.js";
 
 let db: Db, app: ReturnType<typeof buildApp>;
 beforeAll(async () => { config.brochureMode = true; db = await freshDb(); app = buildApp(db); });
@@ -172,5 +172,67 @@ describe("brochure site", () => {
     expect(await (await client.get(`/app/requests/${id}`)).text()).toContain("https://files.example/queue.zip");
     // a client can never reach the staff queue
     expect((await client.get("/admin/requests")).status).toBeGreaterThanOrEqual(300);
+  });
+});
+
+describe("staff console", () => {
+  const staffBrowser = async (role = "engineer") => {
+    const email = `console-${role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@lbt.test`;
+    const st = await createStaff(db, email, "Ops", "a-very-long-staff-password", role);
+    const ops = new Browser();
+    await ops.post("/login", { email, password: "a-very-long-staff-password" });
+    await ops.post("/admin/mfa", { code: totp(st.totpSecret) });
+    return { ops, userId: st.userId };
+  };
+
+  it("counts the delivery queue with the same clock rules the client sees", async () => {
+    const t = await newTenant(db), eng = { userId: (await createStaff(db, `stats-${Date.now()}@lbt.test`, "Eng", "a-very-long-staff-password", "engineer")).userId, role: "engineer" };
+    const before = await requestStats(db);
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000);
+    const make = (over: object, h: number) => db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, { ...good, ...over } as any, hoursAgo(h)));
+    await make({}, 1);                                                    // on time
+    await make({}, 21);                                                   // due in about 3 h
+    await make({}, 30);                                                   // overdue
+    await make({ category: "paid", sectors: ["freight-forwarding", "road-transport"] }, 72);   // paid, no quote: three days old but has no clock
+    const delivered = await make({}, 2);
+    await staffUpdateRequest(db, eng, delivered.id, { status: "delivered", deliveryNotes: "Unzip and run." });
+    const after = await requestStats(db);
+    expect({ open: after.open - before.open, overdue: after.overdue - before.overdue, dueSoon: after.dueSoon - before.dueSoon, awaitingQuote: after.awaitingQuote - before.awaitingQuote, deliveredWeek: after.deliveredWeek - before.deliveredWeek, total: after.total - before.total })
+      .toEqual({ open: 4, overdue: 1, dueSoon: 1, awaitingQuote: 1, deliveredWeek: 1, total: 5 });
+  });
+
+  it("leads with the delivery queue in brochure mode and leaves the billing pages out of the menu", async () => {
+    const client = new Browser();
+    await client.post("/start", { company: "Console Co", contact: "Cass", email: `console-${Date.now()}@example.com`, password: "correct horse battery", category: "free", sector: "freight-forwarding", title: "Console pack", requirements: "Our own status names.", demo_reviewed: "yes" });
+    const { ops } = await staffBrowser();
+    const home = await (await ops.get("/admin")).text();
+    expect(home).toContain("Build requests");
+    expect(home).toContain("Awaiting a quote");
+    expect(home).not.toMatch(/MRR|Pending orders|Provisioning health/);
+    expect(home).toContain('href="/admin/requests"');
+    expect(home).not.toMatch(/href="\/admin\/(catalog|orders|provisioning|partners|reports)"/);
+    // the pages are fenced off from the menu, not removed: flipping the flag brings the same routes back into it
+    for (const p of ["/admin/catalog", "/admin/orders", "/admin/reports"]) expect((await ops.get(p)).status, p).toBe(200);
+    const clients = await (await ops.get("/admin/tenants")).text();
+    expect(clients).toContain("Open requests");
+    expect(clients).not.toContain("Subscription");
+    const tenantId = (await db.query<any>(`SELECT id FROM tenants WHERE name='Console Co'`)).rows[0].id;
+    const detail = await (await ops.get(`/admin/tenants/${tenantId}`)).text();
+    expect(detail).toContain("Console pack");
+    expect(detail).not.toMatch(/Entitlements|Provisioning/);
+  });
+
+  it("restores the commerce console when brochure mode is off", async () => {
+    const { ops } = await staffBrowser();
+    config.brochureMode = false;
+    try {
+      const home = await (await ops.get("/admin")).text();
+      expect(home).toMatch(/MRR/);
+      expect(home).toContain("Provisioning health");
+      expect(home).toContain('href="/admin/catalog"');
+      expect(home).toContain('href="/admin/orders"');
+      const tenantId = (await db.query<any>(`SELECT id FROM tenants LIMIT 1`)).rows[0].id;
+      expect(await (await ops.get(`/admin/tenants/${tenantId}`)).text()).toContain("Entitlements");
+    } finally { config.brochureMode = true; }
   });
 });
