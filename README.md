@@ -21,6 +21,17 @@ Additional work includes company MFA, a Zoho Books draft-invoice bridge, reviewe
 
 This is a substantial implementation of the blueprint, **not a claim that the entire future portfolio is release-complete**. See [the clause map](docs/TRACEABILITY.md), [remaining portfolio work](docs/IMPLEMENTATION_BACKLOG.md), [deployment instructions](docs/DEPLOYMENT.md) and [release acceptance](docs/RELEASE_ACCEPTANCE.md). External provider acceptance, actual infrastructure recovery, legal/tax settings and specialist reviews remain deployment gates; advanced connectors and warehouse/AI roadmap items remain explicit software work.
 
+## Brochure mode (default)
+
+LOAD|BY|TON.OS is sold as a **brochure + demo**, not as hosted software with a usage meter:
+
+1. **See the demo** (`/demo`, `/sectors`) — the working sector packs below. `DEMO_URL` links the live seeded demo.
+2. **Register a requirement** (`/start`) — choose **Free** (one sector, customised) or **Paid** (several sectors, integrations or bespoke workflows, quoted per requirement), pick the sector(s), describe the change and your backend. One step creates the account and the request.
+3. **We customise and deliver within 24 hours** (`DELIVERY_HOURS`) — the clock starts at submission. Staff work the queue at `/admin/requests` (deadline-ordered, overdue flagged), record the agreed quote for Paid, then deliver with an https hand-off link and notes.
+4. **The client runs it on their own backend.** Their dashboard (`/app`) is only the request tracker: status, countdown, timeline and the hand-off. There is no usage dashboard, metering, plan limits or billing page, so none of that is on our books.
+
+`BROCHURE_MODE=false` restores the full multi-tenant operating platform described below (the operating plane is untouched, only fenced off). Operating-platform test suites run with it off; `tests/requests.test.ts` covers the brochure flow.
+
 ## Quick start
 
 ```bash

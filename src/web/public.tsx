@@ -11,6 +11,7 @@ import { rateLimit } from "../lib/ratelimit.js";
 import { Badge, Csrf, PublicShell, type Page } from "./ui.js";
 import { provisioningStats } from "../platform/provisioning.js";
 import { config } from "../config.js";
+import { brochurePricing } from "./requests.js";
 
 export const pub = new Hono<Env>();
 
@@ -195,6 +196,7 @@ const Limits = ({ pl }: { pl: PlanVersion }) => (
 );
 
 pub.get("/pricing", async (c) => {
+  if (config.brochureMode) return brochurePricing(c);
   const plans = await currentPlans(c.get("db"));
   const p = pg(c, "Pricing and plans");
   return c.html(

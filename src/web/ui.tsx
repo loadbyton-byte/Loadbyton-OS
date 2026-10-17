@@ -82,9 +82,9 @@ function Head({ p, surface }: { p: Page; surface: "public" | "desk" }) {
   );
 }
 
-export const PUBLIC_NAV: [string, string][] = [["/features", "Platform"], ["/sectors", "Sectors"], ["/pricing", "Pricing"], ["/about", "About"]];
+export const PUBLIC_NAV: [string, string][] = config.brochureMode ? [["/features", "Platform"], ["/sectors", "Sectors"], ["/demo", "Demo"], ["/pricing", "Free & paid"], ["/about", "About"]] : [["/features", "Platform"], ["/sectors", "Sectors"], ["/pricing", "Pricing"], ["/about", "About"]];
 const SHEET_NAV: [string, string][] = [
-  ["/features", "Platform"], ["/sectors", "Sectors"], ["/industries", "Who it is for"], ["/pricing", "Pricing"], ["/trust", "Trust & safety"], ["/security", "Security"],
+  ["/features", "Platform"], ["/sectors", "Sectors"], ["/industries", "Who it is for"], ...(config.brochureMode ? [["/demo", "Demo"]] as [string, string][] : []), ["/pricing", config.brochureMode ? "Free & paid" : "Pricing"], ["/trust", "Trust & safety"], ["/security", "Security"],
   ["/blog", "Notes"], ["/about", "About"], ["/contact", "Contact"], ["/login", "Sign in"],
 ];
 
@@ -106,7 +106,7 @@ function OfferBar() {
 
 export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
   const staffed = chatStaffed();
-  const palette = [...SHEET_NAV.slice(0, -1), ["/start", "Start free"], ["/legal/terms", "Terms"], ["/legal/privacy", "Privacy"], ["/help", "Help"], ["/status", "Service status"]] as [string, string][];
+  const palette = [...SHEET_NAV.slice(0, -1), ["/start", config.brochureMode ? "Register your requirement" : "Start free"], ["/legal/terms", "Terms"], ["/legal/privacy", "Privacy"], ["/help", "Help"], ["/status", "Service status"]] as [string, string][];
   return (
     <html lang="en" data-surface="public">
       <Head p={p} surface="public" />
@@ -126,7 +126,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
               {p.user ? <a class="btn red sm" href="/app" aria-label="Open workspace"><span class="hide-s">Open </span>workspace</a> : (
                 <>
                   <a class="signin" href="/login">Sign in</a>
-                  <a class="btn red sm" href="/start">Start free<span class="hide-s"> <Icon name="arrow" size={16} /></span></a>
+                  <a class="btn red sm" href="/start">{config.brochureMode ? "Register" : "Start free"}<span class="hide-s"> <Icon name="arrow" size={16} /></span></a>
                 </>
               )}
               <button class="site-menu-toggle" type="button" data-site-menu aria-expanded="false" aria-controls="sheet-menu" aria-label="Menu"><Icon name="menu" /></button>
@@ -310,7 +310,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
 
 export const ADMIN_NAV: [string, string, string][] = [["/admin", "Overview", "gauge"], ["/admin/tenants", "Tenants", "people"], ["/admin/orders", "Orders & payments", "money"], ["/admin/provisioning", "Provisioning", "bolt"],
   ["/admin/catalog", "Catalog & prices", "tag"], ["/admin/queues", "Queues & reviews", "layers"], ["/admin/service", "Setup & privacy", "lock"], ["/admin/partners", "Partners", "users"], ["/admin/rollout", "Rollout", "route"],
-  ["/admin/reports", "Reports", "chart"], ["/admin/kyc", "Company verification", "shield"], ["/admin/readiness", "Readiness", "shield"], ["/admin/einvoice", "E-invoicing", "shield"], ["/admin/leads", "Leads", "mail"], ["/admin/chats", "Live chats", "chat"]];
+  ["/admin/reports", "Reports", "chart"], ["/admin/kyc", "Company verification", "shield"], ["/admin/readiness", "Readiness", "shield"], ["/admin/einvoice", "E-invoicing", "shield"], ["/admin/requests", "Build requests", "bolt"], ["/admin/leads", "Leads", "mail"], ["/admin/chats", "Live chats", "chat"]];
 
 export const AdminShell = ({ p, children }: { p: Page; children: Child }) => {
   const navItems = ADMIN_NAV.map(([href, label]) => ({ href, label }));
