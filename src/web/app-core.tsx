@@ -53,7 +53,11 @@ core.use("/app/*", async (c, next) => {
   c.set("tenant", { name: t.name, slug: t.slug, sectors: t.sectors, plan: t.plan, planCode: t.plan_code, subStatus: t.sub_status, verification: t.verification_status });
   c.set("memberships", (await membershipsFor(db, ctx.userId)).map((m) => ({ tenant_id: m.tenant_id, name: m.name })));
   // Brochure mode: the client's workspace is the request tracker. Operating modules, billing and usage pages are not offered.
-  if (config.brochureMode && !brochureAllows(c.req.path)) return c.redirect("/app");
+  if (config.brochureMode) {
+    if (!brochureAllows(c.req.path)) return c.redirect("/app");
+    if (ctx.roles.length === 1 && (ctx.roles[0] === "portal" || ctx.roles[0] === "driver")) throw new HttpError(403, "This workspace tracks build requests. Ask an owner of your company for access.", "forbidden");
+    return next();   // skip the operating-plane gates (verification, portal and driver fences, sectors): none apply here
+  }
   const portalOnly = ctx.roles.length === 1 && ctx.roles[0] === "portal";
   const driverOnly = ctx.roles.length === 1 && ctx.roles[0] === "driver";
   const p = c.req.path;

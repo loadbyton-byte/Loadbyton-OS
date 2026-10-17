@@ -94,7 +94,7 @@ export function AuthFrame({ signup = false, children }: { signup?: boolean; chil
         <h2>{signup ? (config.brochureMode ? "See the demo.\nGet yours in 24 hours." : "A new chapter.\nOne workspace.") : "Back to the\noperating record."}</h2>
         <p>{config.brochureMode ? "Tell us what to customise. We build it from the demo and hand it over to run on your own backend." : "From the first enquiry to the final collection, one place for every team to move the work forward."}</p>
         <div class="auth-proofs">
-          {config.brochureMode ? <div><Icon name="clock" /><span><strong>24-hour delivery clock</strong><small>Starts when you submit; track it in your dashboard.</small></span></div> : <div><Icon name="shield" /><span><strong>Your company, your records</strong><small>Tenant isolation and role-based access.</small></span></div>}
+          {config.brochureMode ? <div><Icon name="clock" /><span><strong>24-hour delivery</strong><small>Free: from submission. Paid: from the agreed quote.</small></span></div> : <div><Icon name="shield" /><span><strong>Your company, your records</strong><small>Tenant isolation and role-based access.</small></span></div>}
           <div><Icon name="document" /><span><strong>Evidence stays with the work</strong><small>Documents, approvals and milestones together.</small></span></div>
           <div><Icon name="money" /><span><strong>Keep the margin in view</strong><small>Estimates and reconciled outcomes kept apart.</small></span></div>
         </div>

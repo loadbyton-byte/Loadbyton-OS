@@ -106,7 +106,7 @@ auth.post("/start", async (c) => {
       const created = await db.tenant(r.tenantId, (cn) => createRequest(cn, r.tenantId, r.userId, req));
       const s = await newSession(db, r.userId, r.tenantId);
       setSessionCookie(c, s.token);
-      return c.redirect(`/app/requests/${created.id}?ok=` + encodeURIComponent(`Request received. Delivery is due within ${config.deliveryHours} hours.`));
+      return c.redirect(`/app/requests/${created.id}?ok=` + encodeURIComponent(created.category === "paid" ? `Request received. We will send you a quote; delivery follows within ${config.deliveryHours} hours of agreeing it.` : `Request received. Delivery is due within ${config.deliveryHours} hours.`));
     }
     const r = await registerCompany(db, {
       kyc: { phone: str(b.phone), licenceNo: str(b.licence), licenceAuthority: str(b.authority), trn: str(b.trn), ip },

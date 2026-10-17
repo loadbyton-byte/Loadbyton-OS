@@ -27,7 +27,7 @@ LOAD|BY|TON.OS is sold as a **brochure + demo**, not as hosted software with a u
 
 1. **See the demo** (`/demo`, `/sectors`) — the working sector packs below. `DEMO_URL` links the live seeded demo.
 2. **Register a requirement** (`/start`) — choose **Free** (one sector, customised) or **Paid** (several sectors, integrations or bespoke workflows, quoted per requirement), pick the sector(s), describe the change and your backend. One step creates the account and the request.
-3. **We customise and deliver within 24 hours** (`DELIVERY_HOURS`) — the clock starts at submission. Staff work the queue at `/admin/requests` (deadline-ordered, overdue flagged), record the agreed quote for Paid, then deliver with an https hand-off link and notes.
+3. **We customise and deliver within 24 hours** (`DELIVERY_HOURS`) — the clock starts at submission for Free and at the agreed quote for Paid. Staff work the queue at `/admin/requests` (deadline-ordered, overdue flagged), record the agreed quote for Paid, then deliver with an https hand-off link and notes.
 4. **The client runs it on their own backend.** Their dashboard (`/app`) is only the request tracker: status, countdown, timeline and the hand-off. There is no usage dashboard, metering, plan limits or billing page, so none of that is on our books.
 
 `BROCHURE_MODE=false` restores the full multi-tenant operating platform described below (the operating plane is untouched, only fenced off). Operating-platform test suites run with it off; `tests/requests.test.ts` covers the brochure flow.

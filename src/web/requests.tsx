@@ -39,11 +39,15 @@ export const CATEGORY_POINTS: Record<"free" | "paid", string[]> = {
   ],
 };
 
-const Clock = ({ r }: { r: Pick<ServiceRequest, "status" | "due_at" | "delivered_at"> }) => {
+const Clock = ({ r }: { r: Pick<ServiceRequest, "status" | "due_at" | "delivered_at" | "category" | "quote_note"> }) => {
   const k = clockOf(r);
+  if (k.open && k.awaitingQuote) return <span class="badge warn">Awaiting quote</span>;
   if (!k.open) return r.status === "delivered" ? <span class={`badge ${k.late ? "warn" : "ok"}`}>{k.late ? "Delivered late" : "Delivered on time"}</span> : null;
   return <span class={`badge ${k.late ? "bad" : "info"}`}>{k.late ? `Overdue by ${humanLeft(k.msLeft)}` : `${humanLeft(k.msLeft)} left`}</span>;
 };
+/** Paid work has no deadline until the quote is agreed. */
+const dueText = (r: Pick<ServiceRequest, "status" | "due_at" | "category" | "quote_note">) =>
+  clockOf({ ...r, delivered_at: null }).awaitingQuote ? `${HOURS()}-hour clock starts when the quote is agreed` : `due ${formatDate(r.due_at)}`;
 const StatusBadge = ({ s }: { s: ServiceRequest["status"] }) => <Badge s={s === "in_build" ? "provisioning" : s} label={STATUS_LABEL[s]} />;
 
 /** Sector choice and requirement fields, shared by registration and the dashboard. */
@@ -106,12 +110,12 @@ requests.get("/demo", async (c) => {
           {[
             ["See the demo", "Open the packs and decide what fits."],
             ["Register your requirement", "Choose Free or Paid, the sector(s), and describe what to customise."],
-            [`We deliver within ${HOURS()} hours`, "Track the build in your dashboard; you get a hand-off link and notes."],
+            [`We deliver within ${HOURS()} hours`, "Free: from submission. Paid: from the agreed quote. Track it in your dashboard; you get a hand-off link and notes."],
             ["Run it on your backend", "It is yours to host. We do not meter, bill or watch your usage."],
           ].map(([t, d], i) => <li class="step" data-reveal><span class="n">0{i + 1}</span><div><p style="color:var(--ink);margin:0"><strong>{t}</strong> — {d}</p></div></li>)}
         </ol>
       </Section>
-      <CtaBand title={<>Seen enough?<br />Tell us what you need.</>} body={`Register a request and your ${HOURS()}-hour delivery clock starts.`} primary={["Register my requirement", "/start"]} />
+      <CtaBand title={<>Seen enough?<br />Tell us what you need.</>} body={`Register a request. Free builds start the ${HOURS()}-hour clock at once; paid builds start it when you agree the quote.`} primary={["Register my requirement", "/start"]} />
     </PublicShell>);
 });
 
@@ -137,7 +141,7 @@ export async function brochurePricing(c: C) {
             <li>We do not hold your customers' data — it lives on the backend you run.</li>
             <li>Paid builds are quoted per requirement; the quote is agreed before the build starts and recorded on your request.</li>
           </ul>
-          <p>The delivery window runs from a complete request (or the agreed quote for Paid). Missing information pauses the clock; we will tell you what we need.</p>
+          <p>The delivery window runs from a complete Free request, or from the agreed quote for Paid. Missing information pauses the clock; we will tell you what we need.</p>
         </div>
       </Section>
       <CtaBand title={<>Not sure which?<br />Start with the demo.</>} primary={["See the demo", "/demo"]} />
@@ -154,7 +158,7 @@ export async function brochureStartPage(c: C) {
       <AuthFrame signup>
         <span class="eyebrow">REGISTER YOUR REQUIREMENT</span>
         <h1>Tell us what to build</h1>
-        <p>Pick Free or Paid, choose from the demo and describe what to change. Your {HOURS()}-hour delivery clock starts when you submit. You will get a dashboard to track it.</p>
+        <p>Pick Free or Paid, choose from the demo and describe what to change. A free build is delivered within {HOURS()} hours of submitting. A paid build is quoted first and the {HOURS()}-hour clock starts when you agree the quote. You will get a dashboard to track it.</p>
         {p.err ? <div class="alert err" role="alert"><Icon name="alert" /><span><strong>Problem.</strong> {p.err}</span></div> : null}
         <form method="post" action="/start" class="signup-form">
           <Csrf t={p.csrf} />
@@ -184,7 +188,7 @@ const RequestCard = ({ r, csrf }: { r: ServiceRequest; csrf: string }) => (
       <h3 style="margin:0"><a href={`/app/requests/${r.id}`}>{r.title}</a></h3>
       <span style="display:flex;gap:8px;flex-wrap:wrap"><Badge s={r.category === "paid" ? "pending" : "available"} label={REQUEST_CATEGORIES[r.category].label} /><StatusBadge s={r.status} /><Clock r={r} /></span>
     </div>
-    <p class="small mute" style="margin:8px 0">{r.sectors.map((s) => sectorBySlug(s)?.name ?? s).join(", ")} · submitted {formatDate(r.created_at)} · due {formatDate(r.due_at)}</p>
+    <p class="small mute" style="margin:8px 0">{r.sectors.map((s) => sectorBySlug(s)?.name ?? s).join(", ")} · submitted {formatDate(r.created_at)} · {dueText(r)}</p>
     {r.status === "delivered" ? <p>{r.delivery_url ? <a class="btn red sm" href={r.delivery_url} target="_blank" rel="noopener">Open hand-off <Icon name="arrowUpRight" size={14} /></a> : null} {r.delivery_notes ? <span class="small">See delivery notes</span> : null}</p> : null}
     {["received", "in_build"].includes(r.status) ? (
       <form method="post" action={`/app/requests/${r.id}/cancel`} data-confirm="Cancel this request?" class="inline"><Csrf t={csrf} /><button class="btn ghost sm" type="submit">Cancel request</button></form>) : null}
@@ -217,7 +221,7 @@ requests.post("/app/requests", async (c) => {
   const ctx = ctxOf(c), b = await formBody(c);
   return act(c, "/app", async () => {
     const r = await withT(c, (cn) => createRequest(cn, ctx.tenantId, ctx.userId, parseRequest(b)));
-    return { to: `/app/requests/${r.id}`, ok: `Request received. Delivery is due within ${HOURS()} hours.` };
+    return { to: `/app/requests/${r.id}`, ok: r.category === "paid" ? "Request received. We will send you a quote; delivery follows within " + HOURS() + " hours of agreeing it." : `Request received. Delivery is due within ${HOURS()} hours.` };
   });
 });
 
@@ -231,7 +235,7 @@ requests.get("/app/requests/:id", async (c) => {
       <section class="card"><h3>Your requirement</h3><p style="white-space:pre-wrap">{r.requirements}</p>
         {r.backend_notes ? <><h3>Your backend</h3><p style="white-space:pre-wrap">{r.backend_notes}</p></> : null}</section>
       <section class="card"><h3>Delivery</h3>
-        <p class="small mute">Submitted {formatDate(r.created_at)} · due {formatDate(r.due_at)}{r.delivered_at ? ` · delivered ${formatDate(r.delivered_at)}` : ""}</p>
+        <p class="small mute">Submitted {formatDate(r.created_at)} · {dueText(r)}{r.delivered_at ? ` · delivered ${formatDate(r.delivered_at)}` : ""}</p>
         {r.quote_note ? <p><strong>Agreed quote:</strong> {r.quote_note}</p> : null}
         {r.status === "delivered" ? (<>
           {r.delivery_url ? <p><a class="btn red" href={r.delivery_url} target="_blank" rel="noopener">Open hand-off <Icon name="arrowUpRight" size={16} /></a></p> : null}
@@ -259,7 +263,7 @@ requests.get("/admin/requests", async (c) => {
   const scope = c.req.query("scope") === "all" ? "all" : "open";
   const rows = await listAllRequests(c.get("db"), scope);
   const csrf = c.get("csrf");
-  const late = rows.filter((r) => clockOf(r).late && clockOf(r).open).length;
+  const late = rows.filter((r) => clockOf(r).late).length;
   return c.html(
     <AdminShell p={adminPg(c, "Build requests")}>
       <header class="page"><h1>Build requests</h1><div class="spacer"></div><a class="btn ghost sm" href={scope === "open" ? "/admin/requests?scope=all" : "/admin/requests"}>{scope === "open" ? "Show all" : "Show open only"}</a></header>
@@ -271,7 +275,7 @@ requests.get("/admin/requests", async (c) => {
             <td><Badge s={r.category === "paid" ? "pending" : "available"} label={REQUEST_CATEGORIES[r.category].label} /></td>
             <td class="small">{r.sectors.map((s) => sectorBySlug(s)?.name ?? s).join(", ")}</td>
             <td><StatusBadge s={r.status} /></td>
-            <td><Clock r={r} /><br /><span class="small mute">due {formatDate(r.due_at)}</span></td>
+            <td><Clock r={r} /><br /><span class="small mute">{dueText(r)}</span></td>
             <td>
               <details><summary class="small">Requirement &amp; update</summary>
                 <p class="small" style="white-space:pre-wrap;max-width:420px">{r.requirements}{r.backend_notes ? `\n\nBackend: ${r.backend_notes}` : ""}</p>

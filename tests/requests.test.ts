@@ -87,6 +87,23 @@ describe("staff delivery", () => {
     await expect(staffUpdateRequest(db, eng, paid.id, { status: "in_build" })).rejects.toThrow(/already delivered/);
   });
 
+  it("starts the paid delivery window when the quote is agreed, not at submission", async () => {
+    const t = await newTenant(db);
+    const eng = { userId: (await createStaff(db, `p-${Date.now()}@lbt.test`, "Eng", "a-very-long-staff-password", "engineer")).userId, role: "engineer" };
+    const old = new Date(Date.now() - 3 * 86400_000);
+    const paid = await db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, { ...good, category: "paid" }, old));
+    expect(clockOf(paid)).toMatchObject({ open: true, awaitingQuote: true, late: false });   // submitted 3 days ago, still not late
+    await staffUpdateRequest(db, eng, paid.id, { status: "in_build", quoteNote: "AED 3,000 agreed" });
+    const after = (await db.tenant(t.tenantId, (c) => requestDetail(c, paid.id))).request;
+    const left = new Date(after.due_at).getTime() - Date.now();
+    expect(clockOf(after)).toMatchObject({ awaitingQuote: false, late: false });
+    expect(left).toBeGreaterThan((config.deliveryHours - 1) * 3600_000);
+    expect(left).toBeLessThanOrEqual(config.deliveryHours * 3600_000);
+    // a later edit does not restart the window
+    await staffUpdateRequest(db, eng, paid.id, { status: "ready", quoteNote: "AED 3,500 revised" });
+    expect(new Date((await db.tenant(t.tenantId, (c) => requestDetail(c, paid.id))).request.due_at).getTime()).toBe(new Date(after.due_at).getTime());
+  });
+
   it("makes the event history immutable", async () => {
     const t = await newTenant(db);
     const r = await db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, good));

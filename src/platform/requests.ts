@@ -48,7 +48,7 @@ export async function createRequest(c: Conn, tenantId: string, userId: string, i
      VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$9) RETURNING *`,
     [tenantId, userId, v.category, v.sectors, v.title, v.requirements, v.backendNotes, due.toISOString(), now.toISOString()]);
   await c.query(`INSERT INTO service_request_events(tenant_id,request_id,status,note,actor_kind,actor_user_id) VALUES ($1,$2,'received',$3,'client',$4)`,
-    [tenantId, r.rows[0].id, `Submitted as ${v.category}. Delivery due ${due.toISOString()}.`, userId]);
+    [tenantId, r.rows[0].id, v.category === "paid" ? `Submitted as paid. We will agree a quote; the ${config.deliveryHours}-hour delivery window starts then.` : `Submitted as free. Delivery due ${due.toISOString()}.`, userId]);
   await audit(c, tenantId, { kind: "user", userId }, "request.created", "service_request", r.rows[0].id, { category: v.category, sectors: v.sectors });
   return r.rows[0];
 }
@@ -71,10 +71,12 @@ export async function cancelOwnRequest(c: Conn, tenantId: string, userId: string
 }
 
 /** Time left on the promise: negative means overdue. Closed requests have no clock. */
-export function clockOf(r: Pick<ServiceRequest, "status" | "due_at" | "delivered_at">, now = new Date()) {
-  if (!OPEN.includes(r.status)) return { open: false as const, late: !!r.delivered_at && new Date(r.delivered_at) > new Date(r.due_at), msLeft: 0 };
+export function clockOf(r: Pick<ServiceRequest, "status" | "due_at" | "delivered_at" | "category" | "quote_note">, now = new Date()) {
+  if (!OPEN.includes(r.status)) return { open: false as const, awaitingQuote: false, late: !!r.delivered_at && new Date(r.delivered_at) > new Date(r.due_at), msLeft: 0 };
+  // Paid work: the delivery window starts when the quote is agreed, so there is nothing to be late against yet.
+  if (r.category === "paid" && !r.quote_note) return { open: true as const, awaitingQuote: true, late: false, msLeft: 0 };
   const msLeft = new Date(r.due_at).getTime() - now.getTime();
-  return { open: true as const, late: msLeft < 0, msLeft };
+  return { open: true as const, awaitingQuote: false, late: msLeft < 0, msLeft };
 }
 export function humanLeft(ms: number) {
   const abs = Math.abs(ms), h = Math.floor(abs / 3600_000), m = Math.floor((abs % 3600_000) / 60_000);
@@ -104,10 +106,13 @@ export async function staffUpdateRequest(db: Db, staff: { userId: string; role: 
     if (!OPEN.includes(cur.status)) throw new HttpError(409, `This request is already ${cur.status}.`, "conflict");
     if (cur.category === "paid" && status !== "cancelled" && !clean(input.quoteNote, 1000) && !cur.quote_note && status !== "received")
       throw badRequest("Record the agreed quote or commercial note before building a paid request.");
+    // The paid delivery window starts at the moment the quote is first recorded.
+    const quoteAgreedNow = cur.category === "paid" && !cur.quote_note && !!clean(input.quoteNote, 1000);
     await c.query(
       `UPDATE service_requests SET status=$2, quote_note=coalesce($3,quote_note), delivery_url=coalesce($4,delivery_url), delivery_notes=coalesce($5,delivery_notes),
+         due_at=CASE WHEN $6::boolean THEN now() + make_interval(hours => $7::int) ELSE due_at END,
          delivered_at=CASE WHEN $2='delivered' THEN now() ELSE NULL END, updated_at=now() WHERE id=$1`,
-      [id, status, clean(input.quoteNote, 1000) || null, url || null, clean(input.deliveryNotes, 4000) || null]);
+      [id, status, clean(input.quoteNote, 1000) || null, url || null, clean(input.deliveryNotes, 4000) || null, quoteAgreedNow, config.deliveryHours]);
     await c.query(`INSERT INTO service_request_events(tenant_id,request_id,status,note,actor_kind,actor_user_id) VALUES ($1,$2,$3,$4,'staff',$5)`,
       [cur.tenant_id, id, status, clean(input.note, 1000) || null, staff.userId]);
     await audit(c, cur.tenant_id, { kind: "platform_staff", userId: staff.userId }, `request.${status}`, "service_request", id, { from: cur.status });

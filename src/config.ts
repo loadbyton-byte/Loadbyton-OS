@@ -103,7 +103,7 @@ export const config = {
   liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
 
   // ── company verification at registration. Required by default in production: a new workspace stays read-only until email, mobile, trade licence and staff review are done.
-  kyc: { required: env.KYC_REQUIRED === undefined ? (isProd && !brochureMode) : flag("KYC_REQUIRED"), allowFreeMail: flag("KYC_ALLOW_FREE_MAIL"), signupsPerIpPerDay: Number(env.KYC_SIGNUPS_PER_IP_PER_DAY ?? 3), phoneCountry: (text("KYC_PHONE_COUNTRY") || "AE").toUpperCase() },
+  kyc: { required: !brochureMode && (env.KYC_REQUIRED === undefined ? isProd : flag("KYC_REQUIRED")), allowFreeMail: flag("KYC_ALLOW_FREE_MAIL"), signupsPerIpPerDay: Number(env.KYC_SIGNUPS_PER_IP_PER_DAY ?? 3), phoneCountry: (text("KYC_PHONE_COUNTRY") || "AE").toUpperCase() },
 
   // ── address geocoding for transport stops: any service answering the Nominatim /search JSON shape (self-hosted Nominatim, Photon-compatible gateways, commercial proxies). Empty URL = off.
   geocoder: { url: text("GEOCODER_URL"), apiKey: text("GEOCODER_API_KEY"), countryCodes: (text("GEOCODER_COUNTRY_CODES") || "ae").toLowerCase(), userAgent: text("GEOCODER_USER_AGENT") || "LOADBYTON-OS/1.0" },
