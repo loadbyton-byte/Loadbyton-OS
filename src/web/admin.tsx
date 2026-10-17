@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
+import { config } from "../config.js";
 import { HttpError, badRequest, fmtMoney, formatDate, toMinor } from "../lib/util.js";
-import { currentPlans } from "../platform/catalog.js";
+import { currentPlans, sectorBySlug } from "../platform/catalog.js";
+import { REQUEST_CATEGORIES, STATUS_LABEL, clockOf, requestStats } from "../platform/requests.js";
 import {
   acknowledgeReview, listDeadOutbox, listOrders, listProvisioning, listRejectedEvents, listStaffReview, listTenants,
   overview, publishPlanVersion, requestGrant, startSupportView, tenantDetail,
@@ -26,38 +28,53 @@ const run = async (c: C, to: string, fn: () => Promise<string>) => {
 
 admin.get("/admin", async (c) => {
   const db = c.get("db");
-  const [o, st] = await Promise.all([overview(db), provisioningStats(db)]);
+  const [o, st, rq] = await Promise.all([overview(db), provisioningStats(db), requestStats(db)]);
   const m = (v: number | null) => (v == null ? "—" : `${v.toFixed(1)} min`);
+  const brochure = config.brochureMode;
   return c.html(
     <AdminShell p={pg(c, "Control console")}>
       <header class="page"><h1>Control console</h1></header>
-      <div class="grid g4">
-        <div class="card"><h3>Tenants</h3><div class="kpi">{o.tenants}</div><p class="small mute">{o.paid} paid</p></div>
-        <div class="card"><h3>MRR (excl. setup & tax)</h3><div class="kpi">{fmtMoney(o.mrrMinor)}</div></div>
-        <div class="card"><h3>Pending orders</h3><div class="kpi">{o.pendingOrders}</div></div>
-        <div class="card"><h3>Open leads</h3><div class="kpi">{o.openLeads}</div></div>
+      {brochure || rq.total ? (<>
+        <h2>Build requests</h2>
+        <div class="grid g4">
+          <div class="card"><h3>Open</h3><div class="kpi">{rq.open}</div><p class="small mute"><a href="/admin/requests">Open the queue</a></p></div>
+          <div class="card"><h3>Overdue</h3><div class={`kpi ${rq.overdue ? "bad" : "good"}`}>{rq.overdue}</div><p class="small mute">{rq.dueSoon} more due within 4 h</p></div>
+          <div class="card"><h3>Awaiting a quote</h3><div class="kpi">{rq.awaitingQuote}</div><p class="small mute">Paid; the {config.deliveryHours}-hour clock starts at the quote</p></div>
+          <div class="card"><h3>Delivered, last 7 days</h3><div class="kpi">{rq.deliveredWeek}</div></div>
+        </div>
+      </>) : null}
+      <div class="grid g4" style={brochure ? "margin-top:26px" : undefined}>
+        <div class="card"><h3>{brochure ? "Clients" : "Tenants"}</h3><div class="kpi">{o.tenants}</div>{brochure ? null : <p class="small mute">{o.paid} paid</p>}</div>
+        {brochure ? null : <div class="card"><h3>MRR (excl. setup & tax)</h3><div class="kpi">{fmtMoney(o.mrrMinor)}</div></div>}
+        {brochure ? null : <div class="card"><h3>Pending orders</h3><div class="kpi">{o.pendingOrders}</div></div>}
+        <div class="card"><h3>Open leads</h3><div class="kpi">{o.openLeads}</div><p class="small mute"><a href="/admin/leads">Review</a></p></div>
       </div>
-      <h2 style="margin-top:26px">Provisioning health</h2>
-      <div class="grid g4">
-        <div class="card"><h3>p50 queue→ready</h3><div class="kpi">{m(st.p50)}</div></div><div class="card"><h3>p95 queue→ready</h3><div class="kpi">{m(st.p95)}</div></div>
-        <div class="card"><h3>Aged queue (&gt;4 h)</h3><div class={`kpi ${st.aged ? "bad" : "good"}`}>{st.aged}</div></div><div class="card"><h3>Failed (manual intervention)</h3><div class={`kpi ${st.failed ? "bad" : "good"}`}>{st.failed}</div></div>
-      </div>
+      {brochure ? null : (<>
+        <h2 style="margin-top:26px">Provisioning health</h2>
+        <div class="grid g4">
+          <div class="card"><h3>p50 queue→ready</h3><div class="kpi">{m(st.p50)}</div></div><div class="card"><h3>p95 queue→ready</h3><div class="kpi">{m(st.p95)}</div></div>
+          <div class="card"><h3>Aged queue (&gt;4 h)</h3><div class={`kpi ${st.aged ? "bad" : "good"}`}>{st.aged}</div></div><div class="card"><h3>Failed (manual intervention)</h3><div class={`kpi ${st.failed ? "bad" : "good"}`}>{st.failed}</div></div>
+        </div>
+      </>)}
       <h2 style="margin-top:26px">Needs attention</h2>
       <ul>
-        <li>Rejected payment events: <strong>{o.rejectedEvents}</strong> — <a href="/admin/orders">review</a></li>
+        {brochure ? <li>Overdue build requests: <strong>{rq.overdue}</strong> — <a href="/admin/requests">review</a></li> : <li>Rejected payment events: <strong>{o.rejectedEvents}</strong> — <a href="/admin/orders">review</a></li>}
         <li>Undeliverable outbox rows: <strong>{o.deadOutbox}</strong> — <a href="/admin/queues">review</a></li>
-        <li>Staff review items (refunds, failed activations): <strong>{o.staffReview}</strong> — <a href="/admin/queues">review</a></li>
+        <li>Staff review items{brochure ? "" : " (refunds, failed activations)"}: <strong>{o.staffReview}</strong> — <a href="/admin/queues">review</a></li>
       </ul>
     </AdminShell>);
 });
 
 admin.get("/admin/tenants", async (c) => {
   const rows = await listTenants(c.get("db"));
+  const brochure = config.brochureMode;
   return c.html(
-    <AdminShell p={pg(c, "Tenants")}>
-      <header class="page"><h1>Tenants</h1></header>
-      <Table head={["Company", "Slug", "Plan", "Subscription", "Users", "Jobs", "Created"]}>
-        {rows.map((t: any) => <tr><td><a href={`/admin/tenants/${t.id}`}>{t.name}</a></td><td>{t.slug}</td><td>{t.plan}</td><td><Badge s={t.sub_status ?? "cancelled"} /></td><td>{t.users}</td><td>{t.jobs}</td><td class="small">{formatDate(t.created_at)}</td></tr>)}
+    <AdminShell p={pg(c, brochure ? "Clients" : "Tenants")}>
+      <header class="page"><h1>{brochure ? "Clients" : "Tenants"}</h1></header>
+      <Table head={brochure ? ["Company", "Slug", "Open requests", "Users", "Created"] : ["Company", "Slug", "Plan", "Subscription", "Users", "Jobs", "Created"]}>
+        {rows.map((t: any) => brochure
+          ? <tr><td><a href={`/admin/tenants/${t.id}`}>{t.name}</a></td><td>{t.slug}</td><td>{t.open_requests}</td><td>{t.users}</td><td class="small">{formatDate(t.created_at)}</td></tr>
+          : <tr><td><a href={`/admin/tenants/${t.id}`}>{t.name}</a></td><td>{t.slug}</td><td>{t.plan}</td><td><Badge s={t.sub_status ?? "cancelled"} /></td><td>{t.users}</td><td>{t.jobs}</td><td class="small">{formatDate(t.created_at)}</td></tr>)}
       </Table>
     </AdminShell>);
 });
@@ -72,17 +89,24 @@ admin.get("/admin/tenants/:id", async (c) => {
       <header class="page"><h1>{t.name}</h1><div class="spacer"></div><Badge s={t.status} /></header>
       <p class="mute">Operational data is not shown here. Staff access to a workspace requires a customer-approved, time-limited, read-only grant.</p>
       <div class="grid g2">
-        <section class="card"><h3>Subscription</h3><p>{d.sub?.plan} · <Badge s={d.sub?.status ?? "cancelled"} /> {d.sub?.period_end ? `· renews ${formatDate(d.sub.period_end)}` : "· free forever"}</p>
+        {config.brochureMode
+          ? <section class="card"><h3>Build requests</h3>
+              <Table head={["Request", "Category", "Status", "Clock"]} empty={d.requests.length ? undefined : "No requests."}>
+                {d.requests.map((r: any) => { const k = clockOf(r); return <tr><td>{r.title}<div class="small mute">{r.sectors.map((x: string) => sectorBySlug(x)?.name ?? x).join(", ")}</div></td><td>{REQUEST_CATEGORIES[r.category as keyof typeof REQUEST_CATEGORIES]?.label ?? r.category}</td><td>{STATUS_LABEL[r.status as keyof typeof STATUS_LABEL] ?? r.status}</td><td class="small">{k.open ? (k.awaitingQuote ? "Awaiting quote" : k.late ? "Overdue" : "On time") : (k.late ? "Delivered late" : "Closed")}</td></tr>; })}
+              </Table><p class="small"><a href="/admin/requests?scope=all">Work these in the queue</a></p></section>
+          : <section class="card"><h3>Subscription</h3><p>{d.sub?.plan} · <Badge s={d.sub?.status ?? "cancelled"} /> {d.sub?.period_end ? `· renews ${formatDate(d.sub.period_end)}` : "· free forever"}</p>
           <h3>Entitlements (effective)</h3><ul>{d.entitlements.map((e: any) => <li>{e.key}: <strong>{e.int_limit}</strong> <span class="small mute">({e.source})</span></li>)}</ul>
-          <h3>Usage</h3><ul>{d.usage.map((u: any) => <li>{u.key} {u.period}: {u.used}</li>)}</ul></section>
+          <h3>Usage</h3><ul>{d.usage.map((u: any) => <li>{u.key} {u.period}: {u.used}</li>)}</ul></section>}
         <section class="card"><h3>Support access</h3>
           {active ? <><p class="alert ok">Approved until {formatDate(active.expires_at)}.</p><form method="post" action={`/admin/tenants/${t.id}/view`}><Csrf t={csrf} /><button class="btn red sm" type="submit">Open workspace read-only</button></form></> : (
             <form method="post" action={`/admin/tenants/${t.id}/grant`}><Csrf t={csrf} /><div class="field"><label for="r">Reason (shown to the customer)</label><input id="r" name="reason" type="text" minlength={10} required /></div><button class="btn sm" type="submit">Request grant</button></form>)}
           <Table head={["Staff", "Reason", "Status"]} empty={d.grants.length ? undefined : "No grants."}>{d.grants.map((g: any) => <tr><td>{g.staff}</td><td class="small">{g.reason}</td><td><Badge s={g.status} /></td></tr>)}</Table></section>
       </div>
       <h3 style="margin-top:22px">Domains</h3><Table head={["Hostname", "Kind", "Status"]}>{d.domains.map((x: any) => <tr><td>{x.hostname}</td><td>{x.kind}</td><td><Badge s={x.status} /></td></tr>)}</Table>
-      <h3 style="margin-top:22px">Orders</h3><Table head={["Reference", "Created", ["Total", "num"], "Status"]}>{d.orders.map((o: any) => <tr><td>{o.reference}</td><td class="small">{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} /></td><td><Badge s={o.status} /></td></tr>)}</Table>
-      <h3 style="margin-top:22px">Provisioning</h3><Table head={["State", "Attempts", "Queued", "Ready", "Detail"]}>{d.provisioning.map((j: any) => <tr><td><Badge s={j.state} /></td><td>{j.attempts}</td><td class="small">{formatDate(j.queued_at)}</td><td class="small">{formatDate(j.ready_at)}</td><td class="small">{j.failure_reason ?? ""}</td></tr>)}</Table>
+      {config.brochureMode ? null : <>
+        <h3 style="margin-top:22px">Orders</h3><Table head={["Reference", "Created", ["Total", "num"], "Status"]}>{d.orders.map((o: any) => <tr><td>{o.reference}</td><td class="small">{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} /></td><td><Badge s={o.status} /></td></tr>)}</Table>
+        <h3 style="margin-top:22px">Provisioning</h3><Table head={["State", "Attempts", "Queued", "Ready", "Detail"]}>{d.provisioning.map((j: any) => <tr><td><Badge s={j.state} /></td><td>{j.attempts}</td><td class="small">{formatDate(j.queued_at)}</td><td class="small">{formatDate(j.ready_at)}</td><td class="small">{j.failure_reason ?? ""}</td></tr>)}</Table>
+      </>}
       <h3 style="margin-top:22px">Recent audit</h3><Table head={["When", "Kind", "Action", "Record"]}>{d.audit.map((a: any) => <tr><td class="small nowrap">{formatDate(a.at)}</td><td>{a.actor_kind}</td><td>{a.action}</td><td class="small mute">{a.entity_type} {String(a.entity_id ?? "").slice(0, 8)}</td></tr>)}</Table>
     </AdminShell>);
 });

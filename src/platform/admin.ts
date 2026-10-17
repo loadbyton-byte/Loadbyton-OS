@@ -35,13 +35,14 @@ export async function overview(db: Db) {
 export const listTenants = (db: Db) => db.query<any>(
   `SELECT t.*, p.name AS plan, p.plan_code, s.status AS sub_status, s.period_end,
      (SELECT count(*) FROM memberships m WHERE m.tenant_id=t.id AND m.active)::int AS users,
-     (SELECT count(*) FROM jobs j WHERE j.tenant_id=t.id)::int AS jobs
+     (SELECT count(*) FROM jobs j WHERE j.tenant_id=t.id)::int AS jobs,
+     (SELECT count(*) FROM service_requests r WHERE r.tenant_id=t.id AND r.status IN ('received','in_build','ready'))::int AS open_requests
    FROM tenants t LEFT JOIN subscriptions s ON s.tenant_id=t.id LEFT JOIN plan_versions p ON p.id=s.plan_version_id ORDER BY t.created_at DESC`).then((r) => r.rows);
 
 export async function tenantDetail(db: Db, id: string) {
   const t = (await db.query<any>(`SELECT * FROM tenants WHERE id=$1`, [id])).rows[0];
   if (!t) throw new HttpError(404, "Tenant not found");
-  const [sub, ents, usage, orders, jobs, audit_, grants, domains] = await Promise.all([
+  const [sub, ents, usage, orders, jobs, audit_, grants, domains, reqs] = await Promise.all([
     db.query<any>(`SELECT s.*, p.name AS plan FROM subscriptions s JOIN plan_versions p ON p.id=s.plan_version_id WHERE tenant_id=$1`, [id]),
     db.query<any>(`SELECT DISTINCT ON (key) key,int_limit,source,effective_from FROM entitlements WHERE tenant_id=$1 AND effective_from<=now() ORDER BY key,effective_from DESC,id DESC`, [id]),
     db.query<any>(`SELECT key,period,used FROM usage_counters WHERE tenant_id=$1 ORDER BY period DESC`, [id]),
@@ -50,8 +51,9 @@ export async function tenantDetail(db: Db, id: string) {
     db.query<any>(`SELECT * FROM audit_log WHERE tenant_id=$1 ORDER BY id DESC LIMIT 50`, [id]),
     db.query<any>(`SELECT g.*, u.name AS staff FROM support_grants g JOIN users u ON u.id=g.staff_user_id WHERE tenant_id=$1 ORDER BY requested_at DESC`, [id]),
     db.query<any>(`SELECT * FROM domain_mappings WHERE tenant_id=$1 ORDER BY created_at`, [id]),
+    db.query<any>(`SELECT id,category,sectors,title,status,quote_note,due_at,delivered_at,created_at FROM service_requests WHERE tenant_id=$1 ORDER BY created_at DESC`, [id]),
   ]);
-  return { tenant: t, sub: sub.rows[0], entitlements: ents.rows, usage: usage.rows, orders: orders.rows, provisioning: jobs.rows, audit: audit_.rows, grants: grants.rows, domains: domains.rows };
+  return { tenant: t, sub: sub.rows[0], entitlements: ents.rows, usage: usage.rows, orders: orders.rows, provisioning: jobs.rows, audit: audit_.rows, grants: grants.rows, domains: domains.rows, requests: reqs.rows };
 }
 
 export const listOrders = (db: Db) => db.query<any>(

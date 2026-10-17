@@ -93,6 +93,20 @@ export const listAllRequests = async (db: Db, scope: "open" | "all" = "open") =>
        FROM service_requests r JOIN tenants t ON t.id=r.tenant_id JOIN users u ON u.id=r.requested_by
       ${scope === "open" ? "WHERE r.status IN ('received','in_build','ready')" : ""} ORDER BY r.due_at LIMIT 300`)).rows;
 
+/** Delivery-queue health for the staff overview. Mirrors clockOf: a paid request with no quote yet has no clock, so it is never counted late. */
+export async function requestStats(db: Db) {
+  const open = `status IN ('received','in_build','ready')`, waiting = `(category='paid' AND quote_note IS NULL)`;
+  const r = (await db.query<any>(
+    `SELECT count(*) FILTER (WHERE ${open})::int AS open,
+            count(*) FILTER (WHERE ${open} AND ${waiting})::int AS awaiting_quote,
+            count(*) FILTER (WHERE ${open} AND NOT ${waiting} AND due_at < now())::int AS overdue,
+            count(*) FILTER (WHERE ${open} AND NOT ${waiting} AND due_at >= now() AND due_at < now() + interval '4 hours')::int AS due_soon,
+            count(*) FILTER (WHERE status='delivered' AND delivered_at > now() - interval '7 days')::int AS delivered_week,
+            count(*)::int AS total
+       FROM service_requests`)).rows[0];
+  return { open: r.open as number, awaitingQuote: r.awaiting_quote as number, overdue: r.overdue as number, dueSoon: r.due_soon as number, deliveredWeek: r.delivered_week as number, total: r.total as number };
+}
+
 export async function staffUpdateRequest(db: Db, staff: { userId: string; role: string | null }, id: string, input: { status: string; note?: string; quoteNote?: string; deliveryUrl?: string; deliveryNotes?: string }) {
   needStaff(staff.role);
   const status = input.status as RequestStatus;
