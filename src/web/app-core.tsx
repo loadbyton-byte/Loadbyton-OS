@@ -32,8 +32,13 @@ import { act, appPage, back, can, ctxOf, navFor, need, PageHead, PostBtn, Confir
 import { Badge, Csrf, Money, Table, sectorName } from "./ui.js";
 import { gateMessage } from "../platform/kyc-messages.js";
 import { handlePaymentWebhook } from "./auth.js";
+import { brochureDashboard } from "./requests.js";
 
 export const core = new Hono<Env>();
+/** Brochure mode: only these workspace pages exist. Exact paths first, then sections whose sub-pages are also allowed. */
+const BROCHURE_EXACT = new Set(["/app", "/app/switch", "/app/alerts.json"]);
+const BROCHURE_SECTIONS = ["/app/requests", "/app/team"];
+const brochureAllows = (path: string) => BROCHURE_EXACT.has(path) || BROCHURE_SECTIONS.some((x) => path === x || path.startsWith(x + "/"));
 
 // ── context + tenant info for every /app page; portal users are fenced to the portal
 core.use("/app/*", requireCtx);
@@ -47,6 +52,12 @@ core.use("/app/*", async (c, next) => {
      FROM tenants t JOIN subscriptions s ON s.tenant_id=t.id JOIN plan_versions p ON p.id=s.plan_version_id WHERE t.id=$1`, [ctx.tenantId])).rows[0];
   c.set("tenant", { name: t.name, slug: t.slug, sectors: t.sectors, plan: t.plan, planCode: t.plan_code, subStatus: t.sub_status, verification: t.verification_status });
   c.set("memberships", (await membershipsFor(db, ctx.userId)).map((m) => ({ tenant_id: m.tenant_id, name: m.name })));
+  // Brochure mode: the client's workspace is the request tracker. Operating modules, billing and usage pages are not offered.
+  if (config.brochureMode) {
+    if (!brochureAllows(c.req.path)) return c.redirect("/app");
+    if (ctx.roles.length === 1 && (ctx.roles[0] === "portal" || ctx.roles[0] === "driver")) throw new HttpError(403, "This workspace tracks build requests. Ask an owner of your company for access.", "forbidden");
+    return next();   // skip the operating-plane gates (verification, portal and driver fences, sectors): none apply here
+  }
   const portalOnly = ctx.roles.length === 1 && ctx.roles[0] === "portal";
   const driverOnly = ctx.roles.length === 1 && ctx.roles[0] === "driver";
   const p = c.req.path;
@@ -133,6 +144,7 @@ core.post("/app/switch", async (c) => {
 
 // ── overview
 core.get("/app", async (c) => {
+  if (config.brochureMode) return brochureDashboard(c);
   const ctx = ctxOf(c), t = c.get("tenant")!;
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return c.redirect("/app/driver");
   const data = await withT(c, async (cn) => {

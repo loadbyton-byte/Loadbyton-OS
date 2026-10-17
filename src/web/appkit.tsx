@@ -7,6 +7,7 @@ import type { Ctx, Perm } from "../lib/perms.js";
 import { require as requirePerm } from "../lib/perms.js";
 import { AppShell, Csrf, type NavItem, type Page } from "./ui.js";
 import type { C } from "./mw.js";
+import { config } from "../config.js";
 
 export const ctxOf = (c: C): Ctx => c.get("ctx")!;
 
@@ -23,6 +24,7 @@ export function navFor(c: C): NavItem[] {
   const ctx = ctxOf(c);
   if (ctx.roles.length === 1 && ctx.roles[0] === "portal") return [{ href: "/app/portal", label: "My shipments" }];
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return [{ href: "/app/driver", label: "My work" }];
+  if (config.brochureMode) return [{ href: "/app", label: "Your requests" }, ...(ctx.perms.has("team.manage") ? [{ href: "/app/team", label: "Team", section: "Admin" }] : []), { href: "/account/security", label: "Account security", section: "Admin" }];
   const t = c.get("tenant");
   const fwd = t?.sectors.includes("freight-forwarding");
   const n: NavItem[] = [{ href: "/app", label: "Overview" }];

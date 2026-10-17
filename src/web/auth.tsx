@@ -17,6 +17,8 @@ import { SESSION_COOKIE, arr, clearSessionCookie, clientIp, formBody, safeNext, 
 import { AuthFrame, Icon } from "./experience.js";
 import { requestPasswordRecovery, recoverPassword } from '../platform/password-recovery.js';
 import { Csrf, PublicShell, type Page } from "./ui.js";
+import { brochureStartPage, parseRequest } from "./requests.js";
+import { checkNewRequest, createRequest } from "../platform/requests.js";
 
 export const auth = new Hono<Env>();
 const pg = (c: any, title: string): Page => ({
@@ -32,6 +34,7 @@ const EMIRATES = ["Abu Dhabi", "Dubai", "Sharjah", "Ajman", "Umm Al Quwain", "Ra
 const GOALS = ["Stop losing margin on jobs", "Get quotes and enquiries out of WhatsApp and spreadsheets", "Invoice faster and chase collections", "Control supplier costs", "Give customers a portal", "Just exploring"];
 
 auth.get("/start", async (c) => {
+  if (config.brochureMode) return brochureStartPage(c);
   const SECTORS = withLiveAvailability(await releasedSectors(c.get("db")));
   const p = pg(c, "Start free");
   const pre = new URL(c.req.url).searchParams.getAll("sector");
@@ -95,6 +98,16 @@ auth.post("/start", async (c) => {
     const ip = clientIp(c);
     if (ip) await rateLimit(`signup-ip:${ip}`, config.kyc.signupsPerIpPerDay, 86400, "Too many registrations from this network today. Try again tomorrow or contact support.");
     await rateLimit(`signup-email:${str(b.email).toLowerCase().split("@")[1] ?? "x"}`, 10, 86400, "Too many registrations for this email domain today. Contact support.");
+    if (config.brochureMode) {
+      // validate the whole request first so a bad form never leaves an account without one
+      const req = parseRequest(b);
+      checkNewRequest(req);
+      const r = await registerCompany(db, { company: str(b.company), contactName: str(b.contact), email: str(b.email), password: str(b.password), country: "AE", sectors: [], goal: `Build request (${req.category})` });
+      const created = await db.tenant(r.tenantId, (cn) => createRequest(cn, r.tenantId, r.userId, req));
+      const s = await newSession(db, r.userId, r.tenantId);
+      setSessionCookie(c, s.token);
+      return c.redirect(`/app/requests/${created.id}?ok=` + encodeURIComponent(created.category === "paid" ? `Request received. We will send you a quote; delivery follows within ${config.deliveryHours} hours of agreeing it.` : `Request received. Delivery is due within ${config.deliveryHours} hours.`));
+    }
     const r = await registerCompany(db, {
       kyc: { phone: str(b.phone), licenceNo: str(b.licence), licenceAuthority: str(b.authority), trn: str(b.trn), ip },
       company: str(b.company), contactName: str(b.contact), email: str(b.email), password: str(b.password),

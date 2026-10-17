@@ -17,8 +17,18 @@ const flag = (name: string) => ["1", "true", "yes"].includes(text(name).toLowerC
 const paymentProviders = list(env.PAYMENT_PROVIDERS ?? env.PAYMENT_PROVIDER ?? "mock");
 const KNOWN_PROVIDERS = ["mock", "stripe", "razorpay"];
 
+/** Brochure mode (default on): the public site is a brochure with a demo, `/start` registers a free or paid build request, and `/app` is a
+ * request tracker. The client runs the delivered system on their own backend, so no usage dashboard, metering or billing is exposed.
+ * BROCHURE_MODE=false restores the full multi-tenant operating platform. */
+const brochureMode = env.BROCHURE_MODE === undefined ? true : flag("BROCHURE_MODE");
+
 export const config = {
   isProd,
+  brochureMode,
+  /** Delivery promise for a complete request, in hours from the moment it is submitted. */
+  deliveryHours: Math.max(1, Number(env.DELIVERY_HOURS ?? 24)),
+  /** Public URL of the live demo environment (the separate seeded demo database). Empty hides the "Open live demo" button. */
+  demoUrl: text("DEMO_URL"),
   port: Number(env.PORT ?? 3000),
   baseUrl: env.PUBLIC_BASE_URL ?? "http://localhost:3000",
   rootDomain: (env.ROOT_DOMAIN ?? "").toLowerCase(),
@@ -93,7 +103,7 @@ export const config = {
   liveFeeds: { allowedHosts: list(env.FEED_ALLOWED_HOSTS), intervalMinutes: Number(env.FEED_PULL_INTERVAL_MINUTES ?? 60) },
 
   // ── company verification at registration. Required by default in production: a new workspace stays read-only until email, mobile, trade licence and staff review are done.
-  kyc: { required: env.KYC_REQUIRED === undefined ? isProd : flag("KYC_REQUIRED"), allowFreeMail: flag("KYC_ALLOW_FREE_MAIL"), signupsPerIpPerDay: Number(env.KYC_SIGNUPS_PER_IP_PER_DAY ?? 3), phoneCountry: (text("KYC_PHONE_COUNTRY") || "AE").toUpperCase() },
+  kyc: { required: !brochureMode && (env.KYC_REQUIRED === undefined ? isProd : flag("KYC_REQUIRED")), allowFreeMail: flag("KYC_ALLOW_FREE_MAIL"), signupsPerIpPerDay: Number(env.KYC_SIGNUPS_PER_IP_PER_DAY ?? 3), phoneCountry: (text("KYC_PHONE_COUNTRY") || "AE").toUpperCase() },
 
   // ── address geocoding for transport stops: any service answering the Nominatim /search JSON shape (self-hosted Nominatim, Photon-compatible gateways, commercial proxies). Empty URL = off.
   geocoder: { url: text("GEOCODER_URL"), apiKey: text("GEOCODER_API_KEY"), countryCodes: (text("GEOCODER_COUNTRY_CODES") || "ae").toLowerCase(), userAgent: text("GEOCODER_USER_AGENT") || "LOADBYTON-OS/1.0" },
