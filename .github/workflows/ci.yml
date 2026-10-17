@@ -56,6 +56,9 @@ jobs:
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Forwarding and transport receipts browser acceptance
         shell: bash
+        # These walkthroughs drive the operating platform, so run it with brochure mode off.
+        env:
+          BROCHURE_MODE: "false"
         run: |
           set -euo pipefail
           npm start > /tmp/loadbyton-browser-server.log 2>&1 &
