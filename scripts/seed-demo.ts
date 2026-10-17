@@ -21,6 +21,10 @@ import { createEnquiry, createParty, createRate } from "../src/ops/crm.js";
 import { acceptQuote, approveQuote, createQuote, sendQuote, submitQuote } from "../src/ops/quotes.js";
 import { getJob, recordMilestone } from "../src/ops/jobs.js";
 import { acceptInvite, invite } from "../src/ops/team.js";
+import { approveSpecialistReview, createSpecialistCase, recordSpecialistEvent, transitionSpecialistCase } from "../src/ops/specialists.js";
+import { SPECIALIST_PROFILES } from "../src/ops/specialist-profiles.js";
+import { uploadDocument } from "../src/ops/documents.js";
+import { SECTORS } from "../src/platform/catalog.js";
 import { addLine as cusAddLine, approveCase as cusApprove, attachEvidence as cusAttach, createCase as cusCreate, getCase as cusGet, receiveDeposit as cusDeposit, recordAssessment as cusAssess, recordSubmission as cusSubmit, submitForReview as cusReview } from "../src/ops/customs.js";
 import { createInbound as fulCreateInbound, createLocation as fulCreateLocation, createOrder as createFulfilOrder, createReturn, createSku as fulCreateSku, getFulfilOrder, getInbound as fulGetInbound, getReturn, packScan, pickOrder, receiveInbound, receiveReturn, requestAdjustment, shipOrder } from "../src/ops/fulfilment.js";
 import { runStorageCharges, setRate as fulSetRate } from "../src/ops/fulfil-billing.js";
@@ -318,6 +322,43 @@ else {
   newlySeeded.push("single");
 }
 
+
+// ── the twelve specialist packs (consolidation, cold chain, project cargo, automotive, marine, aviation, moving, trading, distribution, depot, dangerous cargo, cross-border):
+//    each gets a recorded qualified review, one live customer case with its readiness evidence, and a few real events. Every event goes through the same rules the app enforces.
+const SPECIALIST_DEMO: Record<string, { ref: string; fields: Record<string, any>; subject?: string; before?: [string, Record<string, any>][]; after: [string, Record<string, any>][] }> = {
+  "consolidation-nvocc": { ref: "DEMO-CN-3010", fields: { master_ref: "MAEU-7712", container_ref: "MSCU1234567", basis: "weight", master_cost_minor: "38000" }, before: [["house", { house_ref: "HBL-9001", basis_qty: 100, allocated_minor: "38000", destination_agent: "Hamburg Cargo Agents" }], ["settlement", { reference: "AGENT-BANK-7712", amount_minor: "38000" }]], after: [] },
+  "cold-chain": { ref: "DEMO-CC-0710", fields: { sensor_ref: "LOGGER-2210", minimum_c: 2, maximum_c: 8 }, before: [["calibration", { valid_until: day(180), reference: "CAL-2210" }]], after: [["temperature", { celsius: 5, observed_at: ago(90) }], ["temperature", { celsius: 6, observed_at: ago(30) }]] },
+  "project-heavy-cargo": { ref: "DEMO-PJ-120", fields: { project_ref: "TRANSFORMER-82T", equipment: "Transformer 82 t", budget_minor: "410000" }, after: [["stage", { stage: "survey", decision: "Route survey approved" }], ["stage", { stage: "loading", decision: "Lifting plan approved" }]] },
+  "automotive-logistics": { ref: "DEMO-AU-5521", subject: "1HGCM82633A004352", fields: { vin: "1HGCM82633A004352", initial_yard: "Jebel Ali yard B" }, after: [["condition", { condition: "good", detail: "Port inspection: no damage" }], ["yard", { location: "Slot B-14", reference: "YARD-B14" }]] },
+  "marine-agency": { ref: "DEMO-PC-4410", fields: { vessel_ref: "IMO-9811000", port: "Jebel Ali", eta: ago(-600), estimate_minor: "62000" }, after: [["disbursement", { reference: "BANK-PC-4410", amount_minor: "18400" }]] },
+  "aviation-logistics": { ref: "DEMO-AW-610", fields: { airwaybill: "176-12345678", flight: "EK 9 Dubai-Frankfurt", agent: "Dnata handling" }, after: [["milestone", { stage: "booked", observed_at: ago(300), reference: "BOOKED" }], ["milestone", { stage: "departed", observed_at: ago(120), reference: "DEPARTED" }]] },
+  "moving-relocation": { ref: "DEMO-MV-208", fields: { survey_ref: "SURVEY-208", crew: "Crew A (4 movers)", appointment: ago(-1500), storage_location: "Abu Dhabi, Khalifa City" }, after: [["item", { item_ref: "ITEM-001", description: "Sofa set", qty: 3 }], ["packed", { item_ref: "ITEM-001", qty: 3 }]] },
+  "import-export-trading": { ref: "DEMO-TR-310", fields: { purchase_order: "PO-4410", sales_order: "SO-8120", stock_owner: "DEMO Gulf Trading LLC" }, after: [["stock", { sku: "OLIVE-OIL-1L", direction: "receipt", qty: 120, unit_cost_minor: "1800" }], ["stock", { sku: "OLIVE-OIL-1L", direction: "dispatch", qty: 80, unit_cost_minor: "1800" }]] },
+  distribution: { ref: "DEMO-DO-7101", fields: { customer_order: "ORDER-7101", route: "Van route R3" }, after: [["allocation", { sku: "WATER-5L", qty: 40, source_ref: "STOCK-WH1" }], ["dispatch", { sku: "WATER-5L", qty: 30 }]] },
+  "container-depot": { ref: "DEMO-CD-771", subject: "MSCU7712011", fields: { container_ref: "MSCU7712011", yard: "Yard C" }, after: [["gate", { direction: "in", condition: "good", observed_at: ago(200) }], ["repair", { repair_ref: "REP-771", state: "opened", amount_minor: "780" }]] },
+  "dangerous-cargo": { ref: "DEMO-DG-045", fields: { un_number: "UN1263", hazard_class: "3", restrictions: "Class 3 flammable liquid: trained driver, no mixed loading" }, before: [["trained_approval", { reviewer: "Demo Safety Officer", valid_until: day(180), decision: "Approved" }]], after: [] },
+  "cross-border-transit": { ref: "DEMO-XB-901", fields: { entry_border: "Hatta", exit_border: "Wajajah", guarantee_minor: "22000" }, before: [["guarantee", { direction: "received", amount_minor: "22000", reference: "GUAR-901" }]], after: [["leg", { direction: "entry", border: "Hatta", official_ref: "ENTRY-901" }]] },
+};
+async function seedSpecialists(t: Target) {
+  const { ctx } = t;
+  await db.tenant(t.tenantId, async (c) => {
+    const cust = await createParty(c, ctx, { kind: "customer", name: "DEMO Specialist Cargo Client", credit_limit: "100000", email: "cargo@specialist.example" });
+    for (const [sector, d] of Object.entries(SPECIALIST_DEMO)) {
+      const profile = SPECIALIST_PROFILES[sector];
+      const doc = await uploadDocument(c, ctx, { kind: "other", title: `${sector} qualified review and handling instructions`, issuer: "Demo qualified external reviewer", filename: `${sector}-review.pdf`, data: Buffer.from("%PDF-1.4 demo review evidence") });
+      await approveSpecialistReview(c, ctx, sector, "Demo qualified reviewer", doc, day(365));
+      const created = await createSpecialistCase(c, ctx, sector, { party_id: cust, external_ref: d.ref, subject_ref: d.subject ?? d.ref, fee: "0", tax_code: "SR5", ...d.fields });
+      let n = 0;
+      const ev = (kind: string, a: Record<string, any>) => recordSpecialistEvent(c, ctx, created.id, kind, a, "Demo record", `${d.ref}-e${++n}`, doc);
+      for (const kind of profile.readyEvidence) await ev("evidence", { evidence_kind: kind });
+      for (const [kind, a] of d.before ?? []) await ev(kind, a);
+      await transitionSpecialistCase(c, ctx, created.id, "ready", "Readiness evidence complete");
+      await transitionSpecialistCase(c, ctx, created.id, "active", "Started");
+      for (const [kind, a] of d.after) await ev(kind, a);
+    }
+  });
+}
+
 // ───────── showcase: every built sector in one workspace, on the Enterprise plan (scoped with our team, so set here rather than bought at checkout)
 const BUILT_SECTORS = SINGLE.flatMap((s) => s.spec.sectors);
 let showcase: Target | null = null;
@@ -328,9 +369,10 @@ else {
     const plan = (await currentPlans(c)).find((p) => p.plan_code === "enterprise")!;
     await c.query(`UPDATE subscriptions SET plan_version_id=$2, status='active', period_start=now(), period_end=now() + interval '5 years', updated_at=now() WHERE tenant_id=$1`, [showcase!.tenantId, plan.id]);
     await applyPlanEntitlements(c, showcase!.tenantId, plan, "demo-seed");
-    for (const sector of BUILT_SECTORS) await c.query(`INSERT INTO tenant_sectors(tenant_id,sector) VALUES ($1,$2)`, [showcase!.tenantId, sector]);
+    for (const sector of SECTORS.map((x) => x.slug)) await c.query(`INSERT INTO tenant_sectors(tenant_id,sector) VALUES ($1,$2)`, [showcase!.tenantId, sector]);
   });
   for (const s of SINGLE) await s.seed(showcase);
+  await seedSpecialists(showcase);
   // a full team and a customer-portal login, so role-specific screens can be tried
   const portalParty = (await db.tenant(showcase.tenantId, (c) => c.query<any>(`SELECT id FROM parties WHERE name='DEMO Desert Trading FZE'`))).rows[0].id;
   const roster: [string, string, string[], string?][] = [

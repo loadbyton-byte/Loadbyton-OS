@@ -41,7 +41,7 @@ describe("request rules", () => {
     expect(clockOf(r, new Date("2026-10-18T09:00:00Z"))).toMatchObject({ open: true, late: true });
     const bad = (over: object) => db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, { ...good, ...over } as any));
     await expect(bad({ sectors: ["freight-forwarding", "road-transport"] })).rejects.toThrow(/one sector/);
-    await expect(bad({ sectors: ["cold-chain"] })).rejects.toThrow(/bespoke/i);
+    // every sector now has a pack, so a free build may choose any ONE of the eighteen
     await expect(bad({ sectors: [] })).rejects.toThrow(/at least one sector/i);
     await expect(bad({ category: "enterprise" })).rejects.toThrow(/Free or Paid/);
     await expect(bad({ demoReviewed: false })).rejects.toThrow(/seen the demo/);

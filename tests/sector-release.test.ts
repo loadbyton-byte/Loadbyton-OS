@@ -26,6 +26,6 @@ describe("sector release gates drive the public label", () => {
     await accept(db, aud, key, "Reviewed", plus(90));
     const live = withLiveAvailability(await releasedSectors(db));
     expect(live.find((s) => s.slug === "cold-chain")?.availability).toBe("available");
-    expect(live.find((s) => s.slug === "distribution")?.availability).toBe("planned");
+    expect(live.find((s) => s.slug === "distribution")?.availability).toBe("pilot");
   });
 });
