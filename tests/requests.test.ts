@@ -1,3 +1,4 @@
+import { SECTORS } from "../src/platform/catalog.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Db } from "../src/db/client.js";
 import { config } from "../src/config.js";
@@ -115,6 +116,10 @@ describe("brochure site", () => {
   it("shows the brochure pages and the free/paid categories", async () => {
     const b = new Browser();
     for (const p of ["/demo", "/pricing", "/start", "/sectors"]) expect((await b.get(p)).status).toBe(200);
+    const demo = await (await b.get("/demo")).text();
+    expect((demo.match(/class="sector-card"/g) ?? []).length).toBe(SECTORS.length);   // all eighteen sectors are on the demo page
+    expect(demo).toContain("Built to order");
+    expect(demo).toContain("Working demo");
     const pricing = await (await b.get("/pricing")).text();
     expect(pricing).toContain("Free build");
     expect(pricing).toContain("do not host your system");

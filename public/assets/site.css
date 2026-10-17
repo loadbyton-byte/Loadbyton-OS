@@ -41,8 +41,6 @@
 }
 @media (max-width:520px){.head-cta .btn.red span.hide-s{display:none}.head-cta .btn.red{padding-inline:1rem}.head-cta .wa-mini{display:none}.site-head .brand-lockup .brand-wordmark img{width:126px;height:auto}.site-head .bar{padding-left:14px;gap:6px}.site-head{padding-inline:10px}.site-head .brand-store{font-size:8px}}
 @media(max-width:380px){.site-head .brand-lockup .brand-wordmark img{width:110px}.head-cta .btn.red{padding-inline:.8rem}}
-.public-experience:has(.toasts:not(:empty)) .hero-film{margin-top:0}
-.public-experience:has(.toasts:not(:empty)) .site-head.on-dark .bar{background:var(--navy)}
 .public-experience:has(dialog[open]) .chat-launch{visibility:hidden}
 .sheet-menu{max-height:calc(100dvh - 100px);overflow-y:auto;overscroll-behavior:contain}
 
@@ -367,3 +365,4 @@ footer.site ul{list-style:none;padding:0;margin:0;display:grid;gap:9px;font-size
 
 @media(max-width:520px){.site-head .bar{flex-wrap:wrap}.site-head .head-cta{margin-left:auto}}
 @media(max-width:380px){.public-experience{--hdr:116px}}
+.sc-body>.badge{align-self:flex-start}

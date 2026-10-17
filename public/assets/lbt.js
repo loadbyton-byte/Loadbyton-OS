@@ -16,7 +16,7 @@
   };
   var tray;
   LBT.toast = function (o) {
-    // Notices occupy their own row: never cover navigation, copy or form controls.
+    // Notices float over the page (fixed, top-right on desktop, above the chat button on phones): they never move the layout, and each one auto-dismisses.
     if (!tray) { tray = doc.createElement("div"); tray.className = "toasts"; tray.setAttribute("role", "region"); tray.setAttribute("aria-label", "Notifications"); var main = doc.getElementById("main") || doc.body; main.insertBefore(tray, main.firstChild); }
     while (tray.firstChild) tray.removeChild(tray.firstChild);
     var t = doc.createElement("div"); t.className = "toast" + (o.image ? " toast-photo" : ""); t.setAttribute("role", "status");
