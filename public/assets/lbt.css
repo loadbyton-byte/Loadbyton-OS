@@ -165,7 +165,8 @@ progress::-moz-progress-bar{background:var(--signal);border-radius:99px}
 .print-doc *{color:inherit}.print-doc h1,.print-doc h2,.print-doc h3{color:#0F2B3D}
 
 /* ── toasts: iOS-style glass banners ── */
-.toasts{position:relative;display:grid;gap:10px;width:min(760px,calc(100% - 32px));margin:20px auto;clear:both}
+.toasts{position:fixed;top:calc(var(--hdr,76px) + 64px);right:16px;left:auto;z-index:70;display:grid;gap:10px;width:min(440px,calc(100% - 32px));margin:0;pointer-events:none}.toasts>*{pointer-events:auto;box-shadow:var(--sh-2)}
+@media(max-width:640px){.toasts{left:16px;right:16px;width:auto;top:auto;bottom:92px}}
 .toasts:empty{display:none}
 .toast{display:grid;grid-template-columns:40px minmax(0,1fr) 36px;gap:12px;align-items:center;padding:16px;border-radius:22px;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh-1);color:var(--ink);overflow-wrap:anywhere}
 .toast-photo{grid-template-columns:120px minmax(0,1fr) 36px}

@@ -1,3 +1,4 @@
+import { SECTORS } from "../src/platform/catalog.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Db } from "../src/db/client.js";
 import { config } from "../src/config.js";
@@ -40,7 +41,7 @@ describe("request rules", () => {
     expect(clockOf(r, new Date("2026-10-18T09:00:00Z"))).toMatchObject({ open: true, late: true });
     const bad = (over: object) => db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, { ...good, ...over } as any));
     await expect(bad({ sectors: ["freight-forwarding", "road-transport"] })).rejects.toThrow(/one sector/);
-    await expect(bad({ sectors: ["cold-chain"] })).rejects.toThrow(/bespoke/i);
+    // every sector now has a pack, so a free build may choose any ONE of the eighteen
     await expect(bad({ sectors: [] })).rejects.toThrow(/at least one sector/i);
     await expect(bad({ category: "enterprise" })).rejects.toThrow(/Free or Paid/);
     await expect(bad({ demoReviewed: false })).rejects.toThrow(/seen the demo/);
@@ -115,6 +116,14 @@ describe("brochure site", () => {
   it("shows the brochure pages and the free/paid categories", async () => {
     const b = new Browser();
     for (const p of ["/demo", "/pricing", "/start", "/sectors"]) expect((await b.get(p)).status).toBe(200);
+    const demo = await (await b.get("/demo")).text();
+    expect((demo.match(/class="sector-card"/g) ?? []).length).toBe(SECTORS.length);   // all eighteen sectors are on the demo page
+    for (const sec of SECTORS) {   // and every sector has its own demo walkthrough
+      const page = await b.get(`/demo/${sec.slug}`);
+      expect(page.status, sec.slug).toBe(200);
+      expect(await page.text()).toContain("The day at a glance");
+    }
+    expect((await b.get("/demo/not-a-sector")).status).toBe(404);
     const pricing = await (await b.get("/pricing")).text();
     expect(pricing).toContain("Free build");
     expect(pricing).toContain("do not host your system");

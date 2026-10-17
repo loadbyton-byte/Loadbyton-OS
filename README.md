@@ -39,7 +39,7 @@ npm ci
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
 npm test                    # 624 tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty. Run the demo with BROCHURE_MODE=false so the operating screens open.
-                            #   showcase@loadbyton.example — ONE workspace with every built sector (freight, customs, transport, 3PL, courier/COD, fulfilment) on the Enterprise plan,
+                            #   showcase@loadbyton.example — ONE workspace with all eighteen sectors (the six full packs plus the twelve reviewed specialist packs, each with a live customer case) on the Enterprise plan,
                             #     a full team (showcase.{sales,pricing,coordinator,dispatcher,finance,customs,auditor,portal}@…), phone views (showcase.driver1@…, showcase.rider1@…) and build requests at every stage
                             #   demo@… (freight) · transport@… (dispatcher) · driver1@… (phone view) · fulfilment@… (e-commerce) · warehouse@… (3PL manager) · delivery@… (courier owner) · customs@… (customs broker) · rider1@… (rider phone view)
                             #   admin@… (commercial_admin) and auditor@… sign in at /login then enter the authenticator code for /admin; the seed prints their authenticator links once
