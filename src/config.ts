@@ -17,10 +17,10 @@ const flag = (name: string) => ["1", "true", "yes"].includes(text(name).toLowerC
 const paymentProviders = list(env.PAYMENT_PROVIDERS ?? env.PAYMENT_PROVIDER ?? "mock");
 const KNOWN_PROVIDERS = ["mock", "stripe", "razorpay"];
 
-/** Brochure mode (default on): the public site is a brochure with a demo, `/start` registers a free or paid build request, and `/app` is a
+/** Brochure mode (default off since 18 Oct 2026): when on, the public site is a brochure with a demo, `/start` registers a free or paid build request, and `/app` is a
  * request tracker. The client runs the delivered system on their own backend, so no usage dashboard, metering or billing is exposed.
- * BROCHURE_MODE=false restores the full multi-tenant operating platform. */
-const brochureMode = env.BROCHURE_MODE === undefined ? true : flag("BROCHURE_MODE");
+ * BROCHURE_MODE=true restores that fenced mode; by default the full multi-tenant operating platform is available. */
+const brochureMode = env.BROCHURE_MODE === undefined ? false : flag("BROCHURE_MODE");
 
 /** Link with loadbyton.com: signed entitlement events in, "Continue with Loadbyton" sign-in out. Everything stays off until configured. */
 const ecosystem = {
