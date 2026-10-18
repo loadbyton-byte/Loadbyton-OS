@@ -42,6 +42,8 @@ export const config = {
   baseUrl: env.PUBLIC_BASE_URL ?? "http://localhost:3000",
   rootDomain: (env.ROOT_DOMAIN ?? "").toLowerCase(),
   ecosystem,
+  /** "all" = the operator declares every sector pack live (decision of 18 Oct 2026). Independent acceptance records are still kept and shown in the readiness register; this changes what the public site calls a sector, not what the register says. Default "gated" = a sector is Available only once its own gate is accepted. */
+  sectorRelease: (text("SECTOR_RELEASE").toLowerCase() === "all" ? "all" : "gated") as "all" | "gated",
 
   // ── database (PGlite when empty; Neon / Supabase / any PostgreSQL otherwise)
   databaseUrl: env.DATABASE_URL ?? "",
@@ -128,9 +130,10 @@ export const config = {
   vatBps: Number(env.CHECKOUT_VAT_BPS ?? 500),
   checkoutTaxNote: text("CHECKOUT_TAX_NOTE"),
   seller: {
-    legalName: text("SELLER_LEGAL_NAME"), tradeName: text("SELLER_TRADE_NAME"), gstin: text("SELLER_GSTIN"), pan: text("SELLER_PAN"),
-    address: text("SELLER_ADDRESS"), email: text("SELLER_SUPPORT_EMAIL"), lutNote: text("SELLER_LUT_NOTE"),
-    sac: text("SELLER_SAC"), supplyNote: text("SELLER_SUPPLY_NOTE"),
+    // One UAE legal entity operates loadbyton.com and loadbyton.store. trn = UAE Tax Registration Number (VAT), set only once the entity is VAT-registered.
+    legalName: text("SELLER_LEGAL_NAME"), tradeName: text("SELLER_TRADE_NAME"), trn: text("SELLER_TRN"),
+    tradeLicence: text("SELLER_TRADE_LICENCE"), licenceAuthority: text("SELLER_LICENCE_AUTHORITY"),
+    address: text("SELLER_ADDRESS"), email: text("SELLER_SUPPORT_EMAIL"), supplyNote: text("SELLER_SUPPLY_NOTE"),
   },
 
   // ── public contact points shown across the site, in the assistant and in the live chat. WhatsApp links are built from the same number.

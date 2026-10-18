@@ -12,7 +12,7 @@ Implemented controls include tenant RLS/composite foreign keys, raw signed webho
 
 | Gate | Evidence required | Status |
 |---|---|---|
-| Merchant/legal/tax | Indian contracting identity, GST/tax treatment, reviewed terms/privacy/DPA/subprocessor schedule; account eligibility for services/currency/foreign customers | Credentials and documents supplied by owner at deployment |
+| Merchant/legal/tax | UAE contracting identity (one entity for loadbyton.com and .store), VAT registration and treatment, reviewed terms/privacy/DPA/subprocessor schedule; account eligibility for services/currency/foreign customers | Credentials and documents supplied by owner at deployment |
 | Stripe | Test success, failure, async success, cancel, duplicate/rotated signatures, reconciliation, full/partial refund, dispute and merchant settlement | Live/sandbox credentials required |
 | Razorpay | Correct AED or reviewed INR link, wallet/card eligibility, repeated link creation after timeout, signed retry event, refund/dispute mapping, settlement | Live/sandbox credentials required |
 | Google Pay | Actual supported merchant/device/currency checkout; record fallback when unavailable | Provider-controlled acceptance pending |

@@ -5,6 +5,7 @@ import { CtaBand, Faq, Feature, PHOTO, PageHero, Section, sectorPhoto } from "./
 import { Hono } from "hono";
 import { currentPlans, INTEGRATIONS, PLAN_SEEDS, PRODUCTS, recommendBundle, SECTORS, withLiveAvailability, type PlanVersion } from "../platform/catalog.js";
 import { releasedSectors } from "../platform/readiness.js";
+import { LEGAL } from "./legal-docs.js";
 import { HttpError, badRequest, fmtMoney } from "../lib/util.js";
 import { arr, clientIp, formBody, str, type Env } from "./mw.js";
 import { rateLimit } from "../lib/ratelimit.js";
@@ -112,7 +113,9 @@ pub.get("/sectors/:slug", async (c) => {
           <h2>Specialist workflow and required controls</h2>
           <p>{s.workflow}.</p>
           {s.availability === "available"
-            ? <div class="alert info"><Icon name="info" />This sector pack is available. Its release evidence (review, live cases, support owner) is tracked in our readiness register and shared on request.</div>
+            ? <div class="alert info"><Icon name="info" />{s.declared
+              ? <>This sector pack is live. We released it ourselves; independent acceptance evidence (review, live cases, support owner) is tracked in our readiness register and published as it is recorded. Ask us for the current status before you rely on it for regulated work.</>
+              : <>This sector pack is available. Its release evidence (review, live cases, support owner) is tracked in our readiness register and shared on request.</>}</div>
             : s.availability === "planned"
             ? <div class="alert info"><Icon name="info" />This sector pack is <strong>planned</strong>, not yet released. Registering records your interest and shapes our interview and acceptance work; it does not buy functionality that does not exist yet.</div>
             : <div class="alert warn"><Icon name="alert" />This workflow is in <strong>pilot</strong> with design partners. Expect rapid change and hands-on support.</div>}
@@ -359,26 +362,6 @@ pub.get("/coverage", (c) => c.html(
     </Section>
   </PublicShell>));
 
-const LEGAL: Record<string, { title: string; body: any }> = {
-  terms: { title: "Terms of service", body: (<>
-    <p>LOAD|BY|TON.store provides logistics software subscriptions, setup and support services. You use the software to run your own logistics business; those services are separate commercial relationships and accounting books between you and your customers.</p>
-    <h2>Plans and billing</h2><p>Published plan versions are immutable commercial records. Prices exclude applicable tax and third-party pass-through charges. Paid-period cancellation retains agreed access; a published grace period precedes restriction; exceeding limits blocks new excess usage, not reading or export.</p>
-    <h2>No funds held</h2><p>LOAD|BY|TON does not hold, escrow or transmit customer funds. You may record collections in your own finance workflow.</p>
-    <h2>Regulated activities</h2><p>The software is not an accredited e-invoicing provider, customs authority or certification to handle dangerous goods, pharmaceutical cold chain or bonded inventory.</p></>) },
-  privacy: { title: "Privacy notice", body: (<>
-    <p>We process account and operational data to provide the service. For your customers’ data, you are the controller and we act as processor under the data processing terms; for our own commercial relationship with you we are a controller.</p>
-    <h2>Brand files and messages</h2><p>If you register a requirement, we store the brand kit you provide (name, colours, logo and brand files) and the messages you exchange with our team. They are used only to build and support your delivery, are visible to you and to our staff, and are kept for the retention period below. We ask you not to send tax numbers, bank details, card numbers or passwords, and our messaging refuses the obvious shapes of them. Messages cannot be edited or deleted once sent; ask us to review a record under your rights below.</p>
-    <h2>Your rights</h2><p>Export is available on every plan. Owners can submit access, correction and deletion requests under Your data; deletion is reviewed for statutory retention and legal holds before the deployment operator performs erasure.</p></>) },
-  "data-processing": { title: "Data processing", body: (<>
-    <p>Roles: you are the controller of operational records in your workspace; LOAD|BY|TON is the processor. Records are stored in tenant-isolated storage; files are private with short-lived signed access.</p>
-    <h2>Retention and exit</h2><p>The deployment retention schedule is {config.retentionDays} days after the applicable exit milestone, subject to contract terms, statutory records and legal holds. Export remains available while the account is retained. Approved erasure includes the database, private objects and eventual expiry of recovery copies under the provider schedule.</p>
-    <h2>Incidents</h2><p>A breach procedure with customer communication owner and incident commander is maintained by the operating team.</p></>) },
-  subprocessors: { title: "Subprocessors", body: (<>
-    <ul><li>Oracle Cloud Infrastructure: application and background compute.</li><li>Cloudflare: DNS, TLS edge and origin tunnel.</li><li>Neon: transactional PostgreSQL and configured recovery.</li><li>Supabase: private document objects.</li><li>Upstash: shared abuse-prevention counters with pseudonymous keys.</li><li>Stripe and/or Razorpay: hosted payment processing when enabled.</li><li>Your configured SMTP provider: account and service notifications.</li></ul>
-    <p>Deployment region and processing schedule: {config.deploymentRegion}. Review each provider's region, retention, transfer and recovery terms before deployment; providers may process security/payment data in additional locations.</p></>) },
-  accessibility: { title: "Accessibility", body: (<>
-    <p>We design for keyboard use, visible focus, sufficient contrast, text and icons in addition to colour (red is never the only indicator of an error), and large touch targets for driver workflows. We have not yet completed a formal accessibility audit; report problems via <a href="/contact">Contact</a>.</p></>) },
-};
 pub.get("/legal/:doc", (c) => {
   const d = LEGAL[c.req.param("doc")];
   if (!d) throw new HttpError(404, "Page not found");
@@ -389,7 +372,7 @@ pub.get("/legal/:doc", (c) => {
         <div class="prose-card prose">
           {config.legalReviewed?null:<div class="draft-note"><strong>Draft — requires legal review before publication.</strong> Review this service-specific copy with the contracting entity before setting LEGAL_REVIEWED.</div>}
           {d.body}
-          {config.seller.legalName?<p>Contracting service provider: {config.seller.legalName}, {config.seller.address}. {config.seller.gstin?`Tax registration: ${config.seller.gstin}.`:''} Contact: {config.seller.email}.</p>:null}
+          {config.seller.legalName?<p>Contracting service provider: {config.seller.legalName}, {config.seller.address}. {config.seller.trn?`Tax registration number (TRN): ${config.seller.trn}.`:''} Contact: {config.seller.email}.</p>:null}
         </div>
       </Section>
     </PublicShell>);
