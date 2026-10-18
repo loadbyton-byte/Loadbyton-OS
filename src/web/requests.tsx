@@ -9,7 +9,8 @@ import {
 } from "../platform/requests.js";
 import { NEVER_ASK } from "../platform/private-guide.js";
 import { FEATURES, paidPlans } from "../platform/features.js";
-import { ASSET_KINDS, readBrandAsset } from "../platform/brand-kit.js";
+import { ASSET_KINDS, brandTheme, readBrandAsset } from "../platform/brand-kit.js";
+import { saveFeatureSetting } from "../platform/feature-settings.js";
 import { markStaffRead, postStaffMessage, staffThread } from "../platform/messages.js";
 import { act, ctxOf, withT } from "./appkit.js";
 import { MessageForm, Thread } from "./thread.js";
@@ -259,6 +260,8 @@ requests.post("/app/requests/:id/cancel", async (c) => {
 requests.use("/admin/requests", requireStaff);
 requests.use("/admin/requests/*", requireStaff);
 requests.use("/admin/brand-assets/*", requireStaff);
+requests.use("/admin/features", requireStaff);
+requests.use("/admin/features/*", requireStaff);
 const adminPg = (c: C, title: string): Page => ({ title, csrf: c.get("csrf"), path: c.req.path, user: { name: c.get("session")!.name }, ok: c.req.query("ok"), err: c.req.query("err") });
 
 requests.get("/admin/requests", async (c) => {
@@ -349,6 +352,7 @@ requests.get("/admin/requests/:id", async (c) => {
             {kit.doc_footer ? <p class="small">Footer: {kit.doc_footer}</p> : null}
             {kit.notes ? <p class="small" style="white-space:pre-wrap">{kit.notes}</p> : null}
             <p class="small">{kit.confirmed_at ? <span class="badge ok">Confirmed {formatDate(kit.confirmed_at)}</span> : <span class="badge warn">Not confirmed</span>} {kit.no_logo ? <span class="badge info">No logo yet</span> : null}</p>
+            <p class="small"><a class="btn ghost sm" href={`/admin/requests/${r.id}/brand-theme.css`}>Download theme (CSS)</a> <a class="btn ghost sm" href={`/admin/requests/${r.id}/brand-theme.json`}>Download theme (JSON)</a></p>
             {assets.length ? <ul class="asset-list">{assets.map((a: any) => <li><span class="asset-ic"><Icon name="document" size={22} /></span><span><strong>{a.filename}</strong><br /><span class="small mute">{ASSET_KINDS[a.kind as keyof typeof ASSET_KINDS]} · {(a.size_bytes / 1024).toFixed(0)} KB</span></span><span class="asset-actions"><a class="btn ghost sm" href={`/admin/brand-assets/${a.id}`}>Download</a></span></li>)}</ul> : null}
           </>) : <p class="mute">The client has not saved a brand kit yet.</p>}
         </section>
@@ -395,4 +399,46 @@ requests.get("/admin/brand-assets/:id", async (c) => {
     "content-type": a.mime, "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; sandbox",
     "content-disposition": `attachment; filename="${String(a.filename).replace(/[^\w.\- ]/g, "_")}"`, "cache-control": "private, no-store",
   } });
+});
+
+async function themeOf(c: C) {
+  const id = c.req.param("id") ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HttpError(404, "Request not found", "not_found");
+  const db = c.get("db");
+  const r = (await db.query<any>(`SELECT tenant_id FROM service_requests WHERE id=$1`, [id])).rows[0];
+  const kit = r && (await db.query<any>(`SELECT * FROM brand_kits WHERE tenant_id=$1`, [r.tenant_id])).rows[0];
+  if (!kit) throw new HttpError(404, "This client has no brand kit yet", "not_found");
+  const assets = (await db.query<any>(`SELECT kind, filename FROM brand_assets WHERE tenant_id=$1 AND removed_at IS NULL`, [r.tenant_id])).rows;
+  return brandTheme(kit, assets);
+}
+requests.get("/admin/requests/:id/brand-theme.css", async (c) => c.body((await themeOf(c)).css, 200, { "content-type": "text/css; charset=utf-8", "content-disposition": 'attachment; filename="brand-theme.css"', "x-content-type-options": "nosniff" }));
+requests.get("/admin/requests/:id/brand-theme.json", async (c) => c.body(JSON.stringify((await themeOf(c)).json, null, 2), 200, { "content-type": "application/json; charset=utf-8", "content-disposition": 'attachment; filename="brand-theme.json"', "x-content-type-options": "nosniff" }));
+
+// ───────── staff: add-on catalogue (switch features off, move them between monthly plans)
+requests.get("/admin/features", async (c) => {
+  const csrf = c.get("csrf");
+  return c.html(
+    <AdminShell p={adminPg(c, "Add-on catalogue")}>
+      <header class="page"><div><h1>Add-on catalogue</h1><p class="mute small">What clients can ask for on the Features page and on /pricing. Switching a feature off hides it from new requests; requests that already include it keep it. Changing a plan affects new requests only.</p></div></header>
+      <Table head={["Feature", "Tier", "Applies to", "Monthly plan", "Offered", ""]}>
+        {FEATURES.map((f) => (
+          <tr>
+            <td><strong>{f.name}</strong><br /><span class="small mute">{f.blurb}</span></td>
+            <td><Badge s={f.tier === "paid" ? "pending" : "available"} label={f.tier} /></td>
+            <td class="small">{f.sectors ? f.sectors.map((s) => sectorBySlug(s)?.name ?? s).join(", ") : "Every sector"}</td>
+            <form method="post" action={`/admin/features/${f.code}`}><Csrf t={csrf} />
+              <td>{f.tier === "paid" ? <select name="min_plan" aria-label={`Plan for ${f.name}`}>{paidPlans().map((p) => <option value={p.plan} selected={p.plan === f.minPlan}>{p.name}</option>)}</select> : <span class="mute">free</span>}</td>
+              <td><label class="check" style="padding:6px 10px"><input type="checkbox" name="enabled" value="yes" checked={!f.disabled} /><span>On</span></label></td>
+              <td><button class="btn sm" type="submit">Save</button></td>
+            </form>
+          </tr>))}
+      </Table>
+    </AdminShell>);
+});
+requests.post("/admin/features/:code", async (c) => {
+  const b = await formBody(c), s = c.get("session")!;
+  try {
+    await saveFeatureSetting(c.get("db"), { userId: s.userId, role: s.staffRole }, c.req.param("code"), { enabled: str(b.enabled) === "yes", minPlan: str(b.min_plan) });
+    return back(c, "/admin/features", "Saved.");
+  } catch (e) { if (e instanceof HttpError && e.status < 500) return back(c, "/admin/features", undefined, e.message); throw e; }
 });

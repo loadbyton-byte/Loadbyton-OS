@@ -138,3 +138,11 @@ export async function readBrandAsset(a: Pick<BrandAsset, "storage_key" | "sha256
   if (sha256(buf) !== a.sha256) throw new Error("Stored brand file failed its integrity check");
   return buf;
 }
+
+/** What staff apply when they customise a build: the kit as data (JSON) and as CSS variables. Values were validated on the way in; the name is stripped of anything that could close a CSS string. */
+export function brandTheme(kit: Pick<BrandKit, "display_name" | "tagline" | "website" | "primary_colour" | "secondary_colour" | "doc_footer">, assets: Pick<BrandAsset, "kind" | "filename">[]) {
+  const safe = (v: string | null) => (v ?? "").replace(/[^\p{L}\p{N} .,&@()+_-]/gu, "").replace(/\s+/g, " ").trim();
+  const json = { name: kit.display_name, tagline: kit.tagline, website: kit.website, colours: { primary: kit.primary_colour, secondary: kit.secondary_colour }, documentFooter: kit.doc_footer, files: assets.map((a) => ({ kind: a.kind, filename: a.filename })) };
+  const css = `/* Brand theme for ${safe(kit.display_name)} */\n:root{\n  --brand-name:"${safe(kit.display_name)}";\n${kit.primary_colour ? `  --brand-primary:${kit.primary_colour};\n` : ""}${kit.secondary_colour ? `  --brand-secondary:${kit.secondary_colour};\n` : ""}  --brand-footer:"${safe(kit.doc_footer)}";\n}\n`;
+  return { json, css };
+}

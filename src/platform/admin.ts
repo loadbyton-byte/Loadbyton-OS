@@ -43,7 +43,7 @@ export async function tenantDetail(db: Db, id: string) {
   const t = (await db.query<any>(`SELECT * FROM tenants WHERE id=$1`, [id])).rows[0];
   if (!t) throw new HttpError(404, "Tenant not found");
   const [sub, ents, usage, orders, jobs, audit_, grants, domains, reqs] = await Promise.all([
-    db.query<any>(`SELECT s.*, p.name AS plan FROM subscriptions s JOIN plan_versions p ON p.id=s.plan_version_id WHERE tenant_id=$1`, [id]),
+    db.query<any>(`SELECT s.*, p.name AS plan, p.plan_code FROM subscriptions s JOIN plan_versions p ON p.id=s.plan_version_id WHERE tenant_id=$1`, [id]),
     db.query<any>(`SELECT DISTINCT ON (key) key,int_limit,source,effective_from FROM entitlements WHERE tenant_id=$1 AND effective_from<=now() ORDER BY key,effective_from DESC,id DESC`, [id]),
     db.query<any>(`SELECT key,period,used FROM usage_counters WHERE tenant_id=$1 ORDER BY period DESC`, [id]),
     db.query<any>(`SELECT * FROM orders WHERE tenant_id=$1 ORDER BY created_at DESC`, [id]),

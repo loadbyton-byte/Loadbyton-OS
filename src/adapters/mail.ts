@@ -71,6 +71,8 @@ export const templates: Record<string, (d: Record<string, any>) => { subject: st
   payment_received: (d) => ({ subject: `Payment received · ${d.reference}`, ...wrap("Payment received", [`We received payment ${d.reference}. Your plan is being activated; you will get another email when your workspace is ready.`], d.link ? { label: "Open plan & billing", href: d.link } : undefined) }),
   chat_started: (d) => ({ subject: `New live chat: ${String(d.name ?? "A visitor").slice(0, 60)}`, ...wrap("New live chat", [`${d.name ?? "A visitor"}${d.email ? ` (${d.email})` : ""} started a chat${d.page ? ` on ${d.page}` : ""}.`, `First message: ${d.first ?? ""}`], d.link ? { label: "Open the conversation", href: d.link } : undefined) }),
   request_reply: (d) => ({ subject: "We replied on your request", ...wrap("We replied on your request", ["Our team replied on your request. Sign in to read the message and answer."], d.link ? { label: "Read the reply", href: d.link } : undefined) }),
+  request_status: (d) => ({ subject: d.status === "delivered" ? "Your build has been delivered" : "Update on your request", ...wrap(d.status === "delivered" ? "Your build has been delivered" : "Update on your request", [d.status === "delivered" ? "Your customised build is ready. Open your dashboard for the hand-off link, and the guide to adding your own private details." : `Your request is now: ${String(d.status ?? "updated").replace(/_/g, " ")}.`], d.link ? { label: "Open your request", href: d.link } : undefined) }),
+  brand_reminder: (d) => ({ subject: "We are waiting for your brand kit", ...wrap("We are waiting for your brand kit", ["Your request cannot start until your brand kit is in. Add your company name and logo (or tell us you have no logo yet) and your delivery clock starts straight away."], d.link ? { label: "Add your brand kit", href: d.link } : undefined) }),
   client_message: (d) => ({ subject: "New client message", ...wrap("New client message", ["A client wrote to us about a build request. The message text is only in the console."], d.link ? { label: "Open the request", href: d.link } : undefined) }),
   workspace_ready: (d) => ({ subject: "Your workspace is ready", ...wrap("Your workspace is ready", ["Your upgraded workspace has been activated and checked. Everything you had before is still there."], d.link ? { label: "Open your workspace", href: d.link } : undefined) }),
 };
@@ -117,6 +119,10 @@ export function mailHandlers(db: Db, mailer: Mailer = defaultMailer()): OutboxHa
         const q = (await db.query<any>(`SELECT u.email FROM service_requests r JOIN users u ON u.id=r.requested_by WHERE r.id=$1`, [p.requestId])).rows[0];
         to = q?.email ? [q.email] : await owners(row.tenant_id);
         d = { ...p, link: `${baseUrl()}/app/requests/${p.requestId}` };
+      } else if (p.template === "request_status" || p.template === "brand_reminder") {
+        const q = (await db.query<any>(`SELECT u.email FROM service_requests r JOIN users u ON u.id=r.requested_by WHERE r.id=$1`, [p.requestId])).rows[0];
+        to = q?.email ? [q.email] : await owners(row.tenant_id);
+        d = { ...p, link: `${baseUrl()}${p.template === "brand_reminder" ? "/app/brand" : `/app/requests/${p.requestId}`}` };
       } else if (p.template === "client_message") { to = [config.contact.emails.support]; d = { ...p, link: `${baseUrl()}/admin/requests/${p.requestId}` }; }
       else if (p.template === "workspace_ready") { to = await owners(row.tenant_id); d = { ...p, link: `${baseUrl()}/app` }; }
       to = [...new Set(to.filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)))];

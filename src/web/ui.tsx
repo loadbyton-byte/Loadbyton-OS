@@ -322,7 +322,7 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
 
 const ADMIN_ALL: [string, string, string][] = [["/admin", "Overview", "gauge"], ["/admin/tenants", "Tenants", "people"], ["/admin/orders", "Orders & payments", "money"], ["/admin/provisioning", "Provisioning", "bolt"],
   ["/admin/catalog", "Catalog & prices", "tag"], ["/admin/queues", "Queues & reviews", "layers"], ["/admin/service", "Setup & privacy", "lock"], ["/admin/partners", "Partners", "users"], ["/admin/rollout", "Rollout", "route"],
-  ["/admin/reports", "Reports", "chart"], ["/admin/kyc", "Company verification", "shield"], ["/admin/readiness", "Readiness", "shield"], ["/admin/einvoice", "E-invoicing", "shield"], ["/admin/requests", "Build requests", "bolt"], ["/admin/leads", "Leads", "mail"], ["/admin/chats", "Live chats", "chat"]];
+  ["/admin/reports", "Reports", "chart"], ["/admin/kyc", "Company verification", "shield"], ["/admin/readiness", "Readiness", "shield"], ["/admin/einvoice", "E-invoicing", "shield"], ["/admin/requests", "Build requests", "bolt"], ["/admin/features", "Add-on catalogue", "tag"], ["/admin/leads", "Leads", "mail"], ["/admin/chats", "Live chats", "chat"]];
 /** Checkout, plan and revenue pages: in brochure mode nobody is billed through the platform, so they are left out of the menu (the routes stay for BROCHURE_MODE=false). */
 const BILLING_PAGES = new Set(["/admin/orders", "/admin/provisioning", "/admin/catalog", "/admin/partners", "/admin/reports"]);
 /** Evaluated per request so the delivery queue leads in brochure mode and the billing pages return when the flag is off. */

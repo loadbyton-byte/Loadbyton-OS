@@ -11,6 +11,7 @@ import { NEVER_ASK, PRIVATE_ITEMS, privateItemsFor } from "../platform/private-g
 import { payForRequest, planPrice } from "../platform/request-plan.js";
 import { REQUEST_CATEGORIES, STATUS_LABEL, clockOf, createFeatureRequest, humanLeft, listRequests, requestDetail, waitingFor, type ServiceRequest, type Waiting } from "../platform/requests.js";
 import { startCheckout } from "../platform/billing.js";
+import { rateLimit } from "../lib/ratelimit.js";
 import { sectorContent } from "../platform/sector-content.js";
 import { act, appPage, back, can, ctxOf, need, withT } from "./appkit.js";
 import { CONTACT, waLink } from "./brand.js";
@@ -266,6 +267,7 @@ portal.get("/app/messages", async (c) => {
 const sendMessage = async (c: C, requestId: string, body: string, failTo: string) => {
   const ctx = ctxOf(c), s = c.get("session")!;
   return act(c, failTo, async () => {
+    await rateLimit(`msg:${ctx.userId}`, 40, 3600, "You have sent a lot of messages in the last hour. Please wait a little, or call us on WhatsApp.");
     await withT(c, (cn) => postClientMessage(cn, ctx.tenantId, { id: ctx.userId, name: s.name }, requestId, body));
     return { to: failTo, ok: "Message sent. We will reply here." };
   });
@@ -341,6 +343,8 @@ portal.get("/app/plan", async (c) => {
   const csrf = c.get("csrf");
   return appPage(c, "Plan and payment", (<>
     <header class="page"><div><h1>Plan and payment</h1><p class="mute small">Free builds cost nothing. Paid add-ons run on a monthly plan: the smallest one that covers everything you chose.</p></div></header>
+    {rows.some((r) => r.category === "paid" && r.plan_code && r.status === "delivered") && ["restricted", "cancelled", "grace"].includes(sub.status)
+      ? <div class="alert warn"><Icon name="alert" /><span><strong>Your plan is {sub.status === "grace" ? "overdue" : "not active"}.</strong> Paid add-ons we delivered are maintained and supported only while a monthly plan is active. Renew to keep them supported; what we delivered stays yours.</span></div> : null}
     <div class="grid g2">
       <section class="card"><h3>Your plan</h3>
         <p><strong>{paid ? sub.plan : "No paid plan"}</strong> {paid ? <Badge s={sub.status} /> : null}</p>
@@ -434,6 +438,7 @@ portal.post("/app/brand/assets", async (c) => {
   return act(c, "/app/brand", async () => {
     const file = await fileFromForm(b.file, str(b.kind));
     if (!file) throw badRequest("Choose a file to upload.");
+    await rateLimit(`brand-upload:${ctx.tenantId}`, 30, 3600, "Too many uploads in the last hour. Please wait a little.");
     await withT(c, (cn) => addBrandAsset(cn, ctx.tenantId, ctx.userId, file));
     return { to: "/app/brand", ok: "File uploaded." };
   });
