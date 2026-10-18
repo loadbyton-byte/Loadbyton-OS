@@ -470,7 +470,7 @@ const Seller = () => {
   const x = config.seller;
   if (!x.legalName) return null;
   return (
-    <p class="small mute" style="margin-top:12px">Sold by <strong>{x.legalName}</strong>{x.tradeName ? ` (${x.tradeName})` : ""}{x.address ? ` · ${x.address}` : ""}{x.gstin ? ` · GSTIN ${x.gstin}` : ""}{x.pan ? ` · PAN ${x.pan}` : ""}{x.email ? ` · ${x.email}` : ""}.{x.lutNote ? <><br />{x.lutNote}</> : null}</p>
+    <p class="small mute" style="margin-top:12px">Sold by <strong>{x.legalName}</strong>{x.tradeName ? ` (${x.tradeName})` : ""}{x.address ? ` · ${x.address}` : ""}{x.trn ? ` · TRN ${x.trn}` : ""}{x.tradeLicence ? ` · Trade licence ${x.tradeLicence}${x.licenceAuthority ? ` (${x.licenceAuthority})` : ""}` : ""}{x.email ? ` · ${x.email}` : ""}.</p>
   );
 };
 const providerLabel = (p: string) => (p === "mock" ? "Upgrade / switch" : getAdapter(p)?.label ?? p);
@@ -580,21 +580,20 @@ core.get("/app/billing/orders/:id/receipt", async (c) => {
   const t = c.get("tenant")!;
   return appPage(c, `Receipt ${o.reference}`, (
     <div class="card" style="max-width:760px">
-      <PageHead title={x.gstin ? "Tax invoice" : "Payment receipt"} sub={`No. ${o.reference} · ${formatDate(o.paid_at ?? o.created_at)}`}><button class="btn ghost sm" type="button" data-print>Print</button></PageHead>
+      <PageHead title={x.trn ? "Tax invoice" : "Payment receipt"} sub={`No. ${o.reference} · ${formatDate(o.paid_at ?? o.created_at)}`}><button class="btn ghost sm" type="button" data-print>Print</button></PageHead>
       {o.status === "refunded" ? <div class="alert warn">This payment was refunded.</div> : null}
       <div class="grid g2">
-        <div><h3>Supplier</h3><p>{x.legalName || "LOAD|BY|TON.store"}{x.tradeName ? <><br />Trading as {x.tradeName}</> : null}{x.address ? <><br />{x.address}</> : null}{x.gstin ? <><br />GSTIN: {x.gstin}</> : null}{x.pan ? <><br />PAN: {x.pan}</> : null}{x.email ? <><br />{x.email}</> : null}</p></div>
+        <div><h3>Supplier</h3><p>{x.legalName || "LOAD|BY|TON.store"}{x.tradeName ? <><br />Trading as {x.tradeName}</> : null}{x.address ? <><br />{x.address}</> : null}{x.trn ? <><br />TRN: {x.trn}</> : null}{x.tradeLicence ? <><br />Trade licence: {x.tradeLicence}{x.licenceAuthority ? ` (${x.licenceAuthority})` : ""}</> : null}{x.email ? <><br />{x.email}</> : null}</p></div>
         <div><h3>Customer</h3><p>{ent?.legal_name || ent?.name || t.name}{ent?.tax_id ? <><br />Tax registration: {ent.tax_id}</> : null}</p></div>
       </div>
       <Table head={["Description", ["Amount", "num"]]}>
-        {o.lines.map((l: any) => <tr><td>{l.label}{x.sac ? <span class="small mute"> · SAC {x.sac}</span> : null}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
+        {o.lines.map((l: any) => <tr><td>{l.label}</td><td class="num"><Money v={l.amount_minor} cur={o.currency} /></td></tr>)}
         {Number(o.tax_minor) ? <tr><td>VAT</td><td class="num"><Money v={o.tax_minor} cur={o.currency} /></td></tr> : null}
         <tr><th>Total paid</th><th class="num"><Money v={o.total_minor} cur={o.currency} /></th></tr>
       </Table>
       <p class="small mute">{o.tax_note}</p>
       {x.supplyNote ? <p class="small">{x.supplyNote}</p> : null}
-      {x.lutNote ? <p class="small">{x.lutNote}</p> : null}
-      <p class="small mute">Paid by {o.provider === "stripe" ? "card / wallet (Stripe)" : o.provider === "razorpay" ? "UPI / card (Razorpay)" : o.provider}. Whether this document qualifies as a statutory tax invoice for your jurisdiction is a matter for your accountant.</p>
+      <p class="small mute">Paid by {o.provider === "stripe" ? "card / wallet (Stripe)" : o.provider === "razorpay" ? "UPI / card (Razorpay)" : o.provider === "telr" ? "card (Telr)" : o.provider}. Whether this document qualifies as a statutory tax invoice for your jurisdiction is a matter for your accountant.</p>
     </div>));
 });
 

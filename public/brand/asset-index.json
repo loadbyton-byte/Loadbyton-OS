@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "approval": "pending_owner_approval",
+  "approval": "owner_decision_recorded",
   "assets": [
     {
       "path": "masters/logo-parent-navy.svg",

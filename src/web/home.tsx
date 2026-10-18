@@ -60,7 +60,7 @@ export function HomeExperience({ plans, sectors = SECTORS }: { plans: PlanVersio
       </div>
       <div class="wrap hero-grid">
         <div class="hero-copy">
-          <span class="eyebrow on-photo"><span class="signal-dot"></span>Logistics software · built in India · priced for the UAE</span>
+          <span class="eyebrow on-photo"><span class="signal-dot"></span>Logistics software · built and priced for the UAE</span>
           <h1 id="hero-heading"><span class="ln"><span>Run the movement.</span></span>{" "}<span class="ln"><span>Know the margin.</span></span></h1>
           {brochure
             ? <p class="lead">Working logistics software for 18 sectors, made to look and run like your company. Register, send your logo, and we deliver within <strong>{config.deliveryHours} hours</strong>. Free for one sector.</p>
@@ -207,7 +207,7 @@ export function HomeExperience({ plans, sectors = SECTORS }: { plans: PlanVersio
         ["Is the free plan really free?", <>Yes. It is a permanent plan with real limits (two users, 25 jobs a month). Your workspace starts empty; we do not fill it with fake data.</>],
         ["Where does my data live, and can I take it with me?", <>Each company's records are isolated at database level. Export in CSV and JSON is on every plan, so you can leave whenever you want. Hosting region is stated on the <a href="/legal/subprocessors">subprocessors page</a>.</>],
         ["Do you file customs declarations or issue UAE e-invoices?", <>No, and we say so plainly. The customs module manages cases and hands over to your licensed broker channel. We are not an accredited e-invoicing provider; the platform reconciles with the one you use.</>],
-        ["Why is it priced so differently from other vendors?", <>It is built and supported by a small team in India, with AI-native tooling and no field sales force. See <a href="/about">About</a> for how we work.</>],
+        ["Why is it priced so differently from other vendors?", <>It is built and supported by a small team in the UAE, with AI-native tooling and no field sales force. See <a href="/about">About</a> for how we work.</>],
         ["Can I talk to someone before I sign up?", <>Yes. Message us on <a href={waLink()} target="_blank" rel="noopener">WhatsApp {CONTACT.phoneDisplay}</a> or write to <a href={`mailto:${CONTACT.emails.contact}`}>{CONTACT.emails.contact}</a>. The chat on this page also reaches a person during staffed hours.</>],
       ]} />
     </Section>

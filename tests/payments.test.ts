@@ -280,15 +280,15 @@ describe("end to end through the real webhook route", () => {
     expect((await db.query<any>(`SELECT status FROM orders WHERE tenant_id=$1`, [t.tenantId])).rows[0].status).toBe("pending");   // visiting is not paying
     const orderId = payUrl.split("/").pop()!;
     expect((await call(`/app/billing/orders/${orderId}/receipt`)).status).toBe(404);                                   // no receipt until it is paid
-    Object.assign(config.seller, { legalName: "Test Freelancer", gstin: "29ABCDE1234F1Z5", address: "Bengaluru, India", sac: "998314", supplyNote: "Export of services; place of supply outside India." });
+    Object.assign(config.seller, { legalName: "Test Trading LLC", trn: "100123456700003", tradeLicence: "TL-12345", licenceAuthority: "Dubai DET", address: "Dubai, UAE", supplyNote: "Standard-rated supply of services in the UAE." });
     const row = (await db.query<any>(`SELECT * FROM orders WHERE id=$1`, [orderId])).rows[0];
     const evt = stripeEvent("checkout.session.completed", paidSession(row));
     expect((await hook("stripe", evt.raw, evt.headers)).status).toBe(200);
     const receipt = await (await call(`/app/billing/orders/${orderId}/receipt`)).text();
-    expect(receipt).toContain("Tax invoice"); expect(receipt).toContain("Test Freelancer"); expect(receipt).toContain("GSTIN: 29ABCDE1234F1Z5");
-    expect(receipt).toContain("SAC 998314"); expect(receipt).toContain("Export of services"); expect(receipt).toContain("your accountant");
-    expect(await (await call("/pricing")).text()).toContain("Operated by Test Freelancer");                             // site footer
-    Object.assign(config.seller, { legalName: "", gstin: "", address: "", sac: "", supplyNote: "" });
+    expect(receipt).toContain("Tax invoice"); expect(receipt).toContain("Test Trading LLC"); expect(receipt).toContain("TRN: 100123456700003"); expect(receipt).toContain("Trade licence: TL-12345");
+    expect(receipt).toContain("Standard-rated supply"); expect(receipt).toContain("your accountant");
+    expect(await (await call("/pricing")).text()).toContain("Operated by Test Trading LLC");                             // site footer
+    Object.assign(config.seller, { legalName: "", trn: "", tradeLicence: "", licenceAuthority: "", address: "", supplyNote: "" });
     const sim = await post(payUrl, { outcome: "success" });                                                            // the simulator cannot pay a real-provider order
     expect(sim.status).toBe(404);
   });

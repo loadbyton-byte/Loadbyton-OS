@@ -15,6 +15,7 @@ import { pub } from "./web/public.js";
 import { marketing } from "./web/pages-marketing.js";
 import { chat } from "./web/chat.js";
 import { auth } from "./web/auth.js";
+import { ecosystem } from "./web/ecosystem.js";
 import { core } from "./web/app-core.js";
 import { sales } from "./web/app-sales.js";
 import { ops } from "./web/app-ops.js";
@@ -138,6 +139,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", marketing);
   app.route("/", chat);
   app.route("/", auth);
+  app.route("/", ecosystem);
   app.route("/", security);
   app.route("/", admin);
   app.route("/", inboundHooks);

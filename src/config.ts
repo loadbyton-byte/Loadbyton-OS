@@ -17,10 +17,19 @@ const flag = (name: string) => ["1", "true", "yes"].includes(text(name).toLowerC
 const paymentProviders = list(env.PAYMENT_PROVIDERS ?? env.PAYMENT_PROVIDER ?? "mock");
 const KNOWN_PROVIDERS = ["mock", "stripe", "razorpay"];
 
-/** Brochure mode (default on): the public site is a brochure with a demo, `/start` registers a free or paid build request, and `/app` is a
+/** Brochure mode (default off since 18 Oct 2026): when on, the public site is a brochure with a demo, `/start` registers a free or paid build request, and `/app` is a
  * request tracker. The client runs the delivered system on their own backend, so no usage dashboard, metering or billing is exposed.
- * BROCHURE_MODE=false restores the full multi-tenant operating platform. */
-const brochureMode = env.BROCHURE_MODE === undefined ? true : flag("BROCHURE_MODE");
+ * BROCHURE_MODE=true restores that fenced mode; by default the full multi-tenant operating platform is available. */
+const brochureMode = env.BROCHURE_MODE === undefined ? false : flag("BROCHURE_MODE");
+
+/** Link with loadbyton.com: signed entitlement events in, "Continue with Loadbyton" sign-in out. Everything stays off until configured. */
+const ecosystem = {
+  sharedSecret: text("ECOSYSTEM_SHARED_SECRET"),
+  comBaseUrl: text("COM_BASE_URL").replace(/\/$/, ""),
+  oidcClientId: text("OIDC_CLIENT_ID"),
+  oidcClientSecret: text("OIDC_CLIENT_SECRET"),
+  oidcIssuer: (text("OIDC_ISSUER") || (text("COM_BASE_URL") ? `${text("COM_BASE_URL").replace(/\/$/, "")}/api/oidc` : "")).replace(/\/$/, ""),
+};
 
 export const config = {
   isProd,
@@ -32,6 +41,9 @@ export const config = {
   port: Number(env.PORT ?? 3000),
   baseUrl: env.PUBLIC_BASE_URL ?? "http://localhost:3000",
   rootDomain: (env.ROOT_DOMAIN ?? "").toLowerCase(),
+  ecosystem,
+  /** "all" = the operator declares every sector pack live (decision of 18 Oct 2026). Independent acceptance records are still kept and shown in the readiness register; this changes what the public site calls a sector, not what the register says. Default "gated" = a sector is Available only once its own gate is accepted. */
+  sectorRelease: (text("SECTOR_RELEASE").toLowerCase() === "all" ? "all" : "gated") as "all" | "gated",
 
   // ── database (PGlite when empty; Neon / Supabase / any PostgreSQL otherwise)
   databaseUrl: env.DATABASE_URL ?? "",
@@ -118,9 +130,10 @@ export const config = {
   vatBps: Number(env.CHECKOUT_VAT_BPS ?? 500),
   checkoutTaxNote: text("CHECKOUT_TAX_NOTE"),
   seller: {
-    legalName: text("SELLER_LEGAL_NAME"), tradeName: text("SELLER_TRADE_NAME"), gstin: text("SELLER_GSTIN"), pan: text("SELLER_PAN"),
-    address: text("SELLER_ADDRESS"), email: text("SELLER_SUPPORT_EMAIL"), lutNote: text("SELLER_LUT_NOTE"),
-    sac: text("SELLER_SAC"), supplyNote: text("SELLER_SUPPLY_NOTE"),
+    // One UAE legal entity operates loadbyton.com and loadbyton.store. trn = UAE Tax Registration Number (VAT), set only once the entity is VAT-registered.
+    legalName: text("SELLER_LEGAL_NAME"), tradeName: text("SELLER_TRADE_NAME"), trn: text("SELLER_TRN"),
+    tradeLicence: text("SELLER_TRADE_LICENCE"), licenceAuthority: text("SELLER_LICENCE_AUTHORITY"),
+    address: text("SELLER_ADDRESS"), email: text("SELLER_SUPPORT_EMAIL"), supplyNote: text("SELLER_SUPPLY_NOTE"),
   },
 
   // ── public contact points shown across the site, in the assistant and in the live chat. WhatsApp links are built from the same number.
@@ -238,6 +251,12 @@ export function validateConfig(c = config, production = isProd) {
     if (!asp.apiKey) problems.push("EINVOICE_ASP_API_KEY is required when an e-invoicing provider is configured");
     if (!["bearer", "header"].includes(asp.authScheme)) problems.push('EINVOICE_ASP_AUTH must be "bearer" or "header"');
     if (!["json", "xml"].includes(asp.bodyFormat)) problems.push('EINVOICE_ASP_BODY must be "json" or "xml"');
+  }
+  const eco = c.ecosystem;
+  if (eco.sharedSecret || eco.comBaseUrl || eco.oidcClientId || eco.oidcClientSecret) {
+    if (eco.sharedSecret.length < 32) problems.push("ECOSYSTEM_SHARED_SECRET must be at least 32 characters when the loadbyton.com link is configured");
+    if (!/^https?:\/\/[^\s/]+$/.test(eco.comBaseUrl) || (production && !eco.comBaseUrl.startsWith("https://"))) problems.push("COM_BASE_URL must be the origin of loadbyton.com (https in production, no path)");
+    if (!!eco.oidcClientId !== !!eco.oidcClientSecret) problems.push("set both OIDC_CLIENT_ID and OIDC_CLIENT_SECRET, or neither");
   }
   if (production && !/^https:\/\//.test(c.baseUrl)) problems.push("PUBLIC_BASE_URL must be https in production");
   if (production && c.databaseSsl === "no-verify") problems.push("DATABASE_SSL=no-verify is not permitted in production (use require)");

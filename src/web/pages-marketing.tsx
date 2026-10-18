@@ -183,8 +183,8 @@ marketing.get("/compliance", (c) => c.html(
 
 /* ───────────────────────── About ───────────────────────── */
 marketing.get("/about", (c) => c.html(
-  <PublicShell p={pg(c, "About", { description: "LOAD|BY|TON.store is a subsidiary of LOAD|BY|TON, built by two AI-native product builders in India for logistics companies in the UAE." })}>
-    <PageHero kicker="ABOUT" photo={PHOTO.fleet} title={<>Small team.<br />Serious software.</>} lede={<><Lbt />.store builds the operating system that logistics companies run on, from India, for the UAE.</>}>
+  <PublicShell p={pg(c, "About", { description: "LOAD|BY|TON.store is the business-software arm of LOAD|BY|TON, operated by the same UAE company, for logistics companies in the UAE." })}>
+    <PageHero kicker="ABOUT" photo={PHOTO.fleet} title={<>Small team.<br />Serious software.</>} lede={<><Lbt />.store builds the operating system that logistics companies run on, for the UAE.</>}>
       <a class="btn red" href="/contact">Talk to us <Icon name="arrow" size={16} /></a><a class="btn glass" href="/features">What we build</a>
     </PageHero>
 
@@ -202,7 +202,7 @@ marketing.get("/about", (c) => c.html(
       </div>
     </Section>
 
-    <Section tone="dark" eyebrow="Corporate profile" title={<>Part of<br />the <Lbt /> group.</>} intro="LOAD|BY|TON.store operates as a subsidiary of LOAD|BY|TON.">
+    <Section tone="dark" eyebrow="Corporate profile" title={<>Part of<br />the <Lbt /> group.</>} intro="LOAD|BY|TON.store and loadbyton.com are operated by the same UAE company.">
       <div class="grid g2">
         <div class="prose-card" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#C7D6E0" data-reveal>
           <h3 style="color:#fff">The parent: <Lbt /></h3>
@@ -210,24 +210,24 @@ marketing.get("/about", (c) => c.html(
           <p>It is the product that taught us how freight actually moves between ports, yards, gates and customers in the UAE.</p>
         </div>
         <div class="prose-card" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#C7D6E0" data-reveal>
-          <h3 style="color:#fff">The subsidiary: <Lbt />.store</h3>
+          <h3 style="color:#fff">The software arm: <Lbt />.store</h3>
           <p><Lbt />.store takes that operating knowledge and packages it for logistics companies themselves: freight forwarders, transporters, warehouses, couriers and customs brokers. It is a multi-tenant operating platform with eighteen sector packs, an offline driver app, customer portals and an owner dashboard, sold as a subscription.</p>
-          <p>The two share a brand, a design language and an engineering approach. They are separate products with separate customers and separate books.</p>
+          <p>The two share a brand, a design language and an engineering approach. They are separate products. A verified company on the marketplace can activate Business OS with its marketplace account; your freight jobs never leave loadbyton.com.</p>
         </div>
       </div>
       <div class="tbl-wrap" style="margin-top:24px;background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.12)" data-reveal>
         <table style="color:#C7D6E0"><tbody>
           <tr><th scope="row" style="background:transparent;color:#8FB0C6">Parent company</th><td><Lbt /> — UAE road freight and drayage platform</td></tr>
-          <tr><th scope="row" style="background:transparent;color:#8FB0C6">This business</th><td><Lbt />.store — logistics operating software (subsidiary)</td></tr>
-          <tr><th scope="row" style="background:transparent;color:#8FB0C6">Built and run by</th><td>Two independent product builders based in India</td></tr>
-          <tr><th scope="row" style="background:transparent;color:#8FB0C6">Business registration</th><td>Udyam-registered MSME · GST registered (details on invoices and on request)</td></tr>
+          <tr><th scope="row" style="background:transparent;color:#8FB0C6">This business</th><td><Lbt />.store — logistics operating software</td></tr>
+          <tr><th scope="row" style="background:transparent;color:#8FB0C6">Operated by</th><td>The same UAE-registered company as loadbyton.com (legal name, licence and TRN are on every invoice)</td></tr>
+          <tr><th scope="row" style="background:transparent;color:#8FB0C6">Business registration</th><td>UAE trade licence · tax registration number (TRN) shown on invoices and on request</td></tr>
           <tr><th scope="row" style="background:transparent;color:#8FB0C6">Market</th><td>United Arab Emirates, with GCC corridors on the roadmap</td></tr>
           <tr><th scope="row" style="background:transparent;color:#8FB0C6">Contact</th><td><a href={`mailto:${CONTACT.emails.contact}`} style="color:#fff">{CONTACT.emails.contact}</a> · <a href={CONTACT.tel} style="color:#fff">{CONTACT.phoneDisplay}</a></td></tr>
         </tbody></table>
       </div>
     </Section>
 
-    <Section eyebrow="The people" title={<>Two builders.<br />Every layer.</>} intro="We are two freelancers from India who work as AI-native product builders: we design, build, test and operate the whole product between us.">
+    <Section eyebrow="The people" title={<>Two builders.<br />Every layer.</>} intro="A small team designs, builds, tests and operates the whole product, so the people who answer your support message are the people who wrote the code.">
       <div class="grid g3">
         <Feature icon="layers" title="Full-stack, end to end">TypeScript on the server and the page, PostgreSQL with row-level security, server-rendered interfaces that load fast on any phone.</Feature>
         <Feature icon="sparkle" title="AI-native, human-checked">We build with AI coding and design tools every day, then review, test and own every line. Hundreds of automated tests guard the money and stock logic.</Feature>

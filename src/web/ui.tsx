@@ -146,7 +146,7 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
             <div class="foot-grid">
               <div>
                 <a class="foot-logo" href="/" aria-label="LOAD|BY|TON.store home"><BrandLockup light /></a>
-                <p class="foot-about">Logistics operating software for freight, transport, warehouse, delivery and customs teams. Built in India, priced for the UAE market.</p>
+                <p class="foot-about">Logistics operating software for freight, transport, warehouse, delivery and customs teams. Built and priced for the UAE market.</p>
                 <ul class="foot-contact">
                   <li><Icon name="phone" size={18} /><a href={CONTACT.tel}>{CONTACT.phoneDisplay}</a></li>
                   <li><Icon name="whatsapp" size={18} /><a href={waLink()} target="_blank" rel="noopener">Chat on WhatsApp</a></li>
@@ -160,9 +160,9 @@ export const PublicShell = ({ p, children }: { p: Page; children: Child }) => {
               <div><h4>Company</h4><ul><li><a href="/about">About</a></li><li><a href="/trust">Trust &amp; safety</a></li><li><a href="/security">Security</a></li><li><a href="/compliance">Compliance</a></li><li><a href="/blog">Notes</a></li><li><a href="/contact">Contact</a></li><li><a href="/status">Service status</a></li></ul></div>
             </div>
             <div class="foot-bottom">
-              <span>© {new Date().getFullYear()} <Lbt />.store — a subsidiary of <Lbt />. All rights reserved.
-                {config.seller.legalName ? <> Operated by {config.seller.legalName}{config.seller.address ? `, ${config.seller.address}` : ""}{config.seller.gstin ? ` · GSTIN ${config.seller.gstin}` : ""}.</> : null}</span>
-              <span><a href="/legal/terms">Terms</a> · <a href="/legal/privacy">Privacy</a> · <a href="/legal/data-processing">Data processing</a> · <a href="/legal/subprocessors">Subprocessors</a> · <a href="/legal/accessibility">Accessibility</a></span>
+              <span>© {new Date().getFullYear()} <Lbt />.store — part of <Lbt />. All rights reserved.
+                {config.seller.legalName ? <> Operated by {config.seller.legalName}{config.seller.address ? `, ${config.seller.address}` : ""}{config.seller.trn ? ` · TRN ${config.seller.trn}` : ""}.</> : null}</span>
+              <span><a href="/legal/terms">Terms</a> · <a href="/legal/included-plans">Included plans</a> · <a href="/legal/services">Services</a> · <a href="/legal/acceptable-use">Acceptable use</a> · <a href="/legal/privacy">Privacy</a> · <a href="/legal/data-processing">Data processing</a> · <a href="/legal/subprocessors">Subprocessors</a> · <a href="/legal/accessibility">Accessibility</a></span>
             </div>
           </div>
         </footer>

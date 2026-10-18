@@ -93,9 +93,9 @@ describe("public pages", () => {
     }
     expect((await app.request("/terms")).status).toBe(301);
   });
-  it("describes the subsidiary relationship without naming people", async () => {
+  it("describes the single UAE operating company without naming people", async () => {
     const h = await (await app.request("/about")).text();
-    expect(h).toContain("subsidiary"); expect(h).toContain("Udyam"); expect(h).toContain("two");
+    expect(h).toContain("same UAE"); expect(h).toContain("TRN"); expect(h).not.toMatch(/India|Udyam|GST|freelancer/i);
   });
 });
 

@@ -1,31 +1,37 @@
-import { describe, it, expect, beforeAll } from "vitest";
-import type { Db } from "../src/db/client.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { config } from "../src/config.js";
+import { SECTORS, withLiveAvailability } from "../src/platform/catalog.js";
+import { buildApp } from "../src/app.js";
 import { freshDb } from "./helpers.js";
-import { createStaff } from "../src/platform/admin.js";
-import { SECTORS, sectorGateKey, withLiveAvailability } from "../src/platform/catalog.js";
-import { accept, assignOwner, releasedSectors, seedGates, submitEvidence, waive } from "../src/platform/readiness.js";
 
-let db: Db;
-beforeAll(async () => { db = await freshDb(); await seedGates(db); });
-const plus = (d: number) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
-const staff = async (role: string, n: string) => { const s = await createStaff(db, `sr-${n}-${Date.now()}@loadbyton.test`, n, "a-very-long-staff-password", role); return { userId: s.userId, role }; };
+afterEach(() => { config.sectorRelease = "gated"; });
 
-describe("sector release gates drive the public label", () => {
-  it("has one gate per sector and shows Available only after independent acceptance", async () => {
-    expect(SECTORS).toHaveLength(18);
-    expect(new Set(SECTORS.map((s) => sectorGateKey(s.slug))).size).toBe(18);
-    expect((await releasedSectors(db)).size).toBe(0);
-    expect(SECTORS.every((s) => s.availability !== "available")).toBe(true);   // no acceptance evidence means no unrestricted availability
+describe("operator-declared sector release (SECTOR_RELEASE=all)", () => {
+  it("by default a sector is Available only when its own gate is accepted", () => {
+    expect(withLiveAvailability(new Set()).every((s) => s.availability === "pilot")).toBe(true);
+    const one = withLiveAvailability(new Set(["road-transport"]));
+    expect(one.filter((s) => s.availability === "available").map((s) => s.slug)).toEqual(["road-transport"]);
+  });
 
-    const eng = await staff("engineer", "e"), aud = await staff("auditor", "a");
-    const key = sectorGateKey("cold-chain");
-    await assignOwner(db, eng, key, "Cold chain lead");
-    await submitEvidence(db, eng, key, "Qualified review and 12 live cases reconciled", "ref-1");
-    await waive(db, aud, sectorGateKey("distribution"), "Deferred", plus(30));
-    expect((await releasedSectors(db)).size).toBe(0);               // submitted evidence and waivers do not release a sector
-    await accept(db, aud, key, "Reviewed", plus(90));
-    const live = withLiveAvailability(await releasedSectors(db));
-    expect(live.find((s) => s.slug === "cold-chain")?.availability).toBe("available");
-    expect(live.find((s) => s.slug === "distribution")?.availability).toBe("pilot");
+  it("when declared, all eighteen are live, and the ones without an accepted gate say so", () => {
+    config.sectorRelease = "all";
+    const live = withLiveAvailability(new Set(["road-transport"]));
+    expect(live).toHaveLength(SECTORS.length);
+    expect(live.every((s) => s.availability === "available")).toBe(true);
+    expect(live.find((s) => s.slug === "road-transport")!.declared).toBeUndefined();
+    expect(live.filter((s) => s.declared)).toHaveLength(17);
+    // specialist sectors stay flagged as needing subject-matter review
+    expect(live.filter((s) => s.specialist).map((s) => s.slug).sort()).toEqual(["aviation-logistics", "cold-chain", "customs-brokerage", "dangerous-cargo"]);
+  });
+
+  it("the public sector page tells the truth about a declared release and keeps the specialist warning", async () => {
+    config.sectorRelease = "all";
+    const app = buildApp(await freshDb());
+    const html = await (await app.request("/sectors/dangerous-cargo")).text();
+    expect(html).toContain("This sector pack is live");
+    expect(html).toContain("We released it ourselves");
+    expect(html).toContain("not a certification to handle regulated cargo");
+    config.sectorRelease = "gated";
+    expect(await (await app.request("/sectors/dangerous-cargo")).text()).toContain("in <strong>pilot</strong>");
   });
 });

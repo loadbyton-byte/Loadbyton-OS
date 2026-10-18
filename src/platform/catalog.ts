@@ -1,4 +1,5 @@
 import type { Conn } from "../db/client.js";
+import { config } from "../config.js";
 
 export type Availability = "available" | "pilot" | "planned";
 
@@ -9,6 +10,8 @@ export type Availability = "available" | "pilot" | "planned";
 export interface Sector {
   slug: string; name: string; family: "freight" | "storage" | "movement"; advanced: boolean;
   workflow: string; availability: Availability; specialist?: boolean;
+  /** True when the sector is shown as Available because the operator declared it live (SECTOR_RELEASE=all), not because its own acceptance gate is recorded as accepted. */
+  declared?: boolean;
 }
 
 export const SECTORS: Sector[] = [
@@ -56,7 +59,9 @@ export const sectorGateKey = (slug: string) => `sector_${slug.replace(/-/g, "_")
 
 /** Catalogue with live availability: a sector is Available only while its own gate is accepted; otherwise its catalogue baseline shows. */
 export const withLiveAvailability = (released: ReadonlySet<string>): Sector[] =>
-  SECTORS.map((s) => (released.has(s.slug) ? { ...s, availability: "available" as Availability } : s));
+  SECTORS.map((s) => (released.has(s.slug)
+    ? { ...s, availability: "available" as Availability }
+    : config.sectorRelease === "all" && s.availability !== "planned" ? { ...s, availability: "available" as Availability, declared: true } : s));
 
 export const PRODUCTS = [
   { name: "LOAD|BY|TON Freight", blurb: "Enquiry → quote → job → supplier costs → documents → invoice → collection.", status: "available" as Availability },
@@ -70,7 +75,7 @@ export const PRODUCTS = [
 
 export const INTEGRATIONS = [
   { name: "Zoho Books accounting bridge", status: "pilot" as Availability, note: "Encrypted tenant connection; currency/tax mappings; draft invoices and retry reconciliation. Real controller acceptance pending. CSV export is also available." },
-  { name: "Stripe and Razorpay hosted checkout",status:'pilot' as Availability,note:'Server-verified webhooks and payment reconciliation. Card and eligible Google Pay methods are presented by the provider. Merchant authorization and live acceptance are deployment gates.' },
+  { name: "Stripe hosted checkout (Razorpay adapter available)",status:'pilot' as Availability,note:'Server-verified webhooks and payment reconciliation. Card and eligible Google Pay methods are presented by the provider. Merchant authorization and live acceptance are deployment gates.' },
   { name: "Oracle / Cloudflare / Neon / Supabase / Upstash",status:'pilot' as Availability,note:'Deployment templates and server adapters implemented. Production region, provider connectivity, monitoring and recovery evidence are required before availability claims.' },
   { name: "Accredited e-invoicing service provider (UAE)", status: "planned" as Availability, note: "Adapter to be built against a verified accredited provider. LOAD|BY|TON is not an accredited provider." },
   { name: "Dubai Trade / Mirsal 2", status: "planned" as Availability, note: "Controlled document/export handover only until official access is confirmed." },
@@ -118,8 +123,9 @@ export interface PlanVersion {
 
 /** Latest published version per plan, in tariff order. */
 export async function currentPlans(c: Conn): Promise<PlanVersion[]> {
+  // Plans handed out through loadbyton.com (…_included) are never offered for sale, so they are not part of the tariff.
   const r = await c.query<PlanVersion>(
-    `SELECT DISTINCT ON (plan_code) * FROM plan_versions ORDER BY plan_code, version DESC`);
+    `SELECT DISTINCT ON (plan_code) * FROM plan_versions WHERE plan_code = ANY($1::text[]) ORDER BY plan_code, version DESC`, [PLAN_SEEDS.map((p) => p.code)]);
   const order = PLAN_SEEDS.map((p) => p.code);
   return r.rows.sort((a, b) => order.indexOf(a.plan_code) - order.indexOf(b.plan_code));
 }

@@ -96,8 +96,8 @@ Set `PAYMENT_PROVIDERS=stripe,razorpay` (either one alone is fine; the first is 
    `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`.
 3. `STRIPE_SECRET_KEY` (`sk_…` or a restricted `rk_…` key with *Checkout Sessions: write*) and `STRIPE_WEBHOOK_SECRET` (`whsec_…`).
 4. Orders are priced in AED (the plan currency). **Confirm with Stripe that your account type and country can present and settle in AED** and
-   that your business model (software subscriptions sold from India to UAE customers) is permitted on your account — Stripe availability and
-   settlement rules for Indian businesses differ from other countries and only Stripe can confirm them for your account.
+   that your business model (software subscriptions sold by a UAE company to UAE customers) is permitted on your account — only Stripe can confirm
+   availability and settlement rules for your account.
 
 ### Razorpay (UPI incl. Google Pay, cards, netbanking)
 1. Dashboard → Settings → API keys → generate; `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`.

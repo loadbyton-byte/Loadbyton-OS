@@ -3,7 +3,7 @@
 | # | Decision | Where the code is waiting |
 |---|---|---|
 | 1 | Approve first sector and end-to-end scope (recommended: Forwarding Starter) | Built; pilot with ≥5 design partners (§29 gate). **Owner decision: the official release requires all 18 sectors ready; Forwarding Starter is the pilot order, not a reduced launch scope** |
-| 2 | Contracting entity and **payment merchant** | **Decided: an India-based GST-registered freelancer selling to UAE customers; Stripe (cards, Google Pay) and Razorpay (UPI/Google Pay/cards).** Adapters built (`PAYMENT_PROVIDERS`); identity/GST/PAN/tax text are env vars. Still to confirm with the providers: AED presentment/settlement for your accounts; with your accountant: tax treatment of the supply |
+| 2 | Contracting entity and **payment merchant** | **Decided (18 Oct 2026): one UAE legal entity operates both loadbyton.com and loadbyton.store and is the seller on every invoice and receipt.** Replaces the earlier India-based freelancer arrangement. Payments: Stripe on that entity's UAE account (AED; cards, Apple Pay, Google Pay); the marketplace additionally supports Telr. The Razorpay adapter stays in the code but is not part of a UAE entity's set-up (it needs an Indian business account). Identity is set with `SELLER_LEGAL_NAME`, `SELLER_TRADE_LICENCE`, `SELLER_LICENCE_AUTHORITY`, `SELLER_TRN` (after VAT registration) and `SELLER_ADDRESS`. Still to confirm with Stripe: AED settlement for the account; with the accountant: VAT registration and treatment |
 | 3 | Hosting, region and recovery budget | **Decided: Oracle Cloud VM + Cloudflare (tunnel) + Neon or Supabase (PostgreSQL) + Upstash (rate limits).** See `docs/DEPLOYMENT.md`. Region, recovery budget (RPO/RTO) and the subprocessor page still to be set |
 | 4 | Pilot plan limits | `PLAN_SEEDS` in `src/platform/catalog.ts` (hypotheses, immutable once published) |
 | 5 | Accounting system of record | `AccountingAdapter` (CSV/export stub today). Subscription receipts for your own SaaS sales are printable from Plan & billing |
@@ -91,3 +91,19 @@
 | 55 | Document storage location and retention (Oracle Object Storage vs Cloudflare R2; encryption keys; deletion/retention policy; migrating existing files) | `STORAGE_DRIVER=s3` works with either; no migration tool, no retention job (links to #8) |
 | 56 | Mail sender identity and templates (domain, branding, languages, Arabic) | Three plain English templates (invitation, payment received, workspace ready) via Resend |
 | 57 | Webhook/API commercial terms (rate limits per plan, SLA for webhook delivery, key rotation policy) | 120 requests/minute per key, 5 keys per merchant, ~3 h of retries; no per-plan differences |
+
+## Added with the loadbyton.com link
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 58 | Included plans for verified marketplace companies (Starter Included; Enterprise Included while premium is active) | **Built** (migration 078, `src/platform/ecosystem.ts`). Prices, premium terms and the billing entity are decided on loadbyton.com's side; see its `docs/ECOSYSTEM.md` §9 |
+| 59 | Payment grace window before Enterprise Included reverts to Starter | Proposed 14 days, set by loadbyton.com (`ECOSYSTEM_GRACE_DAYS`); the Store only honours the dates it is sent |
+| 60 | Which sectors a company may use under an included plan | Starter Included: one (the sector chosen at activation); Enterprise Included: up to 18. Sector availability is still governed by the readiness gates (every sector is `pilot`); the link does not release a sector |
+| 61 | Whether "Continue with Loadbyton" replaces local sign-in | No: both stay. Existing accounts link by password proof, never by email alone |
+| 62 | Launching the operating application for pilot companies | Activation only means something with `BROCHURE_MODE=false`; not changed here |
+| 63 | Billing entity for both sites | **Decided 18 Oct 2026:** one UAE legal entity operates loadbyton.com and loadbyton.store. Seller identity comes from `SELLER_*` (legal name, trade licence, authority, TRN, address). The entity's details still have to be entered |
+| 64 | Premium price | **Decided:** AED 199 per month or AED 1,990 per year, excluding 5% UAE VAT; set on loadbyton.com (published, immutable plan versions). The Store only honours the entitlement it receives |
+| 65 | Payment partners | **Decided:** Stripe (UAE account) and Telr, in AED. Razorpay is not used for the UAE entity |
+| 66 | Release of the 18 sectors | **Decided:** all 18 are released by operator declaration (`SECTOR_RELEASE=all`). This shows sectors as live and says the operator declared it; it does not record independent acceptance, and the specialist warnings for customs, cold chain, aviation and dangerous cargo stay |
+| 67 | Legal documents | Written in this repository as drafts (`src/web/legal-docs.tsx`); the draft banner shows until `LEGAL_REVIEWED=true`. A qualified UAE lawyer must review before commercial publication. The iubenda connector was not authorised, so no hosted policy was generated |
+| 68 | Logo variant | **Decided:** red BY is canonical (recorded in `public/brand/brand.config.json`) |
