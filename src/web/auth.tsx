@@ -17,7 +17,8 @@ import { SESSION_COOKIE, arr, clearSessionCookie, clientIp, formBody, safeNext, 
 import { AuthFrame, Icon } from "./experience.js";
 import { requestPasswordRecovery, recoverPassword } from '../platform/password-recovery.js';
 import { Csrf, PublicShell, type Page } from "./ui.js";
-import { brochureStartPage, parseRequest } from "./requests.js";
+import { brochureStartPage, fileFromForm, parseBrand, parseRequest } from "./requests.js";
+import { addBrandAsset, checkAssetFile, checkBrandInput, confirmBrandKit, saveBrandKit } from "../platform/brand-kit.js";
 import { checkNewRequest, createRequest } from "../platform/requests.js";
 
 export const auth = new Hono<Env>();
@@ -99,14 +100,28 @@ auth.post("/start", async (c) => {
     if (ip) await rateLimit(`signup-ip:${ip}`, config.kyc.signupsPerIpPerDay, 86400, "Too many registrations from this network today. Try again tomorrow or contact support.");
     await rateLimit(`signup-email:${str(b.email).toLowerCase().split("@")[1] ?? "x"}`, 10, 86400, "Too many registrations for this email domain today. Contact support.");
     if (config.brochureMode) {
-      // validate the whole request first so a bad form never leaves an account without one
+      // validate everything first (the request, the brand fields, the logo file) so a bad form never leaves an account without a request
       const req = parseRequest(b);
       checkNewRequest(req);
+      const brand = parseBrand(b);
+      checkBrandInput(brand);
+      const logo = await fileFromForm(b.logo, "logo");
+      if (logo) await checkAssetFile(logo);
       const r = await registerCompany(db, { company: str(b.company), contactName: str(b.contact), email: str(b.email), password: str(b.password), country: "AE", sectors: [], goal: `Build request (${req.category})` });
-      const created = await db.tenant(r.tenantId, (cn) => createRequest(cn, r.tenantId, r.userId, req));
+      // brand kit first: if it is complete the request is created with its delivery clock already running
+      const created = await db.tenant(r.tenantId, async (cn) => {
+        await saveBrandKit(cn, r.tenantId, r.userId, brand);
+        if (logo) await addBrandAsset(cn, r.tenantId, r.userId, logo);
+        if (logo || brand.noLogo) await confirmBrandKit(cn, r.tenantId, r.userId);
+        return createRequest(cn, r.tenantId, r.userId, req);
+      });
       const s = await newSession(db, r.userId, r.tenantId);
       setSessionCookie(c, s.token);
-      return c.redirect(`/app/requests/${created.id}?ok=` + encodeURIComponent(created.category === "paid" ? `Request received. We will send you a quote; delivery follows within ${config.deliveryHours} hours of agreeing it.` : `Request received. Delivery is due within ${config.deliveryHours} hours.`));
+      const started = !!created.clock_started_at;
+      const msg = created.category === "paid"
+        ? (started ? `Request received. We will send you a quote; delivery follows within ${config.deliveryHours} hours of agreeing it.` : "Request received. Add your brand kit, and we will send you a quote; delivery follows within " + config.deliveryHours + " hours of agreeing it.")
+        : started ? `Request received. Delivery is due within ${config.deliveryHours} hours.` : `Request received. Add your logo or colours to start the ${config.deliveryHours}-hour clock.`;
+      return c.redirect(`${logo || brand.noLogo ? `/app/requests/${created.id}` : "/app/brand"}?ok=` + encodeURIComponent(msg));
     }
     const r = await registerCompany(db, {
       kyc: { phone: str(b.phone), licenceNo: str(b.licence), licenceAuthority: str(b.authority), trn: str(b.trn), ip },

@@ -24,7 +24,10 @@ export function navFor(c: C): NavItem[] {
   const ctx = ctxOf(c);
   if (ctx.roles.length === 1 && ctx.roles[0] === "portal") return [{ href: "/app/portal", label: "My shipments" }];
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return [{ href: "/app/driver", label: "My work" }];
-  if (config.brochureMode) return [{ href: "/app", label: "Your requests" }, ...(ctx.perms.has("team.manage") ? [{ href: "/app/team", label: "Team", section: "Admin" }] : []), { href: "/account/security", label: "Account security", section: "Admin" }];
+  if (config.brochureMode) return [
+    { href: "/app", label: "Home" }, { href: "/app/requests", label: "Your requests" }, { href: "/app/features", label: "Features and add-ons" }, { href: "/app/brand", label: "Brand kit" },
+    { href: "/app/messages", label: "Messages" }, { href: "/app/guide", label: "Add your private details" }, { href: "/app/plan", label: "Plan and payment" },
+    ...(ctx.perms.has("team.manage") ? [{ href: "/app/team", label: "Team", section: "Admin" }] : []), { href: "/account/security", label: "Account security", section: "Admin" }];
   const t = c.get("tenant");
   const fwd = t?.sectors.includes("freight-forwarding");
   const n: NavItem[] = [{ href: "/app", label: "Overview" }];
@@ -98,7 +101,7 @@ export function navFor(c: C): NavItem[] {
 
 export function appPage(c: C, title: string, body: Child, extra: Partial<Page> = {}) {
   const ctx = ctxOf(c), s = c.get("session")!, t = c.get("tenant")!;
-  const p: Page = { title, csrf: c.get("csrf"), path: c.req.path, user: { name: s.name }, offlineScope: ctx.perms.has('driver.act')?`${ctx.tenantId}:${ctx.userId}`:undefined, ok: c.req.query("ok"), err: c.req.query("err"), ...extra };
+  const p: Page = { title, csrf: c.get("csrf"), path: c.req.path, user: { name: s.name }, unread: c.get("unread") ?? 0, offlineScope: ctx.perms.has('driver.act')?`${ctx.tenantId}:${ctx.userId}`:undefined, ok: c.req.query("ok"), err: c.req.query("err"), ...extra };
   const mems = c.get("memberships");
   const switcher = mems.length > 1 ? (
     <form method="post" action="/app/switch" style="margin-top:8px">

@@ -18,6 +18,8 @@ export type Env = {
     apiAuth?: Awaited<ReturnType<typeof import('../platform/api.js').apiContext>>;
     traceId?: string;
     locale?: 'en' | 'ar';
+    /** client portal: replies from our team the client has not read yet */
+    unread?: number;
   };
 };
 export type C = Context<Env>;

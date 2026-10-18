@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Db } from "../src/db/client.js";
 import { config } from "../src/config.js";
 import { buildApp } from "../src/app.js";
-import { freshDb, newTenant } from "./helpers.js";
+import { confirmBrand, freshDb, newTenant } from "./helpers.js";
 import { createStaff } from "../src/platform/admin.js";
 import { totp } from "../src/lib/util.js";
 import { cancelOwnRequest, clockOf, createRequest, listRequests, requestDetail, requestStats, staffUpdateRequest } from "../src/platform/requests.js";
@@ -34,6 +34,7 @@ class Browser {
 describe("request rules", () => {
   it("starts a delivery clock, and a free request covers one built sector", async () => {
     const t = await newTenant(db);
+    await confirmBrand(db, t);   // the clock starts once the brand kit is in
     const now = new Date("2026-10-17T08:00:00Z");
     const r = await db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, good, now));
     expect(new Date(r.due_at).toISOString()).toBe("2026-10-18T08:00:00.000Z");
@@ -90,6 +91,7 @@ describe("staff delivery", () => {
 
   it("starts the paid delivery window when the quote is agreed, not at submission", async () => {
     const t = await newTenant(db);
+    await confirmBrand(db, t);
     const eng = { userId: (await createStaff(db, `p-${Date.now()}@lbt.test`, "Eng", "a-very-long-staff-password", "engineer")).userId, role: "engineer" };
     const old = new Date(Date.now() - 3 * 86400_000);
     const paid = await db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, { ...good, category: "paid" }, old));
@@ -133,7 +135,7 @@ describe("brochure site", () => {
   it("registers an account and a request in one step, then shows the tracker", async () => {
     const b = new Browser();
     const email = `brochure-${Date.now()}@example.com`;
-    const res = await b.post("/start", { company: "Brochure Logistics", contact: "Bea", email, password: "correct horse battery", category: "free", sector: "freight-forwarding", title: "Freight pack", requirements: "Branding plus our own quote layout.", backend_notes: "Node + Postgres on our VPS", demo_reviewed: "yes" });
+    const res = await b.post("/start", { company: "Brochure Logistics", contact: "Bea", email, password: "correct horse battery", category: "free", sector: "freight-forwarding", title: "Freight pack", requirements: "Branding plus our own quote layout.", backend_notes: "Node + Postgres on our VPS", demo_reviewed: "yes", no_logo: "yes" });
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toMatch(/^\/app\/requests\/[0-9a-f-]{36}\?ok=/);
     const dash = await (await b.get("/app")).text();
@@ -196,6 +198,7 @@ describe("staff console", () => {
 
   it("counts the delivery queue with the same clock rules the client sees", async () => {
     const t = await newTenant(db), eng = { userId: (await createStaff(db, `stats-${Date.now()}@lbt.test`, "Eng", "a-very-long-staff-password", "engineer")).userId, role: "engineer" };
+    await confirmBrand(db, t);
     const before = await requestStats(db);
     const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000);
     const make = (over: object, h: number) => db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, { ...good, ...over } as any, hoursAgo(h)));

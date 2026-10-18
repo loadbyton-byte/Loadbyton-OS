@@ -3,6 +3,8 @@ import { CONTACT, Lbt, waLink } from "./brand.js";
 import { CtaBand, Faq, PHOTO, Section, sectorPhoto } from "./site-kit.js";
 import { fmtMoney } from "../lib/util.js";
 import { SECTORS, PRODUCTS, type PlanVersion } from "../platform/catalog.js";
+import { config } from "../config.js";
+import { FreeVsPaid, HOME_FAQ, HowSteps, NeverAsk, SectorCards, WhatIsIt } from "./brochure.js";
 
 const MARQUEE = ["Enquire", "Quote", "Move", "Document", "Invoice", "Collect"];
 
@@ -40,7 +42,8 @@ const SEQUENCE: [string, string][] = [
   ["Invoice and collect", "Bill from approved charges. See what is unbilled and what is overdue."],
 ];
 
-export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
+export function HomeExperience({ plans, sectors = SECTORS }: { plans: PlanVersion[]; sectors?: typeof SECTORS }) {
+  const brochure = config.brochureMode;
   const paid = plans.filter((x) => x.monthly_minor > 0 && !x.contact_sales).sort((a, b) => a.monthly_minor - b.monthly_minor);
   const from = paid[0]?.monthly_minor;
   return <>
@@ -59,9 +62,11 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
         <div class="hero-copy">
           <span class="eyebrow on-photo"><span class="signal-dot"></span>Logistics software · built in India · priced for the UAE</span>
           <h1 id="hero-heading"><span class="ln"><span>Run the movement.</span></span>{" "}<span class="ln"><span>Know the margin.</span></span></h1>
-          <p class="lead">One workspace for enquiries, quotes, jobs, trips, stock, parcels, documents and collections.{from ? <> Start free. Paid plans from <strong>{fmtMoney(from).replace(/\.00$/, "")}</strong> a month.</> : " Start free."}</p>
+          {brochure
+            ? <p class="lead">Working logistics software for 18 sectors, made to look and run like your company. Register, send your logo, and we deliver within <strong>{config.deliveryHours} hours</strong>. Free for one sector.</p>
+            : <p class="lead">One workspace for enquiries, quotes, jobs, trips, stock, parcels, documents and collections.{from ? <> Start free. Paid plans from <strong>{fmtMoney(from).replace(/\.00$/, "")}</strong> a month.</> : " Start free."}</p>}
           <div class="hero-actions">
-            <a class="btn red" href="/start">Start free <Icon name="arrow" size={16} /></a>
+            {brochure ? <><a class="btn red" href="/start">Register your requirement <Icon name="arrow" size={16} /></a><a class="btn glass" href="/demo">See the demo</a></> : <a class="btn red" href="/start">Start free <Icon name="arrow" size={16} /></a>}
             <a class="btn glass" href={waLink()} target="_blank" rel="noopener"><Icon name="whatsapp" size={18} />Talk on WhatsApp</a>
           </div>
           <ul class="hero-chips" aria-label="Business facts">
@@ -95,13 +100,15 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
         <div><b data-count={String(SECTORS.length)}>{SECTORS.length}</b><span>Sector packs</span></div>
         <div><b data-count={String(PRODUCTS.length)}>{PRODUCTS.length}</b><span>Products, one core</span></div>
         <div><b data-count="3">3</b><span>Surfaces: web, driver, portal</span></div>
-        <div><b data-pre="AED " data-count="0">AED 0</b><span>To start. Free plan stays free</span></div>
+        {brochure ? <div><b>{config.deliveryHours}h</b><span>From a complete request to delivery</span></div> : <div><b data-pre="AED " data-count="0">AED 0</b><span>To start. Free plan stays free</span></div>}
       </div></div>
     </section>
 
     <div class="marquee-wrap" aria-hidden="true"><div class="marquee"><div class="marquee-track">
       {[0, 1].map(() => <span>{MARQUEE.map((m) => <><i></i>{m}</>)}<i></i><Lbt /></span>)}
     </div></div></div>
+
+    {brochure ? <WhatIsIt /> : null}
 
     <Section eyebrow="Less patching. More control." title={<>Every team.<br />The same picture.</>} intro="Most small logistics companies run on four tools and a lot of memory. The work gets done; the margin goes missing in the gaps.">
       <div class="versus" data-reveal>
@@ -163,10 +170,17 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
         <article class="b-c spot" data-reveal><span class="ic"><Icon name="shield" size={24} /></span><h3>Control is built in.</h3><p>Tenant isolation, approval gates, immutable history and evidence attached to the work.</p><a href="/security">Security <Icon name="arrow" size={14} /></a></article>
         <article class="b-d spot" data-reveal><span class="ic"><Icon name="document" size={24} /></span><h3>Documents that follow the job.</h3><p>Versioned drafts, holds and proof of delivery, with Arabic and English invoice layouts.</p><a href="/features">All features <Icon name="arrow" size={14} /></a></article>
         <article class="b-e spot" data-reveal><span class="ic"><Icon name="truck" size={24} /></span><h3>A driver app that works offline.</h3><p>Large buttons, a queue that syncs when the signal returns, no duplicate events.</p><a href="/for-transporters">For fleets <Icon name="arrow" size={14} /></a></article>
-        <article class="b-f" data-reveal><div><h3>Your next capability is an upgrade,<br />not a new implementation.</h3><p>Start with one sector. Add more without moving your data.</p></div><a class="btn glass" href="/find-my-bundle">Find my bundle <Icon name="arrow" size={16} /></a></article>
+        <article class="b-f" data-reveal><div><h3>Your next capability is an upgrade,<br />not a new implementation.</h3><p>Start with one sector. Add more without moving your data.</p></div>{brochure ? <a class="btn glass" href="/sectors">Browse the 18 packs <Icon name="arrow" size={16} /></a> : <a class="btn glass" href="/find-my-bundle">Find my bundle <Icon name="arrow" size={16} /></a>}</article>
       </div>
     </Section>
 
+    {brochure ? <>
+      <Section eyebrow="HOW IT WORKS" title={<>Six steps.<br />One dashboard.</>} intro="You always see where you are, what we are waiting for and how long is left."><HowSteps /><p style="margin-top:24px"><a class="btn ghost" href="/how-it-works">The full journey <Icon name="arrow" size={16} /></a></p></Section>
+      <Section tone="alt" eyebrow="ALL 18 SECTOR PACKS" title={<>Pick the pack<br />that pays your bills.</>} intro="Each page lists what the pack does, the documents it produces, what is free, what runs monthly and what you enter yourself."><SectorCards sectors={sectors} /></Section>
+      <FreeVsPaid />
+      <Section eyebrow="YOUR PRIVACY" title={<>Your numbers stay<br />with you.</>}><div class="grid g2"><div class="prose"><p>Logistics paperwork is full of numbers you shouldn't hand around: tax registration numbers, bank accounts, licence copies and provider logins.</p><p>So we don't take them. Your build arrives with empty fields in the right places, and your dashboard shows, one step at a time, where each of your own details goes in your own admin panel.</p></div><NeverAsk /></div></Section>
+      <Section tone="tint" eyebrow="Honest answers" title={<>Questions people<br />ask first.</>}><Faq items={HOME_FAQ} /></Section>
+    </> : <>
     <Section eyebrow="Pick your lane" title={<>Built for the<br />work you do.</>} intro="Start with the sector that pays your bills. Combine more later in the same account.">
       <div class="photo-cards">
         {[
@@ -197,6 +211,8 @@ export function HomeExperience({ plans }: { plans: PlanVersion[] }) {
         ["Can I talk to someone before I sign up?", <>Yes. Message us on <a href={waLink()} target="_blank" rel="noopener">WhatsApp {CONTACT.phoneDisplay}</a> or write to <a href={`mailto:${CONTACT.emails.contact}`}>{CONTACT.emails.contact}</a>. The chat on this page also reaches a person during staffed hours.</>],
       ]} />
     </Section>
+
+    </>}
 
     <CtaBand title={<>Make room for<br />better operations.</>} />
   </>;

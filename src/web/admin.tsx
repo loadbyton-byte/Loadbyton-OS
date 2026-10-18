@@ -42,6 +42,11 @@ admin.get("/admin", async (c) => {
           <div class="card"><h3>Awaiting a quote</h3><div class="kpi">{rq.awaitingQuote}</div><p class="small mute">Paid; the {config.deliveryHours}-hour clock starts at the quote</p></div>
           <div class="card"><h3>Delivered, last 7 days</h3><div class="kpi">{rq.deliveredWeek}</div></div>
         </div>
+        <div class="grid g4" style="margin-top:16px">
+          <div class="card"><h3>Unread client messages</h3><div class={`kpi ${rq.unread ? "bad" : "good"}`}>{rq.unread}</div><p class="small mute"><a href="/admin/requests">Reply from the queue</a></p></div>
+          <div class="card"><h3>Waiting for a brand kit</h3><div class="kpi">{rq.awaitingBrand}</div><p class="small mute">The clock starts when the client confirms it</p></div>
+          <div class="card"><h3>Waiting for plan payment</h3><div class="kpi">{rq.awaitingPayment}</div><p class="small mute">Paid add-ons; the clock starts at payment</p></div>
+        </div>
       </>) : null}
       <div class="grid g4" style={brochure ? "margin-top:26px" : undefined}>
         <div class="card"><h3>{brochure ? "Clients" : "Tenants"}</h3><div class="kpi">{o.tenants}</div>{brochure ? null : <p class="small mute">{o.paid} paid</p>}</div>
@@ -58,7 +63,7 @@ admin.get("/admin", async (c) => {
       </>)}
       <h2 style="margin-top:26px">Needs attention</h2>
       <ul>
-        {brochure ? <li>Overdue build requests: <strong>{rq.overdue}</strong> — <a href="/admin/requests">review</a></li> : <li>Rejected payment events: <strong>{o.rejectedEvents}</strong> — <a href="/admin/orders">review</a></li>}
+        {brochure ? <><li>Overdue build requests: <strong>{rq.overdue}</strong> — <a href="/admin/requests">review</a></li><li>Unread client messages: <strong>{rq.unread}</strong> — <a href="/admin/requests">reply</a></li></> : <li>Rejected payment events: <strong>{o.rejectedEvents}</strong> — <a href="/admin/orders">review</a></li>}
         <li>Undeliverable outbox rows: <strong>{o.deadOutbox}</strong> — <a href="/admin/queues">review</a></li>
         <li>Staff review items{brochure ? "" : " (refunds, failed activations)"}: <strong>{o.staffReview}</strong> — <a href="/admin/queues">review</a></li>
       </ul>

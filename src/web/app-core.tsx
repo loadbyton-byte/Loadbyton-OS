@@ -32,12 +32,15 @@ import { act, appPage, back, can, ctxOf, navFor, need, PageHead, PostBtn, Confir
 import { Badge, Csrf, Money, Table, sectorName } from "./ui.js";
 import { gateMessage } from "../platform/kyc-messages.js";
 import { handlePaymentWebhook } from "./auth.js";
-import { brochureDashboard } from "./requests.js";
+import { portalHome } from "./portal.js";
+import { unreadForClient } from "../platform/messages.js";
 
 export const core = new Hono<Env>();
 /** Brochure mode: only these workspace pages exist. Exact paths first, then sections whose sub-pages are also allowed. */
 const BROCHURE_EXACT = new Set(["/app", "/app/switch", "/app/alerts.json"]);
-const BROCHURE_SECTIONS = ["/app/requests", "/app/team"];
+const BROCHURE_SECTIONS = ["/app/requests", "/app/team", "/app/features", "/app/brand", "/app/messages", "/app/guide", "/app/plan", "/app/billing/pay", "/app/billing/orders", "/app/billing/cancel"];
+/** Where the plan and payment pages live: the client portal's own page in brochure mode, the full billing page otherwise. */
+const billingHome = () => (config.brochureMode ? "/app/plan" : "/app/billing");
 const brochureAllows = (path: string) => BROCHURE_EXACT.has(path) || BROCHURE_SECTIONS.some((x) => path === x || path.startsWith(x + "/"));
 
 // ── context + tenant info for every /app page; portal users are fenced to the portal
@@ -56,6 +59,7 @@ core.use("/app/*", async (c, next) => {
   if (config.brochureMode) {
     if (!brochureAllows(c.req.path)) return c.redirect("/app");
     if (ctx.roles.length === 1 && (ctx.roles[0] === "portal" || ctx.roles[0] === "driver")) throw new HttpError(403, "This workspace tracks build requests. Ask an owner of your company for access.", "forbidden");
+    c.set("unread", await db.tenant(ctx.tenantId, unreadForClient));
     return next();   // skip the operating-plane gates (verification, portal and driver fences, sectors): none apply here
   }
   const portalOnly = ctx.roles.length === 1 && ctx.roles[0] === "portal";
@@ -144,7 +148,7 @@ core.post("/app/switch", async (c) => {
 
 // ── overview
 core.get("/app", async (c) => {
-  if (config.brochureMode) return brochureDashboard(c);
+  if (config.brochureMode) return portalHome(c);
   const ctx = ctxOf(c), t = c.get("tenant")!;
   if (ctx.roles.length === 1 && ctx.roles[0] === "driver") return c.redirect("/app/driver");
   const data = await withT(c, async (cn) => {
@@ -563,7 +567,7 @@ core.post("/app/billing/cancel", async (c) => {
   need(c, "billing.manage");
   const ctx = ctxOf(c);
   await cancelAtPeriodEnd(c.get("db"), ctx.tenantId, ctx.userId);
-  return back(c, "/app/billing", "Cancellation scheduled for the end of the paid period.");
+  return back(c, billingHome(), "Cancellation scheduled for the end of the paid period.");
 });
 
 // Printable receipt / tax invoice for a PAID subscription order. Seller identity comes from the deployment's environment; the buyer is the workspace's legal entity.
@@ -618,7 +622,7 @@ core.get("/app/billing/pay/:id", async (c) => {
         <p class="small">Reference <code>{o.reference}</code> · status <Badge s={o.status} /></p>
         {pending ? <><p>Taking you to our payment provider… If nothing happens, <a class="btn red" href={o.checkout_url}>continue to secure payment</a>.</p>
           <p class="small mute">Your plan changes only when the provider confirms the payment to our server — not when you return to this site.</p></>
-          : <a class="btn" href="/app/billing">Back to billing</a>}
+          : <a class="btn" href={billingHome()}>{config.brochureMode ? "Back to plan and payment" : "Back to billing"}</a>}
         <Seller />
       </div>), extra);
   }
@@ -638,7 +642,7 @@ core.get("/app/billing/pay/:id", async (c) => {
         <div class="inline-form">
           <PostBtn action={`/app/billing/pay/${o.id}`} csrf={csrf} label="Simulate successful payment" cls="red" fields={{ outcome: "success" }} />
           <PostBtn action={`/app/billing/pay/${o.id}`} csrf={csrf} label="Simulate failed payment" cls="ghost" fields={{ outcome: "failed" }} />
-        </div>) : <a class="btn" href="/app/billing">Back to billing</a>}
+        </div>) : <a class="btn" href={billingHome()}>{config.brochureMode ? "Back to plan and payment" : "Back to billing"}</a>}
     </div>));
 });
 core.post("/app/billing/pay/:id", async (c) => {
@@ -649,9 +653,9 @@ core.post("/app/billing/pay/:id", async (c) => {
   if (!o) throw new HttpError(404, "Order not found");
   const raw = JSON.stringify(buildMockEvent(o, str(b.outcome) === "failed" ? "payment.failed" : "payment.succeeded"));
   const r = await handlePaymentWebhook(db, "mock", raw, signPayload(raw));
-  if (r.status !== 200) return back(c, "/app/billing", undefined, `Payment was not applied (${(r.body as any).reason ?? (r.body as any).error}).`);
+  if (r.status !== 200) return back(c, billingHome(), undefined, `Payment was not applied (${(r.body as any).reason ?? (r.body as any).error}).`);
   await processProvisioningQueue(db);
-  return back(c, "/app/billing", str(b.outcome) === "failed" ? "Payment failed. No changes were made." : "Payment verified. Your workspace is being activated.");
+  return back(c, billingHome(), str(b.outcome) === "failed" ? "Payment failed. No changes were made." : config.brochureMode ? "Payment verified. Your monthly plan is active and your request has started." : "Payment verified. Your workspace is being activated.");
 });
 
 // ── settings

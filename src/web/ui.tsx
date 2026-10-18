@@ -11,6 +11,8 @@ export interface Page {
   offlineScope?: string;
   /** Public pages that open with a dark hero let the floating header start in its light-on-dark state. */
   heroDark?: boolean;
+  /** Client portal: new replies from our team, shown on the Messages tab. */
+  unread?: number;
   /** Public pages that should not carry the chat, offers and notices (sign-in, recovery). */
   quiet?: boolean;
 }
@@ -40,7 +42,7 @@ export const Flash = ({ ok, err }: { ok?: string; err?: string }) => (
 
 function Head({ p, surface }: { p: Page; surface: "public" | "desk" }) {
   const app = p.path.startsWith("/app") || p.path.startsWith("/admin");
-  const desc = p.description ?? "Your logistics company, connected. Start free, choose the tools your business needs, and run enquiries, jobs, documents, deliveries and collections from one branded workspace.";
+  const desc = p.description ?? (config.brochureMode ? `Working logistics software for 18 sectors, customised to your brand and delivered within ${config.deliveryHours} hours. Free for one sector; paid add-ons on a monthly plan.` : "Your logistics company, connected. Start free, choose the tools your business needs, and run enquiries, jobs, documents, deliveries and collections from one branded workspace.");
   return (
     <head>
       <meta charset="utf-8" />
@@ -71,6 +73,7 @@ function Head({ p, surface }: { p: Page; surface: "public" | "desk" }) {
       <script src="/assets/theme.js"></script>
       <link rel="stylesheet" href="/assets/lbt.css" />
       <link rel="stylesheet" href={surface === "public" ? "/assets/site.css" : "/assets/desk.css"} />
+      {surface === "desk" ? <link rel="stylesheet" href="/assets/portal.css" /> : <link rel="stylesheet" href="/assets/brochure.css" />}
       {surface === "public" ? <link rel="stylesheet" href="/assets/widgets.css" /> : null}
       <script src="/assets/lbt.js" defer></script>
       {surface === "public" && !p.quiet ? <script src="/assets/engage.js" defer></script> : null}
@@ -82,9 +85,9 @@ function Head({ p, surface }: { p: Page; surface: "public" | "desk" }) {
   );
 }
 
-export const PUBLIC_NAV: [string, string][] = config.brochureMode ? [["/features", "Platform"], ["/sectors", "Sectors"], ["/demo", "Demo"], ["/pricing", "Free & paid"], ["/about", "About"]] : [["/features", "Platform"], ["/sectors", "Sectors"], ["/pricing", "Pricing"], ["/about", "About"]];
+export const PUBLIC_NAV: [string, string][] = config.brochureMode ? [["/sectors", "Sectors"], ["/how-it-works", "How it works"], ["/demo", "Demo"], ["/pricing", "Free & paid"], ["/features", "Platform"], ["/about", "About"]] : [["/features", "Platform"], ["/sectors", "Sectors"], ["/pricing", "Pricing"], ["/about", "About"]];
 const SHEET_NAV: [string, string][] = [
-  ["/features", "Platform"], ["/sectors", "Sectors"], ["/industries", "Who it is for"], ...(config.brochureMode ? [["/demo", "Demo"]] as [string, string][] : []), ["/pricing", config.brochureMode ? "Free & paid" : "Pricing"], ["/trust", "Trust & safety"], ["/security", "Security"],
+  ["/features", "Platform"], ["/sectors", "Sectors"], ...(config.brochureMode ? [["/how-it-works", "How it works"]] as [string, string][] : []), ["/industries", "Who it is for"], ...(config.brochureMode ? [["/demo", "Demo"]] as [string, string][] : []), ["/pricing", config.brochureMode ? "Free & paid" : "Pricing"], ["/trust", "Trust & safety"], ["/security", "Security"],
   ["/blog", "Notes"], ["/about", "About"], ["/contact", "Contact"], ["/login", "Sign in"],
 ];
 
@@ -189,7 +192,7 @@ const initials = (n: string) => (n || "?").split(/\s+/).map((x) => x[0]).slice(0
 /** Shared frame for the workspace and the control console: pill navigation, icon rail, command search, alerts, account menu, status bar. */
 function DeskFrame({ p, nav, area, tenantName, roles, banner, switcher, rail, pills, children }: {
   p: Page; nav: NavItem[]; area: "workspace" | "control"; tenantName: string; roles: string[]; banner?: Child; switcher?: Child;
-  rail: { href: string; label: string; icon: string; id?: string; active: boolean; items?: NavItem[] }[]; pills: { href: string; label: string; icon?: string; active: boolean }[]; children: Child;
+  rail: { href: string; label: string; icon: string; id?: string; active: boolean; items?: NavItem[] }[]; pills: { href: string; label: string; icon?: string; active: boolean; badge?: number }[]; children: Child;
 }) {
   const home = area === "workspace" ? "/app" : "/admin";
   const crumbs = rail.find((r) => r.active && r.items);
@@ -205,7 +208,7 @@ function DeskFrame({ p, nav, area, tenantName, roles, banner, switcher, rail, pi
               <span class="os">{area === "control" ? "CONSOLE" : "OS"}</span>
             </a>
             <nav class="primary-pills" aria-label="Primary">
-              {pills.map((x) => <a class={`primary-pill${x.active ? " active" : ""}`} href={x.href} aria-current={x.active ? "page" : undefined}>{x.icon ? <Icon name={x.icon} size={15} /> : null}{x.label}</a>)}
+              {pills.map((x) => <a class={`primary-pill${x.active ? " active" : ""}`} href={x.href} aria-current={x.active ? "page" : undefined}>{x.icon ? <Icon name={x.icon} size={15} /> : null}{x.label}{x.badge ? <span class="pill-count">{x.badge}</span> : null}</a>)}
             </nav>
             <div class="tb-spacer"></div>
             {area === "workspace" ? (
@@ -297,7 +300,16 @@ export const AppShell = ({ p, nav, tenantName, roles, banner, children, switcher
     ...sections.map((s) => ({ href: `/app/workspaces/${slugOf(s)}`, label: s, icon: SECTION_ICON[s] ?? "grid", id: slugOf(s), active: activeSection === s && p.path !== "/app", items: nav.filter((n) => n.section === s) })),
   ] : [];
   const hasReports = nav.some((n) => n.href === "/app/reports");
-  const pills = nav.length > 1 ? [
+  const on = (...prefixes: string[]) => prefixes.some((x) => p.path === x || p.path.startsWith(x + "/"));
+  const portalPills = [
+    { href: "/app", label: "Home", icon: "gauge", active: p.path === "/app" },
+    { href: "/app/requests", label: "Requests", icon: "layers", active: on("/app/requests") },
+    { href: "/app/features", label: "Features", icon: "star", active: on("/app/features", "/app/plan") },
+    { href: "/app/brand", label: "Brand kit", icon: "tag", active: on("/app/brand") },
+    { href: "/app/messages", label: "Messages", icon: "chat", active: on("/app/messages"), badge: p.unread },
+    { href: "/app/guide", label: "Your details", icon: "lock", active: on("/app/guide") },
+  ];
+  const pills = config.brochureMode ? portalPills : nav.length > 1 ? [
     { href: "/app", label: "Dashboard", icon: "gauge", active: p.path === "/app" },
     { href: "/app/workspaces", label: "Workspaces", icon: "grid", active: p.path.startsWith("/app/workspaces") },
     ...(hasReports ? [{ href: "/app/reports", label: "Reports", icon: "chart", active: p.path.startsWith("/app/reports") }] : []),

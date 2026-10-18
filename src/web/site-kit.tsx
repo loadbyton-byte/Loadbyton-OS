@@ -1,6 +1,7 @@
 import type { Child } from "hono/jsx";
 import { Icon } from "./experience.js";
 import { CONTACT, waLink } from "./brand.js";
+import { config } from "../config.js";
 
 const SECTOR_DIR = "/assets/photo/sectors/";
 /** Photograph for one of the eighteen sector packs. `small` is the 800px card crop. */
@@ -49,7 +50,11 @@ export function Section({ tone = "", eyebrow, title, intro, children, id }: { to
   );
 }
 
-export function CtaBand({ title = "Make room for better operations.", body = "Start with a real workspace. Build around your business.", primary = ["Create my free workspace", "/start"] as [string, string] }: { title?: Child; body?: Child; primary?: [string, string] }) {
+export function CtaBand({ title, body, primary }: { title?: Child; body?: Child; primary?: [string, string] }) {
+  // brochure mode sells a customised build, not a self-serve workspace
+  title ??= config.brochureMode ? <>Tell us what<br />to build.</> : "Make room for better operations.";
+  body ??= config.brochureMode ? `Register once and send your brand. We customise a pack to your company and deliver it within ${config.deliveryHours} hours.` : "Start with a real workspace. Build around your business.";
+  primary ??= config.brochureMode ? ["Register your requirement", "/start"] : ["Create my free workspace", "/start"];
   return (
     <section class="closing-cta">
       <div class="wrap" data-reveal>
