@@ -13,13 +13,15 @@
     "license": "licenses/Project-Loadbyton-MIT.txt"
   },
   "approval": {
-    "status": "pending_owner_approval",
-    "approvedBy": null,
-    "approvedAt": null,
+    "status": "owner_decision_recorded",
+    "approvedBy": "Owner (Loadbyton account loadbyton@proton.me), decision given in chat",
+    "approvedAt": "2026-10-18",
     "vectorMasterCreated": true,
     "trademarkClearance": "not_assessed",
     "arabicCopy": "native_review_required",
-    "domainRegistrantProof": "not_verified"
+    "domainRegistrantProof": "not_verified",
+    "decision": "Red BY is the canonical logo variant across loadbyton.com and loadbyton.store; the Master Plan is revised to v1.1.",
+    "scope": "logo variant and brand-system direction only; the remaining approval-checklist items stay open"
   },
   "palette": {
     "navy": "#0F2B3D",
@@ -44,7 +46,16 @@
     "packageVersion": "5.3.0",
     "license": "SIL Open Font License 1.1"
   },
-  "products": ["Freight", "Transport", "Warehouse", "Fulfilment", "Delivery", "Customs", "Finance", "Intelligence"],
+  "products": [
+    "Freight",
+    "Transport",
+    "Warehouse",
+    "Fulfilment",
+    "Delivery",
+    "Customs",
+    "Finance",
+    "Intelligence"
+  ],
   "contact": {
     "name": "[Your name]",
     "role": "[Your role]",
