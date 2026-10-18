@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 vi.hoisted(() => {
-  process.env.ECOSYSTEM_SHARED_SECRET = "test-ecosystem-secret";
+  process.env.ECOSYSTEM_SHARED_SECRET = "test-ecosystem-secret-0123456789abcdef";
   process.env.COM_BASE_URL = "https://com.example.test";
   process.env.OIDC_CLIENT_ID = "store";
   process.env.OIDC_CLIENT_SECRET = "store-client-secret";
@@ -16,7 +16,7 @@ import { currentPlans } from "../src/platform/catalog.js";
 import { oidcHttp, resetOidcCache } from "../src/platform/oidc-client.js";
 import { resetThrottle } from "../src/platform/auth.js";
 
-const SECRET = "test-ecosystem-secret";
+const SECRET = "test-ecosystem-secret-0123456789abcdef";
 const ISSUER = "https://com.example.test/api/oidc";
 let db: Db, app: ReturnType<typeof buildApp>;
 let n = 0;

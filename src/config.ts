@@ -249,6 +249,12 @@ export function validateConfig(c = config, production = isProd) {
     if (!["bearer", "header"].includes(asp.authScheme)) problems.push('EINVOICE_ASP_AUTH must be "bearer" or "header"');
     if (!["json", "xml"].includes(asp.bodyFormat)) problems.push('EINVOICE_ASP_BODY must be "json" or "xml"');
   }
+  const eco = c.ecosystem;
+  if (eco.sharedSecret || eco.comBaseUrl || eco.oidcClientId || eco.oidcClientSecret) {
+    if (eco.sharedSecret.length < 32) problems.push("ECOSYSTEM_SHARED_SECRET must be at least 32 characters when the loadbyton.com link is configured");
+    if (!/^https?:\/\/[^\s/]+$/.test(eco.comBaseUrl) || (production && !eco.comBaseUrl.startsWith("https://"))) problems.push("COM_BASE_URL must be the origin of loadbyton.com (https in production, no path)");
+    if (!!eco.oidcClientId !== !!eco.oidcClientSecret) problems.push("set both OIDC_CLIENT_ID and OIDC_CLIENT_SECRET, or neither");
+  }
   if (production && !/^https:\/\//.test(c.baseUrl)) problems.push("PUBLIC_BASE_URL must be https in production");
   if (production && c.databaseSsl === "no-verify") problems.push("DATABASE_SSL=no-verify is not permitted in production (use require)");
   if (!!c.upstash.url !== !!c.upstash.token) problems.push("set both UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, or neither");

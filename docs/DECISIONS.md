@@ -91,3 +91,14 @@
 | 55 | Document storage location and retention (Oracle Object Storage vs Cloudflare R2; encryption keys; deletion/retention policy; migrating existing files) | `STORAGE_DRIVER=s3` works with either; no migration tool, no retention job (links to #8) |
 | 56 | Mail sender identity and templates (domain, branding, languages, Arabic) | Three plain English templates (invitation, payment received, workspace ready) via Resend |
 | 57 | Webhook/API commercial terms (rate limits per plan, SLA for webhook delivery, key rotation policy) | 120 requests/minute per key, 5 keys per merchant, ~3 h of retries; no per-plan differences |
+
+## Added with the loadbyton.com link
+
+| # | Decision | Where the code is waiting |
+|---|---|---|
+| 50 | Included plans for verified marketplace companies (Starter Included; Enterprise Included while premium is active) | **Built** (migration 078, `src/platform/ecosystem.ts`). Prices, premium terms and the billing entity are decided on loadbyton.com's side; see its `docs/ECOSYSTEM.md` §9 |
+| 51 | Payment grace window before Enterprise Included reverts to Starter | Proposed 14 days, set by loadbyton.com (`ECOSYSTEM_GRACE_DAYS`); the Store only honours the dates it is sent |
+| 52 | Which sectors a company may use under an included plan | Starter Included: one (the sector chosen at activation); Enterprise Included: up to 18. Sector availability is still governed by the readiness gates (every sector is `pilot`); the link does not release a sector |
+| 53 | Whether "Continue with Loadbyton" replaces local sign-in | No: both stay. Existing accounts link by password proof, never by email alone |
+| 54 | Launching the operating application for pilot companies | Activation only means something with `BROCHURE_MODE=false`; not changed here |
+
