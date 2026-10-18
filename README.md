@@ -23,21 +23,27 @@ This is a substantial implementation of the blueprint, **not a claim that the en
 
 ## Brochure mode (default)
 
-LOAD|BY|TON.OS is sold as a **brochure + demo**, not as hosted software with a usage meter:
+LOAD|BY|TON.OS is sold as a **brochure + demo + client portal**, not as hosted software with a usage meter:
 
-1. **See the demo** (`/demo`, `/sectors`) — the working sector packs below. `DEMO_URL` links the live seeded demo.
-2. **Register a requirement** (`/start`) — choose **Free** (one sector, customised) or **Paid** (several sectors, integrations or bespoke workflows, quoted per requirement), pick the sector(s), describe the change and your backend. One step creates the account and the request.
-3. **We customise and deliver within 24 hours** (`DELIVERY_HOURS`) — the clock starts at submission for Free and at the agreed quote for Paid. Staff work the queue at `/admin/requests` (deadline-ordered, overdue flagged), record the agreed quote for Paid, then deliver with an https hand-off link and notes. The console overview (`/admin`) leads with that queue — open, overdue, due within 4 hours, awaiting a quote, delivered this week — and the client list and client page show each client's requests. Checkout, plan and revenue pages (orders, provisioning, catalog, partners, reports) are left out of the menu in this mode because nothing is billed through the platform; the routes remain and the full console returns with `BROCHURE_MODE=false`.
-4. **The client runs it on their own backend.** Their dashboard (`/app`) is only the request tracker: status, countdown, timeline and the hand-off. There is no usage dashboard, metering, plan limits or billing page, so none of that is on our books.
+1. **Learn** — the public site explains the product (`/`, `/how-it-works`), gives each of the 18 sectors a full page (`/sectors/:slug`: what the pack does, stages, documents, roles, what is free, which paid add-ons apply, what the client enters themselves) and shows free vs paid with every add-on price (`/pricing`). `/demo` and `/demo/:slug` are click-through walkthroughs.
+2. **Register** (`/start`) — one form creates the account, the first request (Free = one sector; Paid = several sectors/integrations/bespoke, quoted) and the **brand kit** (name, colours, logo upload or "no logo yet").
+3. **Dedicated dashboard** (`/app`) — a five-step journey, the request clock, "what we provide for your sector", and tabs for Requests, Features, Brand kit, Messages, Your details and Plan & payment.
+4. **24-hour clock** (`DELIVERY_HOURS`) — starts only when everything needed is in: the confirmed brand kit, and for paid work the agreed quote (bespoke) or the paid monthly plan (add-ons). The dashboard says exactly what a request is waiting for.
+5. **Extra features** (`/app/features`) — free features (`src/platform/features.ts`) are simply added; any paid add-on makes the request paid and needs the cheapest monthly plan that covers it. The client pays through the normal checkout (`/app/billing/pay/*`); the verified payment webhook starts the clock (`onOrderPaid`). A plan they already pay for that is high enough covers it. Cancel at period end from `/app/plan`.
+6. **One point of contact** — a message thread per request, visible to client and staff (`/app/messages`, `/admin/requests/:id`), with unread badges, an email that carries no message text, and immutable history.
+7. **Private details stay private** — we never ask for TRN, bank/IBAN, card numbers or passwords. Messages and brand notes containing them are refused (`src/lib/private-data.ts`), and `/app/guide` (`src/platform/private-guide.ts`) teaches where the client enters each one in their own admin panel, with a checklist.
+8. Staff work the queue at `/admin/requests` (deadline-ordered, waiting-on-client flagged, unread flagged), open a request for its brand kit, files and thread, record the quote, and deliver with an https hand-off link and notes.
 
-`BROCHURE_MODE=false` restores the full multi-tenant operating platform described below (the operating plane is untouched, only fenced off). Operating-platform test suites run with it off; `tests/requests.test.ts` covers the brochure flow.
+Brand files are validated by type, magic bytes and size, SVGs with script are refused, ClamAV scans them when configured, and they are served only to the owning client or staff as nosniff, sandboxed responses. `BROCHURE_MODE=false` restores the full multi-tenant operating platform (the operating plane is untouched, only fenced off). Operating-platform suites run with it off; `tests/requests.test.ts`, `tests/portal.test.ts` and `tests/portal-http.test.ts` cover the brochure flow.
+
+Decisions still yours: the monthly plan prices (they reuse the planning prices in the plan catalogue), the wording of the plan cancellation terms, and which add-ons you are ready to sell before their provider acceptance (they are labelled Pilot).
 
 ## Quick start
 
 ```bash
 npm ci
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
-npm test                    # 624 tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
+npm test                    # 651 tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty. Run the demo with BROCHURE_MODE=false so the operating screens open.
                             #   showcase@loadbyton.example — ONE workspace with all eighteen sectors (the six full packs plus the twelve reviewed specialist packs, each with a live customer case) on the Enterprise plan,
                             #     a full team (showcase.{sales,pricing,coordinator,dispatcher,finance,customs,auditor,portal}@…), phone views (showcase.driver1@…, showcase.rider1@…) and build requests at every stage

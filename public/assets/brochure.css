@@ -1,0 +1,24 @@
+/* Public brochure pages: journey, "what we never ask for", sector detail, plan cards. Shared design tokens only. */
+.how-steps{list-style:none;margin:0;padding:0;display:grid;gap:14px;max-width:900px}
+.how-step{display:grid;grid-template-columns:64px minmax(0,1fr);gap:16px;padding:22px 24px;border-radius:var(--r-rec);background:var(--card);border:1px solid var(--line);transition:transform .35s var(--ease),box-shadow .35s,border-color .3s}
+.how-step:hover{transform:translateX(6px);box-shadow:var(--sh-2);border-color:var(--navy-3)}
+.how-step .n{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:var(--navy);color:#fff;font:800 1.15rem var(--f-display)}
+:root[data-theme=dark] .how-step .n{background:var(--signal)}
+.how-step h3{margin:0 0 .25em}.how-step p{margin:0;color:var(--mute)}
+@media (max-width:560px){.how-step{grid-template-columns:44px minmax(0,1fr);padding:16px}.how-step .n{width:38px;height:38px;font-size:1rem}}
+
+.never-ask{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start;padding:clamp(20px,3vw,30px);border-radius:var(--r-rec);background:var(--deepbg);color:#cfe0eb}
+.never-ask h3{color:#fff;margin-top:0}.never-ask p{color:#b7cad8;margin:.6em 0 0}
+.never-ask ul{margin:.4em 0 0;padding-inline-start:1.1em;display:grid;gap:4px;color:#fff}
+.never-ask .ic-tile{background:rgba(255,255,255,.12);color:#fff}
+:root[data-theme=dark] .never-ask{background:var(--navy-2)}
+
+.what-cols .card{height:100%}
+
+.tick-list.big{gap:14px;margin-bottom:18px}.tick-list.big li{font-size:1.02rem;line-height:1.5}
+.stage-flow{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:10px}
+.stage-flow li{display:inline-flex;align-items:center;gap:10px;padding:.55em 1.1em .55em .55em;border-radius:99px;background:var(--card);border:1px solid var(--line);font-weight:600}
+.stage-flow .n{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--navy);color:#fff;font:700 .8rem var(--f-display)}
+:root[data-theme=dark] .stage-flow .n{background:var(--signal)}
+.plan .price{font-size:2rem;font-weight:800}
+.plan ul{padding-inline-start:1.1em}

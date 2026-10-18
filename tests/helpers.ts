@@ -9,6 +9,7 @@ import { createEnquiry } from "../src/ops/crm.js";
 import { createQuote, submitQuote, sendQuote, acceptQuote } from "../src/ops/quotes.js";
 import { buildMockEvent, createOrder, processPaymentEvent } from "../src/platform/billing.js";
 import { processProvisioningQueue } from "../src/platform/provisioning.js";
+import { addBrandAsset, confirmBrandKit, saveBrandKit } from "../src/platform/brand-kit.js";
 
 /** TEST_POSTGRES_URL must point to a disposable test cluster with database-creation permission.
  * Each freshDb gets its own database, so the same acceptance suites can exercise real pooled connections.
@@ -78,4 +79,16 @@ export async function payFor(db: Db, t: { tenantId: string; userId: string }, pl
   const res = await processPaymentEvent(db, "mock", ev);
   await processProvisioningQueue(db);
   return { order, ev, res };
+}
+
+/** A minimal valid PNG: enough for the brand-kit file checks. */
+export const TINY_PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
+
+/** Give a client a confirmed brand kit (name + logo), so their requests have a delivery clock from the moment they are submitted. */
+export async function confirmBrand(db: Db, t: { tenantId: string; userId: string }, name = "Acme Freight LLC") {
+  await db.tenant(t.tenantId, async (c) => {
+    await saveBrandKit(c, t.tenantId, t.userId, { displayName: name, primaryColour: "#0f2b3d" });
+    await addBrandAsset(c, t.tenantId, t.userId, { filename: "logo.png", data: TINY_PNG, kind: "logo" });
+    await confirmBrandKit(c, t.tenantId, t.userId);
+  });
 }

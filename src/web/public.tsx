@@ -12,6 +12,7 @@ import { Badge, Csrf, PublicShell, type Page } from "./ui.js";
 import { provisioningStats } from "../platform/provisioning.js";
 import { config } from "../config.js";
 import { brochurePricing } from "./requests.js";
+import { SectorCards, brochureSectorPage } from "./brochure.js";
 
 export const pub = new Hono<Env>();
 
@@ -26,9 +27,10 @@ const AvailBadge = ({ s }: { s: keyof typeof AVAIL_LABEL }) => <Badge s={s} labe
 pub.get("/", async (c) => {
   const p = pg(c, "Logistics operating platform for UAE logistics companies");
   const plans = await currentPlans(c.get("db"));
+  const sectors = withLiveAvailability(await releasedSectors(c.get("db")));
   return c.html(
     <PublicShell p={p}>
-      <HomeExperience plans={plans} />
+      <HomeExperience plans={plans} sectors={sectors} />
     </PublicShell>,
   );
 });
@@ -62,17 +64,17 @@ pub.get("/enterprise", (c) => c.html(
 
 pub.get("/sectors", async (c) => {
   const SECTORS = withLiveAvailability(await releasedSectors(c.get("db")));
-  const p = pg(c, "Sectors", { description: "18 configurable logistics sector profiles. Combine them in one company account." });
+  const p = pg(c, "Sectors", { description: config.brochureMode ? "All 18 logistics sector packs in detail: what each does, what is free, what runs on a monthly plan." : "18 configurable logistics sector profiles. Combine them in one company account." });
   const fam = (s: (typeof SECTORS)[number]) => s.family;
   return c.html(
     <PublicShell p={p}>
-      <PageHero kicker="SECTORS" photo={PHOTO.port} title={<>Eighteen sector profiles.<br />One company account.</>} lede="Proposed commercial profiles, not an official UAE classification. Combine them while keeping one entity and shared master records." />
+      <PageHero kicker="SECTORS" photo={PHOTO.port} title={config.brochureMode ? <>Eighteen sector packs.<br />Made yours in {config.deliveryHours} hours.</> : <>Eighteen sector profiles.<br />One company account.</>} lede={config.brochureMode ? "Open any pack for what it does, the documents it produces, what we customise for free and what runs on a monthly plan. Proposed commercial profiles, not an official UAE classification." : "Proposed commercial profiles, not an official UAE classification. Combine them while keeping one entity and shared master records."} />
       <Section>
         <div data-filter-group>
           <div class="chips" role="group" aria-label="Filter sectors">
             {[["all", "All"], ["freight", "Freight"], ["movement", "Movement"], ["storage", "Storage"]].map(([k, l], i) => <button class="chip" type="button" data-filter={k} aria-pressed={i === 0 ? "true" : "false"}>{l}</button>)}
           </div>
-          <div class="grid g3">
+          {config.brochureMode ? <SectorCards sectors={SECTORS} /> : <div class="grid g3">
             {SECTORS.map((s) => (
               <a class="sector-card" href={`/sectors/${s.slug}`} data-cat={fam(s)} data-reveal>
                 <span class="sc-photo"><img src={sectorPhoto(s.slug, true)} alt="" width="800" height="450" loading="lazy" decoding="async" /><img class="si" src={`/brand/icons/${s.slug}.svg`} alt="" width="40" height="40" /></span>
@@ -84,16 +86,17 @@ pub.get("/sectors", async (c) => {
                 </span>
               </a>
             ))}
-          </div>
+          </div>}
         </div>
         <p class="mute small prose" style="margin-top:28px">Specialist profiles need subject-matter review: a generic workflow checklist is not certification to handle dangerous goods, pharmaceutical cold chain or bonded inventory.</p>
       </Section>
-      <CtaBand title={<>Not sure which<br />pack fits?</>} body="Tell us what you move and we will point you to the right one." primary={["Find my bundle", "/find-my-bundle"]} />
+      {config.brochureMode ? <CtaBand title={<>Not sure which<br />pack fits?</>} body="Tell us what you move and we will point you to the right one." primary={["See how it works", "/how-it-works"]} /> : <CtaBand title={<>Not sure which<br />pack fits?</>} body="Tell us what you move and we will point you to the right one." primary={["Find my bundle", "/find-my-bundle"]} />}
     </PublicShell>,
   );
 });
 
 pub.get("/sectors/:slug", async (c) => {
+  if (config.brochureMode) return brochureSectorPage(c);
   const s = withLiveAvailability(await releasedSectors(c.get("db"))).find((x) => x.slug === c.req.param("slug"));
   if (!s) throw new HttpError(404, "Sector not found");
   const rec = recommendBundle([s.slug]);
@@ -143,6 +146,7 @@ pub.get("/products", (c) => {
 });
 
 pub.get("/find-my-bundle", async (c) => {
+  if (config.brochureMode) return c.redirect("/sectors", 302);   // plans and bundles are the operating platform's; the brochure shows add-on prices on /pricing
   const q = new URL(c.req.url).searchParams.getAll("sector");
   const rec = recommendBundle(q);
   const plans = await currentPlans(c.get("db"));

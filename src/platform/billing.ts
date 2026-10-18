@@ -6,6 +6,7 @@ import { ProviderError, enabledProviders, getAdapter, type PaymentEvent } from "
 import { applyPlanEntitlements, previewPlanChange } from "./entitlements.js";
 import { currentPlans, type PlanVersion } from "./catalog.js";
 import { accrueCommission, reverseCommission } from "./partners.js";
+import { onOrderPaid } from "./requests.js";
 
 export interface OrderLine { label: string; amount_minor: number; kind: "setup" | "subscription" }
 export function paymentQuote(total:number,currency:string,provider:string) {
@@ -180,6 +181,7 @@ export async function processPaymentEvent(db: Db, provider: string, ev: PaymentE
          scheduled_plan_version_id=NULL, cancel_at_period_end=false, grace_until=NULL, updated_at=now()
        WHERE tenant_id=$1`, [o.tenant_id, plan.id]);
     await applyPlanEntitlements(c, o.tenant_id, plan, `order:${o.id}`);
+    await onOrderPaid(c, { id: o.id, reference: o.reference }, plan.name);   // add-on requests waiting on this payment can now start their delivery window
 
     // minimum setup information: a legal entity name. Clock for the activation target starts when this is met.
     const ent = (await c.query<any>(`SELECT legal_name FROM entities WHERE tenant_id=$1 ORDER BY created_at LIMIT 1`, [o.tenant_id])).rows[0];

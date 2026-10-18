@@ -67,6 +67,8 @@ import { warehousePolicy } from "./web/warehouse-policy.js";
 import { deliveryFinance } from "./web/delivery-finance.js";
 import { documentDrafts } from "./web/document-drafts.js";
 import { requests } from "./web/requests.js";
+import { portal } from "./web/portal.js";
+import { brochure } from "./web/brochure.js";
 import { sectorDemo } from "./web/sector-demo.js";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -129,6 +131,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
     return c.redirect(/^\/(?!\/)[^\\\r\n]*$/.test(next) ? next : "/");
   });
 
+  app.route("/", brochure);
   app.route("/", pub);
   app.route("/", marketing);
   app.route("/", chat);
@@ -192,6 +195,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
   app.route("/", documentDrafts);
   app.route("/", workspace);
   app.route("/", sectorDemo);
+  app.route("/", portal);
   app.route("/", requests);
 
   const errorPage = (c: any, status: number, title: string, message: string) =>
