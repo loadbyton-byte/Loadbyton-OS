@@ -22,6 +22,15 @@ const KNOWN_PROVIDERS = ["mock", "stripe", "razorpay"];
  * BROCHURE_MODE=false restores the full multi-tenant operating platform. */
 const brochureMode = env.BROCHURE_MODE === undefined ? true : flag("BROCHURE_MODE");
 
+/** Link with loadbyton.com: signed entitlement events in, "Continue with Loadbyton" sign-in out. Everything stays off until configured. */
+const ecosystem = {
+  sharedSecret: text("ECOSYSTEM_SHARED_SECRET"),
+  comBaseUrl: text("COM_BASE_URL").replace(/\/$/, ""),
+  oidcClientId: text("OIDC_CLIENT_ID"),
+  oidcClientSecret: text("OIDC_CLIENT_SECRET"),
+  oidcIssuer: (text("OIDC_ISSUER") || (text("COM_BASE_URL") ? `${text("COM_BASE_URL").replace(/\/$/, "")}/api/oidc` : "")).replace(/\/$/, ""),
+};
+
 export const config = {
   isProd,
   brochureMode,
@@ -32,6 +41,7 @@ export const config = {
   port: Number(env.PORT ?? 3000),
   baseUrl: env.PUBLIC_BASE_URL ?? "http://localhost:3000",
   rootDomain: (env.ROOT_DOMAIN ?? "").toLowerCase(),
+  ecosystem,
 
   // ── database (PGlite when empty; Neon / Supabase / any PostgreSQL otherwise)
   databaseUrl: env.DATABASE_URL ?? "",

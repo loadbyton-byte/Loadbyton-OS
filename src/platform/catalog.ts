@@ -118,8 +118,9 @@ export interface PlanVersion {
 
 /** Latest published version per plan, in tariff order. */
 export async function currentPlans(c: Conn): Promise<PlanVersion[]> {
+  // Plans handed out through loadbyton.com (…_included) are never offered for sale, so they are not part of the tariff.
   const r = await c.query<PlanVersion>(
-    `SELECT DISTINCT ON (plan_code) * FROM plan_versions ORDER BY plan_code, version DESC`);
+    `SELECT DISTINCT ON (plan_code) * FROM plan_versions WHERE plan_code = ANY($1::text[]) ORDER BY plan_code, version DESC`, [PLAN_SEEDS.map((p) => p.code)]);
   const order = PLAN_SEEDS.map((p) => p.code);
   return r.rows.sort((a, b) => order.indexOf(a.plan_code) - order.indexOf(b.plan_code));
 }

@@ -4,7 +4,7 @@ import type { Db } from "../db/client.js";
 const beats = new Map<string, { at: number; ok: boolean }>();
 export const markWorker = (name: string, ok = true, at = Date.now()) => beats.set(name, { at, ok });
 export const resetWorkers = () => beats.clear();
-export const WORKERS = { provisioning: 5_000, outbox: 5_000, subscriptions: 60_000, storage: 60_000, ledger: 300_000, feeds: 300_000, orders: 300_000, einvoice: 60_000, privacy: 3_600_000 } as const;
+export const WORKERS = { provisioning: 5_000, outbox: 5_000, subscriptions: 60_000, storage: 60_000, ledger: 300_000, feeds: 300_000, orders: 300_000, einvoice: 60_000, privacy: 3_600_000, ecosystem: 900_000 } as const;
 
 /** Healthy when every expected worker ran successfully within 3 × its interval (and has run at least once after the start-up grace). */
 export function workersStatus(expected: Record<string, number> = WORKERS, now = Date.now(), startedAt = processStart, graceMs = 60_000) {

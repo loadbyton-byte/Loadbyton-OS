@@ -17,6 +17,7 @@ import {acquireLease,releaseLease} from './worker-lease.js';
 import {sendBrandReminders} from './requests.js';
 import {pullDueOrders} from '../ops/order-pull.js';
 import {pollSubmittedDocuments,processEInvoiceRetries} from '../ops/einvoice-sync.js';
+import {expireLapsedGrants,reconcileFromCom} from './ecosystem.js';
 
 export function startWorkers(db:Db,metrics:RuntimeMetrics) {
  const handlers={...defaultHandlers,...accountingHandlers(db),...mailHandlers(db),...inboxHandlers(db),...deliveryNotifyHandlers(db),...kycSmsHandlers()};
@@ -31,6 +32,7 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   ['orders',300000,async()=>{const r=await pullDueOrders(db);if(r.failed)throw new Error('Order pull review needed');}],
   ['einvoice',60000,async()=>{const r=await processEInvoiceRetries(db);if(r.failed)throw new Error('E-invoice retry review needed');await pollSubmittedDocuments(db);}],
   ['privacy',3600000,async()=>{const r=await processDataMinimisation(db);if(r.failed)throw new Error('Data minimisation review needed');}],
+  ['ecosystem',900000,async()=>{await expireLapsedGrants(db);await reconcileFromCom(db);}],
  ] as const) {
   const run=()=>{
    if(active.has(name))return;active.add(name);
@@ -40,5 +42,5 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   run(); // Readiness must reflect real startup work, including the slow maintenance loops.
   timers.push(setInterval(run,interval));
  }
- return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','reminders','ledger','feeds','orders','einvoice','privacy'].map((n)=>releaseLease(db,n)));};
+ return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','reminders','ledger','feeds','orders','einvoice','privacy','ecosystem'].map((n)=>releaseLease(db,n)));};
 }

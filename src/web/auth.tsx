@@ -17,6 +17,7 @@ import { SESSION_COOKIE, arr, clearSessionCookie, clientIp, formBody, safeNext, 
 import { AuthFrame, Icon } from "./experience.js";
 import { requestPasswordRecovery, recoverPassword } from '../platform/password-recovery.js';
 import { Csrf, PublicShell, type Page } from "./ui.js";
+import { oidcConfigured } from "../platform/oidc-client.js";
 import { brochureStartPage, fileFromForm, parseBrand, parseRequest } from "./requests.js";
 import { addBrandAsset, checkAssetFile, checkBrandInput, confirmBrandKit, saveBrandKit } from "../platform/brand-kit.js";
 import { checkNewRequest, createRequest } from "../platform/requests.js";
@@ -162,6 +163,7 @@ auth.get("/login", (c) => {
           <p class="small right"><a href="/forgot-password">Forgot password?</a></p>
           <button class="btn red auth-submit" type="submit">Sign in</button>
         </form>
+        {oidcConfigured() ? <p style="margin-top:14px"><a class="btn ghost" href={`/auth/loadbyton${next ? `?next=${encodeURIComponent(next)}` : ""}`}>Continue with Loadbyton</a></p> : null}
         <p class="small" style="margin-top:14px">New here? <a href="/start">Start free</a>.</p>
       </AuthFrame>
     </PublicShell>,
