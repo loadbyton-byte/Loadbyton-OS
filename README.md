@@ -36,6 +36,8 @@ LOAD|BY|TON.OS is sold as a **brochure + demo + client portal**, not as hosted s
 
 Brand files are validated by type, magic bytes and size, SVGs with script are refused, ClamAV scans them when configured, and they are served only to the owning client or staff as nosniff, sandboxed responses. `BROCHURE_MODE=false` restores the full multi-tenant operating platform (the operating plane is untouched, only fenced off). Operating-platform suites run with it off; `tests/requests.test.ts`, `tests/portal.test.ts` and `tests/portal-http.test.ts` cover the brochure flow.
 
+Staff can switch add-ons off or move them between plans at `/admin/features`, export a client's brand theme from the request page, and get reminders/status emails through the outbox. Code map: [`docs/CLIENT_PORTAL.md`](docs/CLIENT_PORTAL.md).
+
 Decisions still yours: the monthly plan prices (they reuse the planning prices in the plan catalogue), the wording of the plan cancellation terms, and which add-ons you are ready to sell before their provider acceptance (they are labelled Pilot).
 
 ## Quick start
@@ -43,7 +45,7 @@ Decisions still yours: the monthly plan prices (they reuse the planning prices i
 ```bash
 npm ci
 npm run dev                 # http://localhost:3000  (embedded Postgres in ./data/pg; PAYMENT_PROVIDER=mock)
-npm test                    # 651 tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
+npm test                    # 657 tests: isolation, payments, provisioning, quoting, finance, transport, offline sync, fulfilment & warehouse stock integrity, delivery/COD cash integrity, HTTP boundary
 npm run seed-demo           # SEPARATE demo DB only — real workspaces always start empty. Run the demo with BROCHURE_MODE=false so the operating screens open.
                             #   showcase@loadbyton.example — ONE workspace with all eighteen sectors (the six full packs plus the twelve reviewed specialist packs, each with a live customer case) on the Enterprise plan,
                             #     a full team (showcase.{sales,pricing,coordinator,dispatcher,finance,customs,auditor,portal}@…), phone views (showcase.driver1@…, showcase.rider1@…) and build requests at every stage

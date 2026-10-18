@@ -69,6 +69,7 @@ import { documentDrafts } from "./web/document-drafts.js";
 import { requests } from "./web/requests.js";
 import { portal } from "./web/portal.js";
 import { brochure } from "./web/brochure.js";
+import { ensureFeatureSettings } from "./platform/feature-settings.js";
 import { sectorDemo } from "./web/sector-demo.js";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -131,6 +132,7 @@ export function buildApp(db: Db, options: { metrics?: RuntimeMetrics; metricsTok
     return c.redirect(/^\/(?!\/)[^\\\r\n]*$/.test(next) ? next : "/");
   });
 
+  app.use("*", async (c, next) => { if (/^\/(app|pricing|sectors|how-it-works|admin)/.test(c.req.path)) await ensureFeatureSettings(db); await next(); });
   app.route("/", brochure);
   app.route("/", pub);
   app.route("/", marketing);

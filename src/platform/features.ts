@@ -18,6 +18,8 @@ export interface Feature {
   sectors?: string[];
   /** what the client brings so we can build it */
   youProvide?: string;
+  /** staff switched it off: not offered to new requests (existing requests keep it) */
+  disabled?: boolean;
 }
 
 export const FEATURES: Feature[] = [
@@ -47,10 +49,21 @@ export const FEATURES: Feature[] = [
 
 export const featureByCode = (code: string) => FEATURES.find((f) => f.code === code);
 
+const DEFAULT_PLAN = new Map(FEATURES.map((f) => [f.code, f.minPlan]));
+/** Apply staff overrides (feature_settings rows) to the catalogue. Features without a row go back to their built-in default. */
+export function applyFeatureSettings(rows: { code: string; enabled: boolean; min_plan: PaidPlan | null }[]) {
+  const by = new Map(rows.map((r) => [r.code, r]));
+  for (const f of FEATURES) {
+    const r = by.get(f.code);
+    f.disabled = r ? !r.enabled : false;
+    if (f.tier === "paid") f.minPlan = r?.min_plan ?? DEFAULT_PLAN.get(f.code);
+  }
+}
+
 /** Everything a client with these sectors may ask for: all free features, plus the paid ones that apply to at least one of their sectors. */
 export function featuresForSectors(slugs: string[]): Feature[] {
   const mine = new Set(slugs);
-  return FEATURES.filter((f) => !f.sectors || !mine.size || f.sectors.some((s) => mine.has(s)));
+  return FEATURES.filter((f) => !f.disabled && (!f.sectors || !mine.size || f.sectors.some((s) => mine.has(s))));
 }
 
 const ORDER: PaidPlan[] = ["starter", "business", "operations"];

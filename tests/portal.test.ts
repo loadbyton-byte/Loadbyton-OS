@@ -260,3 +260,67 @@ describe("messages", () => {
     expect(JSON.stringify(row.payload)).not.toMatch(/pricing/);
   });
 });
+
+describe("catalogue control, reminders and refunds", () => {
+  it("lets staff switch an add-on off or move it to another plan, for new requests only", async () => {
+    const { saveFeatureSetting, ensureFeatureSettings } = await import("../src/platform/feature-settings.js");
+    const sam = await staffOf("support");
+    try {
+      await saveFeatureSetting(db, sam, "einvoice", { enabled: false, minPlan: "business" });
+      expect(featuresForSectors(["freight-forwarding"]).map((f) => f.code)).not.toContain("einvoice");
+      expect(() => checkFeatureChoice(["freight-forwarding"], ["einvoice"], bad)).toThrow(/doesn't apply/);
+      await saveFeatureSetting(db, sam, "accounting-bridge", { enabled: true, minPlan: "operations" });
+      expect(planForFeatures(["accounting-bridge"])?.plan).toBe("operations");
+      await expect(saveFeatureSetting(db, sam, "accounting-bridge", { enabled: true, minPlan: "gold" })).rejects.toThrow(/Choose the monthly plan/);
+      await expect(saveFeatureSetting(db, sam, "field-labels", { enabled: true, minPlan: "starter" })).rejects.toThrow(/free feature has no plan/);
+      await expect(saveFeatureSetting(db, { ...sam, role: "viewer" }, "einvoice", { enabled: true, minPlan: "business" })).rejects.toThrow(/needs one of/);
+      await expect(saveFeatureSetting(db, sam, "nope", { enabled: true, minPlan: "business" })).rejects.toThrow(/not found/i);
+    } finally {
+      await saveFeatureSetting(db, sam, "einvoice", { enabled: true, minPlan: "business" });
+      await saveFeatureSetting(db, sam, "accounting-bridge", { enabled: true, minPlan: "starter" });
+      await ensureFeatureSettings(db, true);
+    }
+    expect(planForFeatures(["accounting-bridge"])?.plan).toBe("starter");
+  });
+
+  it("reminds a client about a missing brand kit once per window, and never after it is in", async () => {
+    const { sendBrandReminders } = await import("../src/platform/requests.js");
+    const t = await newTenant(db), t2 = await newTenant(db);
+    const old = new Date(Date.now() - 30 * 3600_000);
+    const r = await db.tenant(t.tenantId, (c) => createRequest(c, t.tenantId, t.userId, good, old));
+    await confirmBrand(db, t2);
+    const r2 = await db.tenant(t2.tenantId, (c) => createRequest(c, t2.tenantId, t2.userId, good, old));
+    await sendBrandReminders(db);
+    await sendBrandReminders(db);                                  // idempotent inside the same window
+    const rows = (await db.query<any>(`SELECT key FROM outbox WHERE key LIKE 'brand-reminder:%'`)).rows.map((x) => x.key);
+    expect(rows.filter((k: string) => k.includes(r.id))).toHaveLength(1);
+    expect(rows.some((k: string) => k.includes(r2.id))).toBe(false);
+    await sendBrandReminders(db, new Date(Date.now() + 4 * 86400_000));   // a later window sends one more
+    expect((await db.query<any>(`SELECT count(*)::int n FROM outbox WHERE key LIKE $1`, [`brand-reminder:${r.id}:%`])).rows[0].n).toBe(2);
+  });
+
+  it("emails the client on a status change and records a refund on the request", async () => {
+    const t = await newTenant(db), eng = await staffOf("engineer");
+    await confirmBrand(db, t);
+    const { request } = await db.tenant(t.tenantId, (c) => createFeatureRequest(c, t.tenantId, t.userId, { sectors: ["freight-forwarding"], features: ["einvoice"] }));
+    const o = await payForRequest(db, t.tenantId, t.userId, request.id, "mock");
+    const order = (await db.query<any>(`SELECT * FROM orders WHERE id=$1`, [o.orderId])).rows[0];
+    await processPaymentEvent(db, "mock", buildMockEvent(order));
+    await staffUpdateRequest(db, eng, request.id, { status: "delivered", deliveryNotes: "Done. See the guide." });
+    expect((await db.query<any>(`SELECT payload FROM outbox WHERE key LIKE $1`, [`request-status:${request.id}:delivered:%`])).rows[0].payload).toMatchObject({ template: "request_status", status: "delivered" });
+    await processPaymentEvent(db, "mock", { ...buildMockEvent(order, "payment.refunded"), event_id: `refund-${Date.now()}` });
+    const { events } = await db.tenant(t.tenantId, (c) => requestDetail(c, request.id));
+    expect(events.map((e: any) => e.note).join(" | ")).toMatch(/payment behind this request was refunded/);
+  });
+
+  it("turns a brand kit into a theme without letting a name escape the CSS", async () => {
+    const { brandTheme } = await import("../src/platform/brand-kit.js");
+    const t = brandTheme({ display_name: 'Acme"; } body{display:none} /*', tagline: null, website: null, primary_colour: "#0F2B3D", secondary_colour: null, doc_footer: "Dubai\nUAE" }, [{ kind: "logo", filename: "logo.png" }]);
+    expect(t.css).toContain('--brand-name:"Acme bodydisplaynone";');
+    expect(t.css).not.toContain("*/ ");
+    expect(t.css.match(/[{}]/g)).toHaveLength(2);
+    expect(t.css).toContain("--brand-primary:#0F2B3D");
+    expect(t.css.split("\n").filter((l) => l.includes("--brand-footer"))).toHaveLength(1);
+    expect(t.json.files).toEqual([{ kind: "logo", filename: "logo.png" }]);
+  });
+});

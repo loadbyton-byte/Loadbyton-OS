@@ -98,7 +98,10 @@ admin.get("/admin/tenants/:id", async (c) => {
           ? <section class="card"><h3>Build requests</h3>
               <Table head={["Request", "Category", "Status", "Clock"]} empty={d.requests.length ? undefined : "No requests."}>
                 {d.requests.map((r: any) => { const k = clockOf(r); return <tr><td>{r.title}<div class="small mute">{r.sectors.map((x: string) => sectorBySlug(x)?.name ?? x).join(", ")}</div></td><td>{REQUEST_CATEGORIES[r.category as keyof typeof REQUEST_CATEGORIES]?.label ?? r.category}</td><td>{STATUS_LABEL[r.status as keyof typeof STATUS_LABEL] ?? r.status}</td><td class="small">{k.open ? (k.awaitingQuote ? "Awaiting quote" : k.late ? "Overdue" : "On time") : (k.late ? "Delivered late" : "Closed")}</td></tr>; })}
-              </Table><p class="small"><a href="/admin/requests?scope=all">Work these in the queue</a></p></section>
+              </Table><p class="small"><a href="/admin/requests?scope=all">Work these in the queue</a></p>
+              <h3 style="margin-top:18px">Plan and payments</h3>
+              <p>{d.sub?.plan ?? "No plan"} · <Badge s={d.sub?.status ?? "cancelled"} /> {d.sub?.plan_code && d.sub.plan_code !== "free" && d.sub?.period_end ? `· ${d.sub.cancel_at_period_end ? "ends" : "renews"} ${formatDate(d.sub.period_end)}` : ""}</p>
+              <Table head={["Reference", "Date", ["Total", "num"], "Status"]} empty={d.orders.length ? undefined : "No payments."}>{d.orders.map((o: any) => <tr><td>{o.reference}</td><td class="small">{formatDate(o.created_at)}</td><td class="num"><Money v={o.total_minor} /></td><td><Badge s={o.status} /></td></tr>)}</Table></section>
           : <section class="card"><h3>Subscription</h3><p>{d.sub?.plan} · <Badge s={d.sub?.status ?? "cancelled"} /> {d.sub?.period_end ? `· renews ${formatDate(d.sub.period_end)}` : "· free forever"}</p>
           <h3>Entitlements (effective)</h3><ul>{d.entitlements.map((e: any) => <li>{e.key}: <strong>{e.int_limit}</strong> <span class="small mute">({e.source})</span></li>)}</ul>
           <h3>Usage</h3><ul>{d.usage.map((u: any) => <li>{u.key} {u.period}: {u.used}</li>)}</ul></section>}

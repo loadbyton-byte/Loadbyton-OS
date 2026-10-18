@@ -6,7 +6,7 @@ import { ProviderError, enabledProviders, getAdapter, type PaymentEvent } from "
 import { applyPlanEntitlements, previewPlanChange } from "./entitlements.js";
 import { currentPlans, type PlanVersion } from "./catalog.js";
 import { accrueCommission, reverseCommission } from "./partners.js";
-import { onOrderPaid } from "./requests.js";
+import { onOrderPaid, onOrderRefunded } from "./requests.js";
 
 export interface OrderLine { label: string; amount_minor: number; kind: "setup" | "subscription" }
 export function paymentQuote(total:number,currency:string,provider:string) {
@@ -161,6 +161,7 @@ export async function processPaymentEvent(db: Db, provider: string, ev: PaymentE
         [o.tenant_id, `refund:${o.id}`, JSON.stringify({ orderId: o.id, note: "Refund received — decide entitlement treatment." })]);
       await audit(c, o.tenant_id, { kind: "system" }, "order.refunded", "order", o.id);
       await reverseCommission(c, o.id);
+      await onOrderRefunded(c, o.id);
       return finish("applied", undefined, o.id);
     }
 

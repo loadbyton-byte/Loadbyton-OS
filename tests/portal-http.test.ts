@@ -42,10 +42,10 @@ const stamp = () => `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 async function register(over: Record<string, string> = {}, logo = true) {
   const b = new Browser(), id = stamp();
   const f = new FormData();
-  for (const [k, v] of Object.entries({ ...base, company: `Portal Co ${id}`, email: `portal-${id}@example.com`, ...over })) f.append(k, v);
+  for (const [k, v] of Object.entries({ ...base, company: `Portal Co ${id}`, email: `portal-${id}@d${id}.example.com`, ...over })) f.append(k, v);
   if (logo) f.append("logo", new Blob([TINY_PNG], { type: "image/png" }), "logo.png");
   const res = await b.postForm("/start", f);
-  return { b, res, id, email: `portal-${id}@example.com` };
+  return { b, res, id, email: `portal-${id}@d${id}.example.com` };
 }
 async function staffBrowser(role = "support") {
   const email = `portal-staff-${stamp()}@lbt.test`;
@@ -258,5 +258,40 @@ describe("extra features and the monthly plan", () => {
     const { b } = await register();
     expect(loc(await b.post("/app/features", { sector: "freight-forwarding", feature: "storefront-connectors" }))).toMatch(/err=.*doesn't apply/);
     expect(loc(await b.post("/app/features", { sector: "freight-forwarding" }))).toMatch(/err=.*at least one feature/);
+  });
+});
+
+describe("the staff side of the portal", () => {
+  it("shows the add-on catalogue, saves a change, and exports a brand theme", async () => {
+    const { b, email } = await register();
+    const id = await requestIdOf("Freight pack", email);
+    const ops = await staffBrowser("engineer");
+    const cat = await ops.text("/admin/features");
+    expect(cat).toContain("Add-on catalogue");
+    expect(cat).toContain("Zoho Books invoice bridge");
+    const save = await ops.post("/admin/features/einvoice", { min_plan: "operations", enabled: "yes" });
+    expect(loc(save)).toContain("ok=Saved");
+    expect(await b.text("/pricing")).toMatch(/E-invoicing readiness[\s\S]{0,80}Operations plan/);
+    await ops.post("/admin/features/einvoice", { min_plan: "business", enabled: "yes" });
+    expect(loc(await ops.post("/admin/features/einvoice", { min_plan: "gold", enabled: "yes" }))).toMatch(/err=.*monthly plan/);
+    const css = await ops.get(`/admin/requests/${id}/brand-theme.css`);
+    expect(css.status).toBe(200);
+    expect(css.headers.get("content-disposition")).toContain("attachment");
+    expect(await css.text()).toContain("--brand-name");
+    expect((await ops.get(`/admin/requests/${id}/brand-theme.json`)).headers.get("content-type")).toContain("application/json");
+    expect((await b.get(`/admin/requests/${id}/brand-theme.css`)).status).toBeGreaterThanOrEqual(300);
+    const tenant = (await db.query<any>(`SELECT tenant_id FROM service_requests WHERE id=$1`, [id])).rows[0].tenant_id;
+    const page = await ops.text(`/admin/tenants/${tenant}`);
+    expect(page).toContain("Plan and payments");
+    expect(page).toContain("Freight pack");
+  });
+
+  it("states what is stored and refuses a flood of messages", async () => {
+    expect(await new Browser().text("/legal/privacy")).toContain("Brand files and messages");
+    const { b, email } = await register();
+    const id = await requestIdOf("Freight pack", email);
+    let last = "";
+    for (let i = 0; i < 42; i++) last = loc(await b.post(`/app/requests/${id}/messages`, { body: `note ${i}` }));
+    expect(last).toMatch(/err=.*a lot of messages/);
   });
 });

@@ -82,6 +82,28 @@ export async function onOrderPaid(c: Conn, order: { id: string; reference: strin
   return r.rows.length;
 }
 
+/** A paid order was refunded: tell the request's timeline, so staff and the client see why the plan no longer backs it. */
+export async function onOrderRefunded(c: Conn, orderId: string) {
+  const r = await c.query<{ id: string; tenant_id: string; status: RequestStatus }>(`SELECT id, tenant_id, status FROM service_requests WHERE order_id=$1`, [orderId]);
+  for (const row of r.rows)
+    await c.query(`INSERT INTO service_request_events(tenant_id,request_id,status,note,actor_kind,at) VALUES ($1,$2,$3,'The monthly plan payment behind this request was refunded. Our team will contact you about what happens next.','system',clock_timestamp())`, [row.tenant_id, row.id, row.status]);
+  return r.rows.length;
+}
+
+/** Nudge clients whose request is stuck waiting for a brand kit: after a day, then every three days, at most four times. Email carries no private data. */
+export async function sendBrandReminders(db: Db, now = new Date()) {
+  const due = (await db.query<{ id: string; tenant_id: string; n: number }>(
+    `SELECT id, tenant_id, floor(extract(epoch from ($1::timestamptz - created_at))/259200)::int AS n FROM service_requests
+      WHERE status IN ('received','in_build') AND brand_ready_at IS NULL AND created_at < $1::timestamptz - interval '24 hours'`, [now.toISOString()])).rows;
+  let sent = 0;
+  for (const r of due.filter((x) => x.n <= 3)) {
+    const k = await db.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'email',$2,$3) ON CONFLICT (key) DO NOTHING RETURNING id`,
+      [r.tenant_id, `brand-reminder:${r.id}:${r.n}`, JSON.stringify({ template: "brand_reminder", requestId: r.id })]);
+    sent += k.rows.length;
+  }
+  return sent;
+}
+
 /** Store a request from inside the client's own scope. The delivery window starts once the brand kit is in (and, for paid work, the quote or plan payment). */
 export async function createRequest(c: Conn, tenantId: string, userId: string, input: NewRequest, now = new Date()): Promise<ServiceRequest> {
   const v = checkNewRequest(input);
@@ -224,6 +246,8 @@ export async function staffUpdateRequest(db: Db, staff: { userId: string; role: 
     await c.query(`INSERT INTO service_request_events(tenant_id,request_id,status,note,actor_kind,actor_user_id) VALUES ($1,$2,$3,$4,'staff',$5)`,
       [cur.tenant_id, id, status, clean(input.note, 1000) || null, staff.userId]);
     await audit(c, cur.tenant_id, { kind: "platform_staff", userId: staff.userId }, `request.${status}`, "service_request", id, { from: cur.status });
+    await c.query(`INSERT INTO outbox(tenant_id,topic,key,payload) VALUES ($1,'email',$2,$3) ON CONFLICT (key) DO NOTHING`,
+      [cur.tenant_id, `request-status:${id}:${status}:${Date.now()}`, JSON.stringify({ template: "request_status", requestId: id, status })]);
     // Recording the quote is what lets a paid request's window start (if the brand kit is already in).
     if (OPEN.includes(status)) await startReadyClocks(c, `id=$2`, [id]);
   });

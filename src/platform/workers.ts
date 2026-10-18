@@ -14,6 +14,7 @@ import {pullDueFeeds} from '../ops/live-feeds.js';
 import {processDataMinimisation} from '../ops/privacy-retention.js';
 import {kycSmsHandlers} from '../adapters/kyc-sms.js';
 import {acquireLease,releaseLease} from './worker-lease.js';
+import {sendBrandReminders} from './requests.js';
 import {pullDueOrders} from '../ops/order-pull.js';
 import {pollSubmittedDocuments,processEInvoiceRetries} from '../ops/einvoice-sync.js';
 
@@ -24,6 +25,7 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   ['provisioning',5000,()=>processProvisioningQueue(db)],['outbox',5000,()=>drainOutbox(db,handlers)],
   ['storage',60000,async()=>{const result=await processAutomaticStorage(db);if(result.failed)throw new Error('Storage accrual review needed');}],
   ['subscriptions',60000,()=>applyDueSubscriptionChanges(db)],
+  ['reminders',3600000,()=>sendBrandReminders(db)],
   ['ledger',300000,async()=>{const r=await postAllLedgers(db);if(r.failed)throw new Error('Ledger posting review needed');}],
   ['feeds',300000,async()=>{const r=await pullDueFeeds(db);if(r.failed)throw new Error('Statement feed review needed');}],
   ['orders',300000,async()=>{const r=await pullDueOrders(db);if(r.failed)throw new Error('Order pull review needed');}],
@@ -38,5 +40,5 @@ export function startWorkers(db:Db,metrics:RuntimeMetrics) {
   run(); // Readiness must reflect real startup work, including the slow maintenance loops.
   timers.push(setInterval(run,interval));
  }
- return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','ledger','feeds','orders','einvoice','privacy'].map((n)=>releaseLease(db,n)));};
+ return async()=>{timers.forEach(clearInterval);await Promise.allSettled([...running]);await Promise.allSettled(['provisioning','outbox','storage','subscriptions','reminders','ledger','feeds','orders','einvoice','privacy'].map((n)=>releaseLease(db,n)));};
 }
